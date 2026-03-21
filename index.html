@@ -6,167 +6,168 @@
 <meta name="theme-color" content="#0f172a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="&#xC2E0;&#xD638;&#xB4F1; &#xC54C;&#xB9AC;&#xBBF8;">
-<title>&#xC2E0;&#xD638;&#xB4F1; &#xC54C;&#xB9AC;&#xBBF8;</title>
+<meta name="apple-mobile-web-app-title" content="신호등 알리미">
+<title>신호등 알리미</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f9;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
 #app{height:100%;width:100%;position:relative;overflow:hidden}
 
-/* ---- signal icon (CSS only, no emoji) ---- */
 .sig-icon{
-  width:52px;height:52px;flex-shrink:0;
-  border-radius:6px;display:flex;align-items:center;justify-content:center;
-  font-size:28px;font-weight:900;letter-spacing:-1px;
-  transition:background 0.3s,color 0.3s;
+  width:52px;height:52px;flex-shrink:0;border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:26px;font-weight:900;letter-spacing:-1px;transition:background 0.3s,color 0.3s;
 }
 .sig-icon.idle  {background:rgba(255,255,255,0.08);color:#94a3b8}
 .sig-icon.red   {background:#991b1b;color:#fca5a5;box-shadow:0 0 16px rgba(239,68,68,0.5)}
 .sig-icon.green {background:#14532d;color:#86efac;box-shadow:0 0 16px rgba(34,197,94,0.5)}
 
-/* ---- 카메라 전체화면 ---- */
 #cam-section{position:absolute;inset:0;background:#000}
 #video{width:100%;height:100%;object-fit:cover;display:block}
 #detect-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4}
 
-/* ---- 테두리 오버레이 ---- */
-#border-overlay{
-  position:absolute;inset:0;pointer-events:none;z-index:5;
-  box-shadow:inset 0 0 0 0px transparent;
-  transition:box-shadow 0.35s ease;
-}
+#border-overlay{position:absolute;inset:0;pointer-events:none;z-index:5;transition:box-shadow 0.35s ease;}
 #border-overlay.idle  {box-shadow:inset 0 0 0 14px rgba(59,130,246,0.6)}
 #border-overlay.green {box-shadow:inset 0 0 0 22px rgba(34,197,94,0.88)}
 #border-overlay.red   {box-shadow:inset 0 0 0 22px rgba(239,68,68,0.88)}
-#border-overlay::before,#border-overlay::after{
-  content:'';position:absolute;width:44px;height:44px;transition:border-color 0.35s}
+#border-overlay::before,#border-overlay::after{content:'';position:absolute;width:44px;height:44px;transition:border-color 0.35s}
 #border-overlay::before{top:8px;left:8px;border-top:4px solid;border-left:4px solid;border-radius:5px 0 0 0}
 #border-overlay::after{bottom:8px;right:8px;border-bottom:4px solid;border-right:4px solid;border-radius:0 0 5px 0}
 #border-overlay.idle::before,#border-overlay.idle::after  {border-color:rgba(59,130,246,0.85)}
 #border-overlay.green::before,#border-overlay.green::after{border-color:#22c55e}
 #border-overlay.red::before,#border-overlay.red::after    {border-color:#ef4444}
 
-/* ---- 상단 배너 ---- */
+/* 상단 배너 */
 #banner{
   position:absolute;top:0;left:0;right:0;z-index:10;
-  padding:14px 18px 16px;display:flex;align-items:center;gap:14px;
-  background:rgba(15,23,42,0.82);
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  border-bottom:1px solid rgba(255,255,255,0.07);
-  transition:background 0.3s,border-color 0.3s;
+  padding:14px 18px 12px;display:flex;align-items:center;gap:14px;
+  background:rgba(15,23,42,0.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(255,255,255,0.07);transition:background 0.3s,border-color 0.3s;
 }
 #banner.green{background:rgba(20,83,45,0.9);border-color:rgba(34,197,94,0.25)}
 #banner.red  {background:rgba(127,29,29,0.9);border-color:rgba(239,68,68,0.25)}
 #signal-info{flex:1;min-width:0}
 #signal-text{font-size:26px;font-weight:700;line-height:1.15}
-#signal-sub {font-size:13px;color:rgba(255,255,255,0.5);margin-top:2px}
-#countdown{font-size:42px;font-weight:700;color:rgba(255,255,255,0.85);
-  flex-shrink:0;min-width:78px;text-align:right;line-height:1}
+#signal-sub {font-size:13px;color:rgba(255,255,255,0.5);margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+
+/* 소스 뱃지 */
+.src-badge{
+  display:none;align-items:center;gap:4px;
+  font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:0.3px;
+}
+.src-badge.show{display:flex}
+.badge-dot{width:6px;height:6px;border-radius:50%;animation:bpulse 1.2s ease-in-out infinite;}
+@keyframes bpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.7)}}
+#badge-ai {background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#a5b4fc;}
+#badge-ai  .badge-dot{background:#818cf8}
+#badge-api{background:rgba(234,179,8,0.2); border:1px solid rgba(234,179,8,0.45); color:#fde68a;}
+#badge-api .badge-dot{background:#fbbf24}
+
+#countdown{font-size:42px;font-weight:700;color:rgba(255,255,255,0.85);flex-shrink:0;min-width:78px;text-align:right;line-height:1;}
 #countdown.urgent{color:#fbbf24;animation:blink .5s ease-in-out infinite alternate}
 @keyframes blink{from{opacity:1}to{opacity:0.3}}
 
-/* ---- 감지 칩 ---- */
+/* 감지 칩 */
 #detect-chip{
   position:absolute;bottom:78px;left:50%;transform:translateX(-50%);z-index:10;
   background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   color:rgba(255,255,255,0.75);font-size:13px;padding:7px 18px;
   border-radius:24px;white-space:nowrap;border:1px solid rgba(255,255,255,0.1);
-  max-width:90%;text-align:center;
+  max-width:90%;text-align:center;overflow:hidden;text-overflow:ellipsis;
 }
 
-/* ---- 하단 컨트롤 ---- */
+/* 하단 컨트롤 */
 #control-bar{
   position:absolute;bottom:0;left:0;right:0;z-index:10;display:none;
   align-items:center;justify-content:space-around;
   background:rgba(0,0,0,0.75);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  border-top:1px solid rgba(255,255,255,0.07);
-  padding:10px 12px 28px;gap:4px;
+  border-top:1px solid rgba(255,255,255,0.07);padding:10px 8px 28px;gap:2px;
 }
 .ctrl-btn{
   display:flex;flex-direction:column;align-items:center;gap:3px;
   background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.3);
-  font-size:10px;padding:8px 10px;border-radius:10px;min-width:52px;transition:all .15s;
+  font-size:10px;padding:8px 8px;border-radius:10px;min-width:44px;transition:all .15s;
 }
 .ctrl-btn:active{background:rgba(255,255,255,0.08)}
 .ctrl-btn.active{color:#60a5fa}
+.icon-voice,.icon-vib,.icon-count,.icon-scan{width:22px;height:22px;display:flex;align-items:center;justify-content:center;position:relative;}
+.icon-voice::before{content:'';display:block;width:10px;height:13px;border:2px solid currentColor;border-radius:5px;}
+.icon-voice::after{content:'';position:absolute;bottom:-2px;width:14px;height:6px;border:2px solid currentColor;border-top:none;border-radius:0 0 8px 8px;}
+.icon-vib::before{content:'';display:block;width:12px;height:16px;border:2px solid currentColor;border-radius:3px;}
+.icon-count::before{content:'';display:block;width:16px;height:16px;border:2px solid currentColor;border-radius:50%;}
+.icon-count::after{content:'';position:absolute;top:3px;left:50%;width:2px;height:6px;background:currentColor;transform-origin:bottom center;}
+.icon-scan::before{content:'';display:block;width:16px;height:16px;border:2px solid currentColor;border-radius:2px;}
+.icon-api{font-size:15px;line-height:22px;}
+#btn-stop-cam{background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#f87171;font-size:13px;font-weight:600;padding:10px 12px;border-radius:10px;cursor:pointer;}
 
-/* 컨트롤 아이콘: CSS 도형 */
-.icon-voice,.icon-vib,.icon-count,.icon-scan{
-  width:22px;height:22px;display:flex;align-items:center;justify-content:center;
-  position:relative;
+/* API 패널 (카메라 켜진 후) */
+#api-panel{
+  position:absolute;top:0;left:0;right:0;z-index:15;
+  background:rgba(10,14,30,0.97);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  padding:72px 18px 18px;display:none;flex-direction:column;gap:12px;
+  border-bottom:1px solid rgba(234,179,8,0.2);
 }
-.icon-voice::before{
-  content:'';display:block;width:10px;height:13px;
-  border:2px solid currentColor;border-radius:5px;
-}
-.icon-voice::after{
-  content:'';position:absolute;bottom:-2px;
-  width:14px;height:6px;border:2px solid currentColor;
-  border-top:none;border-radius:0 0 8px 8px;
-}
-.icon-vib::before{
-  content:'';display:block;width:12px;height:16px;
-  border:2px solid currentColor;border-radius:3px;
-}
-.icon-count::before{
-  content:'';display:block;width:16px;height:16px;
-  border:2px solid currentColor;border-radius:50%;
-}
-.icon-count::after{
-  content:'';position:absolute;top:3px;left:50%;
-  width:2px;height:6px;background:currentColor;transform-origin:bottom center;
-}
-.icon-scan::before{
-  content:'';display:block;width:16px;height:16px;
-  border:2px solid currentColor;border-radius:2px;
-}
+#api-panel.show{display:flex;}
+#api-panel h3{font-size:15px;font-weight:700;color:#fde68a;}
+.afield{display:flex;flex-direction:column;gap:5px;}
+.afield label{font-size:11px;color:rgba(255,255,255,0.4);}
+.afield input{background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:9px 11px;color:#f1f5f9;font-size:13px;outline:none;}
+.afield input:focus{border-color:rgba(234,179,8,0.5);}
+.afield .hint{font-size:11px;color:rgba(255,255,255,0.28);line-height:1.5;margin-top:2px;}
+.afield a{color:#fde68a;}
+#api-status{font-size:12px;color:rgba(255,255,255,0.38);padding:4px 0;}
+#api-status.ok {color:#86efac;}
+#api-status.err{color:#fca5a5;}
+.apanel-btns{display:flex;gap:8px;}
+.apanel-btns button{flex:1;padding:11px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;}
+#btn-api-save {background:rgba(234,179,8,0.2);border:1px solid rgba(234,179,8,0.4);color:#fde68a;}
+#btn-api-close{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.45);}
 
-#btn-stop-cam{
-  background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
-  color:#f87171;font-size:13px;font-weight:600;padding:10px 16px;border-radius:10px;cursor:pointer;
-}
-
-/* ---- 시작 오버레이 ---- */
+/* 시작 오버레이 */
 #start-overlay{
-  position:absolute;inset:0;z-index:20;background:rgba(10,12,24,0.96);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:16px;padding:32px 28px;text-align:center;
+  position:absolute;inset:0;z-index:20;background:rgba(10,12,24,0.97);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  gap:12px;padding:36px 22px 24px;text-align:center;overflow-y:auto;
 }
-
-/* 신호등 큰 아이콘 (CSS) */
-.big-traffic-light{
-  width:56px;display:flex;flex-direction:column;
-  align-items:center;gap:5px;padding:8px 10px;
-  background:#1e293b;border-radius:10px;border:2px solid #334155;
-}
+.big-traffic-light{width:56px;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 10px;background:#1e293b;border-radius:10px;border:2px solid #334155;}
 .tl-dot{width:20px;height:20px;border-radius:50%;background:#334155}
 .tl-dot.red-on  {background:#ef4444;box-shadow:0 0 10px rgba(239,68,68,0.7)}
 .tl-dot.green-on{background:#22c55e;box-shadow:0 0 10px rgba(34,197,94,0.7)}
-
-#start-overlay h2{font-size:24px;font-weight:700;letter-spacing:-.5px}
-.desc{font-size:15px;color:rgba(255,255,255,0.5);line-height:1.75;max-width:280px}
-.desc .tag-red  {color:rgba(239,68,68,0.9) ;font-weight:600}
+#start-overlay h2{font-size:22px;font-weight:700;letter-spacing:-.5px}
+.desc{font-size:14px;color:rgba(255,255,255,0.5);line-height:1.8;max-width:300px;}
+.desc .tag-red  {color:rgba(239,68,68,0.9);font-weight:600}
 .desc .tag-green{color:rgba(34,197,94,0.9);font-weight:600}
+.desc .tag-api  {color:rgba(234,179,8,0.9);font-weight:600}
 
-#btn-start{
-  background:#2563eb;color:#fff;border:none;border-radius:14px;
-  font-size:18px;font-weight:700;padding:18px 0;cursor:pointer;
-  width:100%;max-width:300px;margin-top:4px;
+/* API 사전설정 박스 */
+#api-setup{
+  width:100%;max-width:320px;
+  background:rgba(30,41,59,0.7);border:1px solid rgba(234,179,8,0.2);border-radius:12px;
+  padding:0;overflow:hidden;
 }
+#api-setup summary{
+  color:#fde68a;font-size:13px;font-weight:700;cursor:pointer;
+  list-style:none;display:flex;align-items:center;gap:6px;padding:12px 16px;
+}
+#api-setup summary::-webkit-details-marker{display:none}
+.api-fields{padding:0 16px 14px;display:flex;flex-direction:column;gap:10px;}
+.api-fields label{font-size:11px;color:rgba(255,255,255,0.4);display:block;margin-bottom:3px;}
+.api-fields input{width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 10px;color:#f1f5f9;font-size:12px;outline:none;}
+.api-fields input:focus{border-color:rgba(234,179,8,0.5);}
+.api-fields .hint{font-size:11px;color:rgba(255,255,255,0.28);line-height:1.5;margin-top:3px;}
+.api-fields a{color:#fde68a;}
+#btn-save-setup{width:100%;margin-top:4px;background:rgba(234,179,8,0.18);border:1px solid rgba(234,179,8,0.35);color:#fde68a;font-size:13px;font-weight:600;padding:10px;border-radius:8px;cursor:pointer;}
+
+#btn-start{background:#2563eb;color:#fff;border:none;border-radius:14px;font-size:18px;font-weight:700;padding:18px 0;cursor:pointer;width:100%;max-width:300px;}
 #btn-start:active{opacity:.85;transform:scale(.98)}
 .test-row{display:flex;gap:10px;width:100%;max-width:300px}
 .test-row button{flex:1;padding:14px 8px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer}
 .btn-red  {background:#dc2626;color:#fff}
 .btn-green{background:#16a34a;color:#fff}
-.hint{font-size:12px;color:rgba(255,255,255,0.25)}
+.hint-bottom{font-size:12px;color:rgba(255,255,255,0.22)}
 
-/* ---- 모델 바 ---- */
-#model-bar{
-  position:absolute;top:0;left:0;right:0;z-index:25;
-  background:rgba(0,0,0,0.85);color:rgba(255,255,255,0.65);font-size:13px;
-  padding:10px;text-align:center;display:none;
-}
+#model-bar{position:absolute;top:0;left:0;right:0;z-index:25;background:rgba(0,0,0,0.85);color:rgba(255,255,255,0.65);font-size:13px;padding:10px;text-align:center;display:none;}
 #model-bar.visible{display:block}
 </style>
 </head>
@@ -177,7 +178,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
     <video id="video" autoplay playsinline muted></video>
     <canvas id="detect-canvas"></canvas>
   </div>
-
   <div id="border-overlay"></div>
 
   <!-- 상단 배너 -->
@@ -185,13 +185,40 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
     <div class="sig-icon idle" id="sig-icon">?</div>
     <div id="signal-info">
       <div id="signal-text">신호등 알리미</div>
-      <div id="signal-sub">카메라를 건너편 신호등으로</div>
+      <div id="signal-sub">
+        <span id="sub-text">카메라를 건너편 신호등으로</span>
+        <span id="badge-ai"  class="src-badge"><span class="badge-dot"></span>AI 분석</span>
+        <span id="badge-api" class="src-badge"><span class="badge-dot"></span>API 실시간</span>
+      </div>
     </div>
     <div id="countdown"></div>
   </div>
 
   <!-- 감지 칩 -->
   <div id="detect-chip">카메라를 시작하세요</div>
+
+  <!-- API 설정 패널 (카메라 켜진 후) -->
+  <div id="api-panel">
+    <h3>⚡ 신호등 API 연동 — 서울시 T-Data</h3>
+    <div class="afield">
+      <label>인증키 (t-data.seoul.go.kr 에서 발급)</label>
+      <input id="panel-key" type="text" placeholder="발급받은 API 인증키">
+      <div class="hint">
+        <a href="https://t-data.seoul.go.kr" target="_blank">t-data.seoul.go.kr</a> 회원가입 →
+        데이터제공 → 신호제어기 잔여시간 정보 서비스 → 활용신청
+      </div>
+    </div>
+    <div class="afield">
+      <label>교차로 ID (건너려는 교차로 코드)</label>
+      <input id="panel-id" type="number" placeholder="예: 1850   (숫자만)">
+      <div class="hint">서울시 C-ITS 교차로 코드 — 모르면 비워두면 전체 첫 결과 사용</div>
+    </div>
+    <div id="api-status">미연결 — 카메라 색상 분석 중</div>
+    <div class="apanel-btns">
+      <button id="btn-api-save"  onclick="saveAndConnect()">저장 &amp; 연결</button>
+      <button id="btn-api-close" onclick="closeApiPanel()">닫기</button>
+    </div>
+  </div>
 
   <!-- 하단 컨트롤 -->
   <div id="control-bar">
@@ -207,6 +234,9 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
     <button class="ctrl-btn active" id="ctrl-scan" onclick="toggleCtrl(this,'scan')">
       <span class="icon-scan"></span><span>스캔존</span>
     </button>
+    <button class="ctrl-btn" id="ctrl-api" onclick="toggleApiPanel()">
+      <span class="icon-api">⚡</span><span>API</span>
+    </button>
     <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
   </div>
 
@@ -219,25 +249,48 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
     </div>
     <h2>보행자 신호등 알리미</h2>
     <p class="desc">
-      카메라를 건너편 신호등 방향으로<br>
-      향하면 자동으로 감지합니다.<br><br>
-      <span class="tag-red">빨간불</span> &mdash; 화면 &bull; 진동 &bull; 음성 알림<br>
-      <span class="tag-green">초록불</span> &mdash; 화면 &bull; 진동 &bull; 음성 알림
+      카메라를 건너편 신호등 방향으로 향하면<br>
+      자동으로 감지합니다.<br><br>
+      <span class="tag-red">빨간불</span> — 화면 · 진동 · 음성<br>
+      <span class="tag-green">초록불</span> — 화면 · 진동 · 음성 · 카운트다운<br><br>
+      <span class="tag-api">⚡ API 연동</span> 시 서울시 실시간 신호 데이터 사용
     </p>
+
+    <!-- API 사전 설정 -->
+    <details id="api-setup">
+      <summary>⚙ 신호등 API 사전 설정 (선택)</summary>
+      <div class="api-fields">
+        <div>
+          <label>T-Data 서울 인증키</label>
+          <input id="setup-key" type="text" placeholder="t-data.seoul.go.kr 에서 발급">
+          <div class="hint">
+            <a href="https://t-data.seoul.go.kr" target="_blank">t-data.seoul.go.kr</a> →
+            데이터제공 → 신호제어기 잔여시간 정보 서비스
+          </div>
+        </div>
+        <div>
+          <label>교차로 ID (서울시 C-ITS 코드)</label>
+          <input id="setup-id" type="number" placeholder="예: 1850  (비워두면 자동)">
+        </div>
+        <button id="btn-save-setup" onclick="saveSetup()">설정 저장</button>
+      </div>
+    </details>
+
     <button id="btn-start" onclick="startCamera()">카메라 시작</button>
     <div class="test-row">
       <button class="btn-red"   onclick="testSignal('red')">빨간불 테스트</button>
       <button class="btn-green" onclick="testSignal('green')">초록불 테스트</button>
     </div>
-    <p class="hint">테스트 버튼으로 알림 방식을 먼저 확인하세요</p>
+    <p class="hint-bottom">테스트 버튼으로 알림 방식을 먼저 확인하세요</p>
   </div>
 
-  <div id="model-bar">AI 모델 로딩 중...</div>
+  <div id="model-bar"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
 <script>
+// ── DOM ──────────────────────────────────────────────────
 var video      = document.getElementById('video');
 var dcv        = document.getElementById('detect-canvas');
 var dctx       = dcv.getContext('2d');
@@ -245,359 +298,466 @@ var banner     = document.getElementById('banner');
 var borderOvl  = document.getElementById('border-overlay');
 var sigIcon    = document.getElementById('sig-icon');
 var sigText    = document.getElementById('signal-text');
-var sigSub     = document.getElementById('signal-sub');
 var cdEl       = document.getElementById('countdown');
 var chipEl     = document.getElementById('detect-chip');
 var modelBar   = document.getElementById('model-bar');
 var controlBar = document.getElementById('control-bar');
 var startOvl   = document.getElementById('start-overlay');
+var apiPanel   = document.getElementById('api-panel');
+var apiStatus  = document.getElementById('api-status');
+var badgeAI    = document.getElementById('badge-ai');
+var badgeAPI   = document.getElementById('badge-api');
 
+// ── 옵션 / 파라미터 ────────────────────────────────────────
 var opts = { voice:true, vib:true, count:true, scan:true };
 
-// 감지 파라미터
-var GRID_COLS      = 4;
-var GRID_ROWS      = 4;
-var SCAN_TOP_RATIO = 0.15;
-var SCAN_BOT_RATIO = 0.75;
-var CONFIRM_FRAMES = 4;
-var MISS_LIMIT     = 20;
-var MIN_SATURATION = 0.42;
-var MIN_VALUE      = 0.38;
-var RED_DOMINANCE  = 1.7;
-var GREEN_DOMINANCE= 1.5;
-var COLOR_RATIO_TH = 0.07;
-var MIN_BRIGHT_PX  = 60;
-var RED_HUE_MAX    = 18;
-var RED_HUE_MIN    = 342;
-var GREEN_HUE_MIN  = 90;
-var GREEN_HUE_MAX  = 160;
+var GRID_COLS=4, GRID_ROWS=4;
+var SCAN_TOP_RATIO=0.10, SCAN_BOT_RATIO=0.80;
+var CONFIRM_FRAMES=5, MISS_LIMIT=25;
+var MIN_SATURATION=0.50, MIN_VALUE=0.45;
+var RED_DOMINANCE=2.2,   RED_HUE_MAX=14,   RED_HUE_MIN=346;
+var GREEN_DOMINANCE=1.3, GREEN_HUE_MIN=85, GREEN_HUE_MAX=165;
+var COLOR_RATIO_TH=0.10, MIN_BRIGHT_PX=80;
 
+// ── 상태 ──────────────────────────────────────────────────
 var stream=null, detector=null, loopId=null;
 var currentSignal='unknown', pendingSignal='unknown';
 var pendingFrames=0, missFrames=0;
 var countdownVal=0, countdownTimer=null;
-var modelReady=false, voiceUnlocked=false;
-var frameCount=0;
+var modelReady=false, voiceUnlocked=false, frameCount=0;
 
-// 안드로이드 음성 unlock
+// ── API 상태 ───────────────────────────────────────────────
+var apiKey    = localStorage.getItem('tdata_key')  || '';
+var itstId    = localStorage.getItem('tdata_id')   || '';
+var apiActive = false;
+var apiTimer  = null;
+var API_MS    = 3000;
+// CORS 프록시 (배포 시 자체 서버 프록시 권장)
+var PROXY     = 'https://corsproxy.io/?url=';
+var API_URL   = 'http://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xSignalPhaseTimingInformation/1.0';
+
+// 저장된 설정 복원
+(function(){
+  if (apiKey) {
+    var sk=document.getElementById('setup-key'), si=document.getElementById('setup-id');
+    if(sk) sk.value=apiKey; if(si) si.value=itstId;
+  }
+})();
+
+// ── 음성 unlock ───────────────────────────────────────────
 document.addEventListener('touchstart', unlockVoice, {once:true});
 document.addEventListener('click',      unlockVoice, {once:true});
-function unlockVoice() {
-  if (voiceUnlocked || !('speechSynthesis' in window)) return;
-  var u = new SpeechSynthesisUtterance('');
-  u.volume = 0;
-  window.speechSynthesis.speak(u);
-  setTimeout(function(){ window.speechSynthesis.cancel(); }, 100);
-  voiceUnlocked = true;
+function unlockVoice(){
+  if(voiceUnlocked||!('speechSynthesis' in window)) return;
+  var u=new SpeechSynthesisUtterance(''); u.volume=0;
+  speechSynthesis.speak(u);
+  setTimeout(function(){ speechSynthesis.cancel(); }, 100);
+  voiceUnlocked=true;
 }
-if ('speechSynthesis' in window) {
-  speechSynthesis.onvoiceschanged = function(){ speechSynthesis.getVoices(); };
+if('speechSynthesis' in window){
+  speechSynthesis.onvoiceschanged=function(){ speechSynthesis.getVoices(); };
   speechSynthesis.getVoices();
 }
 
-// AI 모델 로드
-async function loadModel() {
-  try {
-    modelBar.classList.add('visible');
-    modelBar.textContent = 'AI \ubaa8\ub378 \ub85c\ub529 \uc911...';
-    detector = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-    modelReady = true;
-    modelBar.textContent = 'AI \ubaa8\ub378 \uc900\ube44 \uc644\ub8cc';
-    setTimeout(function(){ modelBar.classList.remove('visible'); }, 2500);
-  } catch(e) {
-    modelReady = false;
-    modelBar.textContent = '\uceec\ub7ec \ubd84\uc11d \ubaa8\ub4dc\ub85c \ub3d9\uc791\ud569\ub2c8\ub2e4';
-    setTimeout(function(){ modelBar.classList.remove('visible'); }, 2500);
+// ── AI 모델 로드 ───────────────────────────────────────────
+async function loadModel(){
+  try{
+    showModelBar('AI 모델 로딩 중...');
+    detector = await cocoSsd.load({ base:'lite_mobilenet_v2' });
+    modelReady=true;
+    showModelBar('AI 모델 준비 완료', 2000);
+  } catch(e){
+    modelReady=false;
+    showModelBar('컬러 분석 모드로 동작합니다', 2000);
   }
+}
+function showModelBar(msg, hideAfter){
+  modelBar.textContent=msg; modelBar.classList.add('visible');
+  if(hideAfter) setTimeout(function(){ modelBar.classList.remove('visible'); }, hideAfter);
 }
 loadModel();
 
-function toggleCtrl(btn, key) {
-  opts[key] = !opts[key];
+// ── 뱃지 표시 ─────────────────────────────────────────────
+function setBadge(src){ // 'none' | 'ai' | 'api'
+  badgeAI.classList.toggle('show',  src==='ai');
+  badgeAPI.classList.toggle('show', src==='api');
+  document.getElementById('ctrl-api').classList.toggle('active', apiActive);
+}
+
+// ── 컨트롤 ────────────────────────────────────────────────
+function toggleCtrl(btn, key){
+  opts[key]=!opts[key];
   btn.classList.toggle('active', opts[key]);
-  if (key === 'scan') dctx.clearRect(0,0,dcv.width,dcv.height);
+  if(key==='scan') dctx.clearRect(0,0,dcv.width,dcv.height);
 }
 
-async function startCamera() {
-  unlockVoice();
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
-      audio:false
-    });
-    video.srcObject = stream;
-    await new Promise(function(r){ video.onloadedmetadata = r; });
-    startOvl.style.display  = 'none';
-    controlBar.style.display = 'flex';
-    borderOvl.className      = 'idle';
-    chipEl.textContent       = '\uc2e0\ud638\ub4f1 \ud0d0\uc0c9 \uc911...';
-    requestAnimationFrame(detectLoop);
-  } catch(e) {
-    alert('\uce74\uba54\ub77c\ub97c \uc0ac\uc6a9\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.\n' + e.message);
+function toggleApiPanel(){
+  if(apiPanel.classList.contains('show')){ closeApiPanel(); return; }
+  document.getElementById('panel-key').value=apiKey;
+  document.getElementById('panel-id').value=itstId;
+  setApiStatus(apiActive
+    ? '연결됨 ✓ — 실시간 신호 수신 중'
+    : '미연결 — 카메라 색상 분석 중', apiActive?'ok':'');
+  apiPanel.classList.add('show');
+}
+function closeApiPanel(){ apiPanel.classList.remove('show'); }
+
+// ── 설정 저장 (시작 화면) ─────────────────────────────────
+function saveSetup(){
+  var k=document.getElementById('setup-key').value.trim();
+  var i=document.getElementById('setup-id').value.trim();
+  if(!k){ alert('인증키를 입력하세요.'); return; }
+  apiKey=k; itstId=i;
+  localStorage.setItem('tdata_key',k);
+  localStorage.setItem('tdata_id', i);
+  alert('저장되었습니다. 카메라 시작 후 자동 연결합니다.');
+}
+
+// ── 저장 & 연결 (패널) ───────────────────────────────────
+async function saveAndConnect(){
+  var k=document.getElementById('panel-key').value.trim();
+  var i=document.getElementById('panel-id').value.trim();
+  if(!k){ setApiStatus('인증키를 입력하세요.','err'); return; }
+  apiKey=k; itstId=i;
+  localStorage.setItem('tdata_key',k);
+  localStorage.setItem('tdata_id', i);
+  setApiStatus('연결 테스트 중...','');
+  var r=await fetchAPI();
+  if(r===null){
+    setApiStatus('연결 실패 — 인증키/교차로ID 확인','err');
+    apiActive=false;
+  } else if(r==='no_data'){
+    setApiStatus('연결 성공 (현재 데이터 없음 — 교차로ID 확인 필요)','ok');
+    apiActive=true; startApiPoll();
+  } else {
+    var info = r.greenSec!==null ? '초록 잔여 '+r.greenSec+'초' : '빨강 (차량 직진 '+r.redSec+'초)';
+    setApiStatus('연결 성공 ✓  현재: '+info,'ok');
+    apiActive=true; startApiPoll();
   }
+  setBadge(apiActive ? 'api' : 'none');
+}
+function setApiStatus(msg, cls){
+  apiStatus.textContent=msg;
+  apiStatus.className='api-status'+(cls?' '+cls:'');
 }
 
-function stopCamera() {
-  if (stream) stream.getTracks().forEach(function(t){ t.stop(); });
-  stream = null;
-  if (loopId) cancelAnimationFrame(loopId);
-  controlBar.style.display = 'none';
-  startOvl.style.display   = 'flex';
-  resetAll();
-  chipEl.textContent = '\uce74\uba54\ub77c\ub97c \uc2dc\uc791\ud558\uc138\uc694';
+// ── T-Data API 호출 ───────────────────────────────────────
+async function fetchAPI(){
+  if(!apiKey) return null;
+  try{
+    var p=new URLSearchParams({ apiKey:apiKey, type:'json', pageNo:1, numOfRows:1 });
+    if(itstId) p.set('itstId', itstId);
+    var url=PROXY+encodeURIComponent(API_URL+'?'+p.toString());
+    var res=await fetch(url, { signal:AbortSignal.timeout(5000) });
+    if(!res.ok) return null;
+    var json=await res.json();
+    // 응답 구조 탐색 (body/items/item/list 등)
+    var items=json.body||json.items||json.item||json.list||json.data||[];
+    if(!Array.isArray(items)) items=items.item||[items];
+    if(items.length===0) return 'no_data';
+    var d=items[0];
+    // 방향별 보행신호 잔여시간(센티초) 최대값
+    var pdKeys=['ntPdsgRmdrCs','stPdsgRmdrCs','etPdsgRmdrCs','wtPdsgRmdrCs',
+                'nePdsgRmdrCs','sePdsgRmdrCs','swPdsgRmdrCs','nwPdsgRmdrCs'];
+    var maxPd=0;
+    pdKeys.forEach(function(k){ var v=parseInt(d[k])||0; if(v>maxPd) maxPd=v; });
+    // 직진신호 잔여시간(센티초) 최대값 — 보행신호가 없을 때 빨간불 판단용
+    var stKeys=['ntStsgRmdrCs','stStsgRmdrCs','etStsgRmdrCs','wtStsgRmdrCs'];
+    var maxSt=0;
+    stKeys.forEach(function(k){ var v=parseInt(d[k])||0; if(v>maxSt) maxSt=v; });
+    return {
+      greenSec: maxPd>0 ? Math.round(maxPd/10) : null,
+      redSec:   maxSt>0 ? Math.round(maxSt/10) : null
+    };
+  } catch(e){ return null; }
 }
 
-async function detectLoop() {
-  if (!stream) return;
-  if (video.readyState >= 2) {
-    syncCanvas();
-    frameCount++;
-    if (modelReady && detector && frameCount % 3 === 0) {
-      await detectWithAI();
-    } else {
-      detectWithGrid();
+function startApiPoll(){
+  if(apiTimer) clearInterval(apiTimer);
+  if(!apiActive||!apiKey) return;
+  apiTimer=setInterval(async function(){
+    if(!stream){ clearInterval(apiTimer); return; }
+    var r=await fetchAPI();
+    if(r===null||r==='no_data') return;
+    var color='unknown';
+    if(r.greenSec!==null && r.greenSec>0) color='green';
+    else if(r.redSec!==null && r.redSec>0) color='red';
+    if(color!=='unknown'){
+      setBadge('api');
+      chipEl.textContent='API: '+(color==='green'
+        ? '초록불 잔여 '+r.greenSec+'초'
+        : '빨간불 (차량직진 '+r.redSec+'초)');
+      if(color!==currentSignal){
+        currentSignal=color;
+        fireSignal(color, color==='green'? r.greenSec : 0);
+      }
     }
+  }, API_MS);
+}
+
+// ── 카메라 시작/정지 ──────────────────────────────────────
+async function startCamera(){
+  unlockVoice();
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }, audio:false
+    });
+    video.srcObject=stream;
+    await new Promise(function(r){ video.onloadedmetadata=r; });
+    startOvl.style.display='none';
+    controlBar.style.display='flex';
+    borderOvl.className='idle';
+    chipEl.textContent='신호등 탐색 중...';
+    // 저장된 API키 있으면 자동 연결 시도
+    if(apiKey){
+      chipEl.textContent='API 자동 연결 중...';
+      var r=await fetchAPI();
+      if(r!==null && r!=='no_data'){
+        apiActive=true; startApiPoll(); setBadge('api');
+        chipEl.textContent='API 연결됨 — 실시간 신호 수신 중';
+      } else {
+        chipEl.textContent='API 연결 실패 — 카메라 색상 분석으로 대체';
+        setTimeout(function(){ if(stream) chipEl.textContent='신호등 탐색 중...'; }, 2500);
+      }
+    }
+    requestAnimationFrame(detectLoop);
+  } catch(e){ alert('카메라를 사용할 수 없습니다.\n'+e.message); }
+}
+
+function stopCamera(){
+  if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  stream=null;
+  if(loopId) cancelAnimationFrame(loopId);
+  if(apiTimer) clearInterval(apiTimer);
+  apiActive=false;
+  controlBar.style.display='none';
+  startOvl.style.display='flex';
+  apiPanel.classList.remove('show');
+  resetAll();
+  setBadge('none');
+  chipEl.textContent='카메라를 시작하세요';
+}
+
+// ── 감지 루프 ─────────────────────────────────────────────
+async function detectLoop(){
+  if(!stream) return;
+  if(video.readyState>=2){
+    syncCanvas(); frameCount++;
+    if(modelReady && detector && frameCount%3===0) await detectWithAI();
+    else detectWithGrid();
   }
-  loopId = requestAnimationFrame(detectLoop);
+  loopId=requestAnimationFrame(detectLoop);
 }
 
-function syncCanvas() {
-  var r = video.getBoundingClientRect();
-  var w = Math.floor(r.width), h = Math.floor(r.height);
-  if (dcv.width !== w || dcv.height !== h) { dcv.width=w; dcv.height=h; }
+function syncCanvas(){
+  var r=video.getBoundingClientRect();
+  var w=Math.floor(r.width), h=Math.floor(r.height);
+  if(dcv.width!==w||dcv.height!==h){ dcv.width=w; dcv.height=h; }
 }
 
-async function detectWithAI() {
+async function detectWithAI(){
   var preds;
-  try { preds = await detector.detect(video); } catch(e) { return; }
-  var lights = preds.filter(function(p){ return p.class==='traffic light' && p.score>0.40; });
-  if (lights.length === 0) { detectWithGrid(); return; }
-
+  try{ preds=await detector.detect(video); } catch(e){ return; }
+  var lights=preds.filter(function(p){ return p.class==='traffic light'&&p.score>0.45; });
+  if(lights.length===0){ detectWithGrid(); return; }
   dctx.clearRect(0,0,dcv.width,dcv.height);
-  var best = lights.sort(function(a,b){ return b.score-a.score; })[0];
-  var bx=best.bbox[0], by=best.bbox[1], bw=best.bbox[2], bh=best.bbox[3];
-  var tmp = makeOffscreen();
-  var color = analyzePixels(tmp.getContext('2d'), bx, by, bw, bh);
-  if (opts.scan) drawAIBox(bx, by, bw, bh, color, best.score);
-  chipEl.textContent = 'AI \uc2e0\ud638\ub4f1 \uac10\uc9c0 (' + Math.round(best.score*100) + '%)';
-  handleDetected(color);
+  var best=lights.sort(function(a,b){ return b.score-a.score; })[0];
+  var bx=best.bbox[0],by=best.bbox[1],bw=best.bbox[2],bh=best.bbox[3];
+  var tmp=makeOffscreen();
+  var color=analyzePixels(tmp.getContext('2d'),bx,by,bw,bh);
+  if(opts.scan) drawAIBox(bx,by,bw,bh,color,best.score);
+  if(!apiActive){
+    chipEl.textContent='AI 신호등 감지 ('+Math.round(best.score*100)+'%)';
+    setBadge('ai');
+    handleDetected(color);
+  } else {
+    // API 활성 시 AI는 박스 표시만
+    chipEl.textContent='API 수신 중  |  AI 감지 '+Math.round(best.score*100)+'%';
+  }
 }
 
-function detectWithGrid() {
-  var tmp  = makeOffscreen();
-  var ctx2 = tmp.getContext('2d');
-  var vw   = video.videoWidth;
-  var vh   = video.videoHeight;
-  var scanTop = vh * SCAN_TOP_RATIO;
-  var scanH   = vh * (SCAN_BOT_RATIO - SCAN_TOP_RATIO);
-  var cellW   = vw / GRID_COLS;
-  var cellH   = scanH / GRID_ROWS;
-
-  var bestRed=0, bestGreen=0;
-  var hitCells = [];
-
-  for (var row=0; row<GRID_ROWS; row++) {
-    for (var col=0; col<GRID_COLS; col++) {
-      var cx = col * cellW;
-      var cy = scanTop + row * cellH;
-      var res = analyzePixels(ctx2, cx, cy, cellW, cellH);
-      if (res !== 'unknown') {
-        var score = getCellScore(ctx2, cx, cy, cellW, cellH, res);
-        hitCells.push({cx:cx,cy:cy,cellW:cellW,cellH:cellH,color:res,score:score});
-        if (res==='red'   && score>bestRed)   bestRed=score;
-        if (res==='green' && score>bestGreen) bestGreen=score;
+function detectWithGrid(){
+  if(apiActive){ dctx.clearRect(0,0,dcv.width,dcv.height); return; }
+  var tmp=makeOffscreen(), ctx2=tmp.getContext('2d');
+  var vw=video.videoWidth, vh=video.videoHeight;
+  var scanTop=vh*SCAN_TOP_RATIO, scanH=vh*(SCAN_BOT_RATIO-SCAN_TOP_RATIO);
+  var cellW=vw/GRID_COLS, cellH=scanH/GRID_ROWS;
+  var bestRed=0,bestGreen=0,hitCells=[];
+  for(var row=0;row<GRID_ROWS;row++){
+    for(var col=0;col<GRID_COLS;col++){
+      var cx=col*cellW, cy=scanTop+row*cellH;
+      var res=analyzePixels(ctx2,cx,cy,cellW,cellH);
+      if(res!=='unknown'){
+        var sc=getCellScore(ctx2,cx,cy,cellW,cellH,res);
+        hitCells.push({cx,cy,cellW,cellH,color:res,score:sc});
+        if(res==='red'   && sc>bestRed)   bestRed=sc;
+        if(res==='green' && sc>bestGreen) bestGreen=sc;
       }
     }
   }
-
-  if (opts.scan) updateScanZones(hitCells);
+  if(opts.scan) updateScanZones(hitCells);
   else dctx.clearRect(0,0,dcv.width,dcv.height);
-
-  var detected = 'unknown';
-  if (bestRed>0 || bestGreen>0) {
-    detected = bestRed >= bestGreen ? 'red' : 'green';
-    chipEl.textContent = detected==='red'
-      ? '\ube68\uac04\ubd88 \uac10\uc9c0 \uc911...'
-      : '\ucd08\ub85d\ubd88 \uac10\uc9c0 \uc911...';
+  var detected='unknown';
+  if(bestRed>0||bestGreen>0){
+    detected=bestRed>=bestGreen?'red':'green';
+    chipEl.textContent=detected==='red'?'빨간불 감지 중...':'초록불 감지 중...';
+    setBadge('none');
   } else {
-    chipEl.textContent = '\uc2e0\ud638\ub4f1 \ud0d0\uc0c9 \uc911... (\uc2e0\ud638\ub4f1 \ubc29\ud5a5\uc73c\ub85c)';
+    chipEl.textContent='신호등 탐색 중... (신호등 방향으로)';
+    setBadge('none');
   }
   handleDetected(detected);
 }
 
-function getCellScore(ctx, x, y, w, h, color) {
+// ── 색상 분석 ─────────────────────────────────────────────
+function getCellScore(ctx,x,y,w,h,color){
   x=Math.max(0,Math.floor(x)); y=Math.max(0,Math.floor(y));
-  w=Math.min(Math.floor(w), ctx.canvas.width-x);
-  h=Math.min(Math.floor(h), ctx.canvas.height-y);
-  if (w<=0||h<=0) return 0;
-  var data=ctx.getImageData(x,y,w,h).data;
-  var match=0, bright=0;
-  for (var i=0;i<data.length;i+=4) {
-    var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
-    if (a<100) continue;
-    var mx=Math.max(r,g,b)/255, mn=Math.min(r,g,b)/255;
-    if (mx<MIN_VALUE) continue;
-    var sat=mx>0?(mx-mn)/mx:0;
-    if (sat<MIN_SATURATION) continue;
+  w=Math.min(Math.floor(w),ctx.canvas.width-x); h=Math.min(Math.floor(h),ctx.canvas.height-y);
+  if(w<=0||h<=0) return 0;
+  var data=ctx.getImageData(x,y,w,h).data, match=0,bright=0;
+  for(var i=0;i<data.length;i+=4){
+    var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3]; if(a<100) continue;
+    var mx=Math.max(r,g,b)/255,mn=Math.min(r,g,b)/255; if(mx<MIN_VALUE) continue;
+    var sat=mx>0?(mx-mn)/mx:0; if(sat<MIN_SATURATION) continue;
     bright++;
-    var hue=getHue(r,g,b);
-    if (color==='red'   && (hue<=RED_HUE_MAX||hue>=RED_HUE_MIN) && (r/255)>RED_DOMINANCE*(g/255)) match++;
-    if (color==='green' && hue>=GREEN_HUE_MIN&&hue<=GREEN_HUE_MAX && (g/255)>GREEN_DOMINANCE*(r/255)) match++;
+    var hue=getHue(r,g,b),rn=r/255,gn=g/255,bn=b/255;
+    if(color==='red'   &&(hue<=RED_HUE_MAX||hue>=RED_HUE_MIN)&&rn>RED_DOMINANCE*gn&&rn>RED_DOMINANCE*bn) match++;
+    if(color==='green' && hue>=GREEN_HUE_MIN&&hue<=GREEN_HUE_MAX&&gn>GREEN_DOMINANCE*rn) match++;
   }
-  return bright>0 ? match/bright : 0;
+  return bright>0?match/bright:0;
 }
 
-function analyzePixels(ctx, x, y, w, h) {
+function analyzePixels(ctx,x,y,w,h){
   x=Math.max(0,Math.floor(x)); y=Math.max(0,Math.floor(y));
-  w=Math.min(Math.floor(w), ctx.canvas.width-x);
-  h=Math.min(Math.floor(h), ctx.canvas.height-y);
-  if (w<=0||h<=0) return 'unknown';
-  var data=ctx.getImageData(x,y,w,h).data;
-  var red=0, green=0, bright=0;
-  for (var i=0;i<data.length;i+=4) {
-    var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
-    if (a<100) continue;
-    var mx=Math.max(r,g,b)/255, mn=Math.min(r,g,b)/255;
-    if (mx<MIN_VALUE) continue;
-    var sat=mx>0?(mx-mn)/mx:0;
-    if (sat<MIN_SATURATION) continue;
+  w=Math.min(Math.floor(w),ctx.canvas.width-x); h=Math.min(Math.floor(h),ctx.canvas.height-y);
+  if(w<=0||h<=0) return 'unknown';
+  var data=ctx.getImageData(x,y,w,h).data, red=0,green=0,bright=0;
+  for(var i=0;i<data.length;i+=4){
+    var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3]; if(a<100) continue;
+    var mx=Math.max(r,g,b)/255,mn=Math.min(r,g,b)/255; if(mx<MIN_VALUE) continue;
+    var sat=mx>0?(mx-mn)/mx:0; if(sat<MIN_SATURATION) continue;
     bright++;
-    var hue=getHue(r,g,b);
-    if ((hue<=RED_HUE_MAX||hue>=RED_HUE_MIN) && (r/255)>RED_DOMINANCE*(g/255) && (r/255)>RED_DOMINANCE*(b/255)) red++;
-    if (hue>=GREEN_HUE_MIN&&hue<=GREEN_HUE_MAX && (g/255)>GREEN_DOMINANCE*(r/255) && (g/255)>GREEN_DOMINANCE*(b/255)) green++;
+    var hue=getHue(r,g,b),rn=r/255,gn=g/255,bn=b/255;
+    if((hue<=RED_HUE_MAX||hue>=RED_HUE_MIN)&&rn>RED_DOMINANCE*gn&&rn>RED_DOMINANCE*bn) red++;
+    if(hue>=GREEN_HUE_MIN&&hue<=GREEN_HUE_MAX&&gn>GREEN_DOMINANCE*rn) green++;
   }
-  if (bright<MIN_BRIGHT_PX) return 'unknown';
-  var rr=red/bright, gr=green/bright;
-  if (rr>gr*1.8 && rr>COLOR_RATIO_TH) return 'red';
-  if (gr>rr*1.5 && gr>COLOR_RATIO_TH) return 'green';
+  if(bright<MIN_BRIGHT_PX) return 'unknown';
+  var rr=red/bright,gr=green/bright;
+  if(rr>gr*2.0&&rr>COLOR_RATIO_TH) return 'red';
+  if(gr>rr*1.5&&gr>COLOR_RATIO_TH) return 'green';
   return 'unknown';
 }
 
-function getHue(r,g,b) {
-  var nr=r/255, ng=g/255, nb=b/255;
-  var mx=Math.max(nr,ng,nb), delta=mx-Math.min(nr,ng,nb);
-  if (delta===0) return 0;
+function getHue(r,g,b){
+  var nr=r/255,ng=g/255,nb=b/255;
+  var mx=Math.max(nr,ng,nb),delta=mx-Math.min(nr,ng,nb);
+  if(delta===0) return 0;
   var h;
-  if      (mx===nr) h=((ng-nb)/delta)%6;
-  else if (mx===ng) h=(nb-nr)/delta+2;
-  else              h=(nr-ng)/delta+4;
-  h=h*60; if(h<0)h+=360;
-  return h;
+  if(mx===nr) h=((ng-nb)/delta)%6;
+  else if(mx===ng) h=(nb-nr)/delta+2;
+  else h=(nr-ng)/delta+4;
+  h*=60; if(h<0) h+=360; return h;
 }
 
-function updateScanZones(hitCells) {
+function updateScanZones(hitCells){
   dctx.clearRect(0,0,dcv.width,dcv.height);
-  if (!opts.scan || hitCells.length===0) return;
-  var vw=video.videoWidth, vh=video.videoHeight;
-  var sx=dcv.width/vw, sy=dcv.height/vh;
-  hitCells.forEach(function(cell){
-    var col=cell.color==='green'?'rgba(34,197,94,0.75)':'rgba(239,68,68,0.75)';
+  if(!opts.scan||!hitCells.length) return;
+  var sx=dcv.width/video.videoWidth, sy=dcv.height/video.videoHeight;
+  hitCells.forEach(function(c){
+    var col=c.color==='green'?'rgba(34,197,94,0.75)':'rgba(239,68,68,0.75)';
     dctx.strokeStyle=col; dctx.lineWidth=2.5;
-    dctx.beginPath();
-    dctx.roundRect(cell.cx*sx, cell.cy*sy, cell.cellW*sx, cell.cellH*sy, 5);
-    dctx.stroke();
-    dctx.fillStyle=cell.color==='green'?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.12)';
-    dctx.fill();
+    dctx.beginPath(); dctx.roundRect(c.cx*sx,c.cy*sy,c.cellW*sx,c.cellH*sy,5); dctx.stroke();
+    dctx.fillStyle=c.color==='green'?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.12)'; dctx.fill();
   });
 }
 
-function drawAIBox(bx,by,bw,bh,color,score) {
+function drawAIBox(bx,by,bw,bh,color,score){
   var sx=dcv.width/video.videoWidth, sy=dcv.height/video.videoHeight;
   var col=color==='green'?'#22c55e':color==='red'?'#ef4444':'#94a3b8';
   dctx.strokeStyle=col; dctx.lineWidth=3;
   dctx.beginPath(); dctx.roundRect(bx*sx,by*sy,bw*sx,bh*sy,8); dctx.stroke();
   dctx.fillStyle=col;
-  dctx.beginPath(); dctx.roundRect(bx*sx,by*sy-26,130,22,4); dctx.fill();
+  dctx.beginPath(); dctx.roundRect(bx*sx,by*sy-26,148,22,4); dctx.fill();
   dctx.fillStyle='#fff'; dctx.font='bold 12px system-ui';
-  var lbl=color==='green'?'\ucd08\ub85d\ubd88':color==='red'?'\ube68\uac04\ubd88':'\uc2e0\ud638\ub4f1';
-  dctx.fillText(lbl+' '+Math.round(score*100)+'%', bx*sx+6, by*sy-9);
+  var lbl=color==='green'?'초록불':color==='red'?'빨간불':'신호등';
+  dctx.fillText('AI '+lbl+' '+Math.round(score*100)+'%', bx*sx+6, by*sy-9);
 }
 
-function makeOffscreen() {
+function makeOffscreen(){
   var c=document.createElement('canvas');
   c.width=video.videoWidth; c.height=video.videoHeight;
-  c.getContext('2d').drawImage(video,0,0);
-  return c;
+  c.getContext('2d').drawImage(video,0,0); return c;
 }
 
-function handleDetected(color) {
-  if (color==='unknown') {
+// ── 신호 처리 ─────────────────────────────────────────────
+function handleDetected(color){
+  if(color==='unknown'){
     missFrames++;
     pendingSignal='unknown'; pendingFrames=0;
-    if (missFrames>=MISS_LIMIT && currentSignal!=='unknown') { resetSignal(); missFrames=0; }
+    if(missFrames>=MISS_LIMIT&&currentSignal!=='unknown'){ resetSignal(); missFrames=0; }
     return;
   }
   missFrames=0;
-  if (color===pendingSignal) { pendingFrames++; } else { pendingSignal=color; pendingFrames=1; return; }
-  if (pendingFrames>=CONFIRM_FRAMES) {
+  if(color===pendingSignal){ pendingFrames++; } else{ pendingSignal=color; pendingFrames=1; return; }
+  if(pendingFrames>=CONFIRM_FRAMES){
     pendingFrames=0;
-    if (color!==currentSignal) { currentSignal=color; fireSignal(color, color==='green'?25:30); }
+    if(color!==currentSignal){ currentSignal=color; fireSignal(color, color==='green'?25:0); }
   }
 }
 
-function fireSignal(color, seconds) {
+function fireSignal(color, seconds){
   applyUI(color, seconds);
-  if (opts.voice) speak(color);
-  if (opts.vib)   vibrate(color);
+  if(opts.voice) speak(color);
+  if(opts.vib)   vibrate(color);
 }
-function testSignal(color) { unlockVoice(); currentSignal=color; fireSignal(color, color==='green'?25:30); }
+function testSignal(color){ unlockVoice(); currentSignal=color; fireSignal(color, color==='green'?25:0); }
 
-function applyUI(color, seconds) {
+function applyUI(color, seconds){
   clearInterval(countdownTimer);
   banner.className=color; borderOvl.className=color;
   sigIcon.className='sig-icon '+color;
-  if (color==='green') {
-    sigIcon.textContent='GO';
-    sigText.textContent='\uac74\ub108\uc138\uc694';
-    sigSub.textContent='\ucd08\ub85d\ubd88\uc785\ub2c8\ub2e4';
-  } else {
-    sigIcon.textContent='STOP';
-    sigText.textContent='\uba48\ucdb0\uc138\uc694';
-    sigSub.textContent='\ube68\uac04\ubd88\uc785\ub2c8\ub2e4';
-  }
-  if (opts.count && seconds>0) {
-    countdownVal=seconds; cdEl.textContent=countdownVal+'\ucd08'; cdEl.classList.remove('urgent');
+  sigText.textContent=color==='green'?'건너세요':'멈추세요';
+  sigIcon.textContent=color==='green'?'GO':'STOP';
+  if(opts.count&&seconds>0){
+    countdownVal=seconds; cdEl.textContent=countdownVal+'초'; cdEl.classList.remove('urgent');
     countdownTimer=setInterval(function(){
       countdownVal--;
-      if (countdownVal<=0) { clearInterval(countdownTimer); cdEl.textContent=''; cdEl.classList.remove('urgent'); }
-      else {
-        cdEl.textContent=countdownVal+'\ucd08';
+      if(countdownVal<=0){ clearInterval(countdownTimer); cdEl.textContent=''; cdEl.classList.remove('urgent'); }
+      else{
+        cdEl.textContent=countdownVal+'초';
         cdEl.classList.toggle('urgent', countdownVal<=5);
-        if (countdownVal<=5 && opts.vib) navigator.vibrate&&navigator.vibrate(80);
+        if(countdownVal<=5&&opts.vib) navigator.vibrate&&navigator.vibrate(80);
       }
     },1000);
   } else { cdEl.textContent=''; }
 }
 
-function resetSignal() {
+function resetSignal(){
   currentSignal='unknown'; clearInterval(countdownTimer);
   banner.className=''; borderOvl.className=stream?'idle':'';
   sigIcon.className='sig-icon idle'; sigIcon.textContent='?';
-  sigText.textContent='\uc2e0\ud638\ub4f1 \ud0d0\uc0c9 \uc911';
-  sigSub.textContent='\uce74\uba54\ub77c\ub97c \uac74\ub108\ud3b8 \uc2e0\ud638\ub4f1\uc73c\ub85c';
+  sigText.textContent='신호등 탐색 중';
   cdEl.textContent=''; cdEl.classList.remove('urgent');
 }
-function resetAll() {
-  pendingSignal='unknown'; pendingFrames=0; missFrames=0; resetAll_inner();
+function resetAll(){
+  pendingSignal='unknown'; pendingFrames=0; missFrames=0; resetSignal();
   dctx.clearRect(0,0,dcv.width,dcv.height);
 }
-function resetAll_inner() { resetSignal(); }
 
-function speak(color) {
-  if (!opts.voice||!('speechSynthesis' in window)) return;
-  try {
-    window.speechSynthesis.cancel();
-    var msg=color==='green'?'\ucd08\ub85d\ubd88\uc785\ub2c8\ub2e4. \uac74\ub108\uc138\uc694.':'\ube68\uac04\ubd88\uc785\ub2c8\ub2e4. \uba48\ucdb0\uc138\uc694.';
-    var u=new SpeechSynthesisUtterance(msg);
-    u.lang='ko-KR'; u.rate=0.9; u.volume=1;
-    var ko=window.speechSynthesis.getVoices().find(function(v){return v.lang.startsWith('ko');});
-    if (ko) u.voice=ko;
-    window.speechSynthesis.speak(u);
+function speak(color){
+  if(!opts.voice||!('speechSynthesis' in window)) return;
+  try{
+    speechSynthesis.cancel();
+    var msg=color==='green'?'초록불입니다. 건너세요.':'빨간불입니다. 멈추세요.';
+    var u=new SpeechSynthesisUtterance(msg); u.lang='ko-KR'; u.rate=0.9; u.volume=1;
+    var ko=speechSynthesis.getVoices().find(function(v){ return v.lang.startsWith('ko'); });
+    if(ko) u.voice=ko;
+    speechSynthesis.speak(u);
   } catch(e){}
 }
 
-function vibrate(color) {
-  if (!opts.vib||!navigator.vibrate) return;
+function vibrate(color){
+  if(!opts.vib||!navigator.vibrate) return;
   navigator.vibrate(color==='green'?[200,100,200]:[500,150,500,150,500]);
 }
 </script>
