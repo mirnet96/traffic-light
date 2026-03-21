@@ -1,1 +1,536 @@
-test
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="신호등 알리미">
+<title>신호등 알리미</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  
+  :root {
+    --red-bg: #7f1d1d;
+    --red-bright: #ef4444;
+    --green-bg: #14532d;
+    --green-bright: #22c55e;
+    --gray-bg: #1e1e2e;
+    --gray-surface: #2a2a3e;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+  }
+
+  html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: var(--gray-bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    user-select: none;
+  }
+
+  /* ── 전체 레이아웃 ── */
+  #app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    transition: background 0.4s;
+  }
+  #app.green { background: var(--green-bg); }
+  #app.red   { background: var(--red-bg); }
+
+  /* ── 상태 배너 (화면 상단 40%) ── */
+  #banner {
+    flex: 0 0 42%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 20px;
+    position: relative;
+  }
+  #signal-emoji { font-size: 72px; line-height: 1; filter: drop-shadow(0 0 20px rgba(255,255,255,0.3)); }
+  #signal-text  { font-size: 36px; font-weight: 700; letter-spacing: -0.5px; }
+  #signal-sub   { font-size: 16px; color: rgba(255,255,255,0.6); }
+  #countdown    {
+    font-size: 56px; font-weight: 700; letter-spacing: -2px;
+    color: rgba(255,255,255,0.9);
+    min-height: 68px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #countdown.urgent { color: #fbbf24; animation: pulse 0.5s ease-in-out infinite alternate; }
+  @keyframes pulse { from { opacity: 1; } to { opacity: 0.5; } }
+
+  /* ── 카메라 영역 ── */
+  #cam-section {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #000;
+  }
+  #video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  #detect-canvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* 감지 상태 칩 */
+  #detect-chip {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(6px);
+    color: rgba(255,255,255,0.8); font-size: 13px;
+    padding: 6px 16px; border-radius: 20px;
+    white-space: nowrap; max-width: 90%;
+    text-align: center;
+  }
+
+  /* ── 시작 오버레이 ── */
+  #start-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 20px; padding: 24px;
+    text-align: center;
+  }
+  #start-overlay h2 { font-size: 22px; font-weight: 600; }
+  #start-overlay p  { font-size: 15px; color: rgba(255,255,255,0.6); line-height: 1.6; }
+  #btn-start {
+    background: #22c55e; color: #fff;
+    border: none; border-radius: 14px;
+    font-size: 18px; font-weight: 700;
+    padding: 16px 40px; cursor: pointer;
+    width: 100%; max-width: 280px;
+    transition: opacity 0.15s;
+  }
+  #btn-start:active { opacity: 0.8; }
+  #btn-test-row {
+    display: flex; gap: 10px; width: 100%; max-width: 280px;
+  }
+  #btn-test-row button {
+    flex: 1; padding: 12px 8px;
+    border-radius: 10px; border: none;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  #btn-t-red   { background: #ef4444; color: #fff; }
+  #btn-t-green { background: #22c55e; color: #fff; }
+
+  /* ── 하단 컨트롤 바 ── */
+  #control-bar {
+    flex: 0 0 auto;
+    display: none;
+    background: rgba(0,0,0,0.4);
+    padding: 12px 16px;
+    gap: 0;
+  }
+  #control-bar.visible { display: flex; align-items: center; gap: 12px; }
+  .ctrl-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 4px; background: none; border: none; cursor: pointer;
+    color: rgba(255,255,255,0.5); font-size: 10px; padding: 8px 4px;
+    border-radius: 8px; transition: background 0.15s;
+  }
+  .ctrl-btn:active { background: rgba(255,255,255,0.1); }
+  .ctrl-btn.active { color: #22c55e; }
+  .ctrl-icon { font-size: 22px; line-height: 1; }
+  #btn-stop-cam {
+    flex: 0 0 auto; background: rgba(239,68,68,0.2);
+    border: 1px solid rgba(239,68,68,0.4);
+    color: #ef4444; font-size: 13px; font-weight: 600;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer;
+  }
+
+  /* ── 모델 로딩 바 ── */
+  #model-bar {
+    position: absolute; top: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.7);
+    color: rgba(255,255,255,0.7); font-size: 12px;
+    padding: 6px 12px; text-align: center;
+    display: none;
+  }
+  #model-bar.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- 상단 배너 -->
+  <div id="banner">
+    <div id="signal-emoji">������</div>
+    <div id="signal-text">신호등 알리미</div>
+    <div id="signal-sub">카메라를 신호등 방향으로</div>
+    <div id="countdown"></div>
+  </div>
+
+  <!-- 카메라 -->
+  <div id="cam-section">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="detect-canvas"></canvas>
+    <div id="model-bar">AI 모델 로딩 중...</div>
+    <div id="detect-chip">카메라를 시작하세요</div>
+
+    <!-- 시작 전 오버레이 -->
+    <div id="start-overlay">
+      <h2>������ 신호등 알리미</h2>
+      <p>카메라를 건너편 신호등 방향으로<br>향하면 자동으로 감지합니다.</p>
+      <button id="btn-start" onclick="startCamera()">카메라 시작</button>
+      <div id="btn-test-row">
+        <button id="btn-t-red"   onclick="triggerSignal('red',30)">������ 빨간불 테스트</button>
+        <button id="btn-t-green" onclick="triggerSignal('green',25)">������ 초록불 테스트</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 컨트롤 -->
+  <div id="control-bar">
+    <button class="ctrl-btn active" id="ctrl-voice" onclick="toggleCtrl(this,'voice')" aria-label="음성 안내">
+      <span class="ctrl-icon">������</span>
+      <span>음성</span>
+    </button>
+    <button class="ctrl-btn active" id="ctrl-vib" onclick="toggleCtrl(this,'vib')" aria-label="진동">
+      <span class="ctrl-icon">������</span>
+      <span>진동</span>
+    </button>
+    <button class="ctrl-btn active" id="ctrl-count" onclick="toggleCtrl(this,'count')" aria-label="카운트다운">
+      <span class="ctrl-icon">⏱</span>
+      <span>카운트</span>
+    </button>
+    <button class="ctrl-btn active" id="ctrl-box" onclick="toggleCtrl(this,'box')" aria-label="위치 표시">
+      <span class="ctrl-icon">������</span>
+      <span>위치표시</span>
+    </button>
+    <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
+  </div>
+
+</div>
+
+<!-- TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+<script>
+
+const app        = document.getElementById('app');
+const video      = document.getElementById('video');
+const dcv        = document.getElementById('detect-canvas');
+const dctx       = dcv.getContext('2d');
+const banner     = document.getElementById('banner');
+const sigEmoji   = document.getElementById('signal-emoji');
+const sigText    = document.getElementById('signal-text');
+const sigSub     = document.getElementById('signal-sub');
+const cdEl       = document.getElementById('countdown');
+const chipEl     = document.getElementById('detect-chip');
+const modelBar   = document.getElementById('model-bar');
+const controlBar = document.getElementById('control-bar');
+const overlay    = document.getElementById('start-overlay');
+
+let opts = { voice:true, vib:true, count:true, box:true };
+let stream=null, detector=null, loopId=null;
+let currentSignal='unknown', countdownVal=0, countdownTimer=null;
+let noDetectCount=0, modelReady=false;
+const MISS_LIMIT = 45;
+
+// ── 모델 로드 ──────────────────────────────────────────────
+async function loadModel() {
+  try {
+    modelBar.classList.add('visible');
+    modelBar.textContent = 'AI 신호등 인식 준비 중...';
+    detector = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+    modelReady = true;
+    modelBar.textContent = '✅ AI 모델 준비 완료';
+    setTimeout(() => modelBar.classList.remove('visible'), 2000);
+  } catch(e) {
+    modelReady = false;
+    modelBar.textContent = '색상 분석 모드로 동작합니다';
+    setTimeout(() => modelBar.classList.remove('visible'), 3000);
+  }
+}
+loadModel();
+
+// ── 옵션 토글 ──────────────────────────────────────────────
+function toggleCtrl(btn, key) {
+  opts[key] = !opts[key];
+  btn.classList.toggle('active', opts[key]);
+}
+
+// ── 카메라 시작/중지 ───────────────────────────────────────
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+
+    overlay.style.display = 'none';
+    controlBar.classList.add('visible');
+    chipEl.textContent = '신호등 탐색 중...';
+
+    requestAnimationFrame(detectLoop);
+  } catch(e) {
+    alert('카메라를 사용할 수 없습니다.\n' + e.message + '\n\n테스트 버튼으로 알림을 확인해보세요.');
+  }
+}
+
+function stopCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  if (loopId) cancelAnimationFrame(loopId);
+  controlBar.classList.remove('visible');
+  overlay.style.display = 'flex';
+  clearState();
+  chipEl.textContent = '카메라를 시작하세요';
+}
+
+// ── 감지 루프 ──────────────────────────────────────────────
+async function detectLoop() {
+  if (!stream) return;
+
+  if (video.readyState >= 2) {
+    // 캔버스 크기 동기화
+    const vr = video.getBoundingClientRect();
+    dcv.width  = Math.floor(vr.width);
+    dcv.height = Math.floor(vr.height);
+
+    if (modelReady && detector) {
+      await detectAI();
+    } else {
+      detectColor();
+    }
+  }
+  loopId = requestAnimationFrame(detectLoop);
+}
+
+// ── AI 감지 ────────────────────────────────────────────────
+async function detectAI() {
+  let preds;
+  try { preds = await detector.detect(video); } catch(e) { return; }
+
+  dctx.clearRect(0, 0, dcv.width, dcv.height);
+
+  const lights = preds.filter(p => p.class === 'traffic light' && p.score > 0.45);
+
+  if (lights.length === 0) {
+    noDetectCount++;
+    if (noDetectCount > MISS_LIMIT && currentSignal !== 'unknown') clearState();
+    chipEl.textContent = '신호등 탐색 중...';
+    return;
+  }
+
+  noDetectCount = 0;
+
+  // 가장 크고 가까운 신호등
+  const best = lights.sort((a,b) => b.bbox[2]*b.bbox[3] - a.bbox[2]*a.bbox[3])[0];
+  const [bx,by,bw,bh] = best.bbox;
+
+  // 색상 분석
+  const tmpC = document.createElement('canvas');
+  tmpC.width  = video.videoWidth;
+  tmpC.height = video.videoHeight;
+  const tmpX  = tmpC.getContext('2d');
+  tmpX.drawImage(video, 0, 0);
+  const color = analyzeRegion(tmpX, bx, by, bw, bh);
+
+  // 박스 렌더링
+  if (opts.box) {
+    const sx = dcv.width  / video.videoWidth;
+    const sy = dcv.height / video.videoHeight;
+    const col = color==='green'?'#22c55e':color==='red'?'#ef4444':'#94a3b8';
+
+    dctx.strokeStyle = col;
+    dctx.lineWidth   = 3;
+    dctx.beginPath();
+    dctx.roundRect(bx*sx, by*sy, bw*sx, bh*sy, 8);
+    dctx.stroke();
+
+    // 레이블 배경
+    dctx.fillStyle = col;
+    dctx.beginPath();
+    dctx.roundRect(bx*sx, by*sy - 26, 100, 22, 4);
+    dctx.fill();
+    dctx.fillStyle = '#fff';
+    dctx.font = 'bold 12px system-ui';
+    dctx.fillText(
+      color==='green'?'������ 초록불':color==='red'?'������ 빨간불':'������ 신호등',
+      bx*sx + 6, by*sy - 9
+    );
+
+    // 확신도
+    dctx.fillStyle = 'rgba(0,0,0,0.55)';
+    dctx.beginPath();
+    dctx.roundRect(bx*sx, (by+bh)*sy + 2, 90, 18, 4);
+    dctx.fill();
+    dctx.fillStyle = 'rgba(255,255,255,0.8)';
+    dctx.font = '11px system-ui';
+    dctx.fillText(`${Math.round(best.score*100)}% 확신`, bx*sx + 6, (by+bh)*sy + 15);
+  }
+
+  chipEl.textContent = `신호등 감지 (${Math.round(best.score*100)}% 확신)`;
+
+  if (color !== 'unknown' && color !== currentSignal) {
+    triggerSignal(color, color==='green'?25:30);
+  }
+}
+
+// ── 색상 전용 감지 ─────────────────────────────────────────
+function detectColor() {
+  const tmpC = document.createElement('canvas');
+  tmpC.width  = video.videoWidth;
+  tmpC.height = video.videoHeight;
+  const tmpX  = tmpC.getContext('2d');
+  tmpX.drawImage(video, 0, 0);
+
+  const w = video.videoWidth, h = video.videoHeight;
+  const color = analyzeRegion(tmpX, w*0.1, 0, w*0.8, h*0.65);
+
+  noDetectCount = color==='unknown' ? noDetectCount+1 : 0;
+  if (noDetectCount > MISS_LIMIT && currentSignal !== 'unknown') clearState();
+
+  chipEl.textContent = color==='unknown'
+    ? '신호등 탐색 중...'
+    : (color==='green'?'������ 초록불 감지':'������ 빨간불 감지');
+
+  if (color !== 'unknown' && color !== currentSignal) {
+    triggerSignal(color, color==='green'?25:30);
+  }
+}
+
+// ── HSL 색상 분석 ──────────────────────────────────────────
+function analyzeRegion(ctx, x, y, w, h) {
+  x = Math.max(0, Math.floor(x));
+  y = Math.max(0, Math.floor(y));
+  w = Math.min(Math.floor(w), ctx.canvas.width  - x);
+  h = Math.min(Math.floor(h), ctx.canvas.height - y);
+  if (w <= 0 || h <= 0) return 'unknown';
+
+  const data   = ctx.getImageData(x, y, w, h).data;
+  let red=0, green=0, total=0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r=data[i], g=data[i+1], b=data[i+2], a=data[i+3];
+    if (a < 100) continue;
+    total++;
+    const mx = Math.max(r,g,b);
+    if (mx < 60) continue;
+    const sat = mx > 0 ? (mx - Math.min(r,g,b)) / mx : 0;
+    if (sat < 0.3) continue;
+
+    // Hue 계산
+    const nr=r/255, ng=g/255, nb=b/255;
+    const nmx=Math.max(nr,ng,nb), nmn=Math.min(nr,ng,nb), delta=nmx-nmn;
+    if (delta === 0) continue;
+    let hue;
+    if      (nmx===nr) hue = ((ng-nb)/delta) % 6;
+    else if (nmx===ng) hue = (nb-nr)/delta + 2;
+    else               hue = (nr-ng)/delta + 4;
+    hue = hue * 60; if (hue < 0) hue += 360;
+
+    if ((hue <= 20 || hue >= 340) && r > 100) red++;
+    if (hue >= 85  && hue <= 155  && g > 100) green++;
+  }
+
+  if (total < 100) return 'unknown';
+  const th = 0.02;
+  if (red   > green * 2 && red   / total > th) return 'red';
+  if (green > red  * 1.5 && green / total > th) return 'green';
+  return 'unknown';
+}
+
+// ── 신호 처리 ──────────────────────────────────────────────
+function triggerSignal(color, seconds) {
+  currentSignal = color;
+  applyBanner(color, seconds);
+  if (opts.voice) speak(color);
+  if (opts.vib)   vibrate(color);
+}
+
+function applyBanner(color, seconds) {
+  clearInterval(countdownTimer);
+  app.className  = color;
+
+  if (color === 'green') {
+    sigEmoji.textContent = '������';
+    sigText.textContent  = '건너세요';
+    sigSub.textContent   = '초록불입니다';
+  } else {
+    sigEmoji.textContent = '������';
+    sigText.textContent  = '멈추세요';
+    sigSub.textContent   = '빨간불입니다';
+  }
+
+  if (opts.count && seconds > 0) {
+    countdownVal = seconds;
+    cdEl.textContent = countdownVal + '초';
+    cdEl.classList.remove('urgent');
+    countdownTimer = setInterval(() => {
+      countdownVal--;
+      if (countdownVal <= 0) {
+        clearInterval(countdownTimer);
+        cdEl.textContent = '';
+        cdEl.classList.remove('urgent');
+      } else {
+        cdEl.textContent = countdownVal + '초';
+        cdEl.classList.toggle('urgent', countdownVal <= 5);
+        if (countdownVal <= 5 && opts.vib) {
+          navigator.vibrate && navigator.vibrate(80);
+        }
+      }
+    }, 1000);
+  }
+}
+
+function clearState() {
+  currentSignal = 'unknown';
+  clearInterval(countdownTimer);
+  app.className        = '';
+  sigEmoji.textContent = '������';
+  sigText.textContent  = '신호등 탐색 중';
+  sigSub.textContent   = '카메라를 신호등 방향으로';
+  cdEl.textContent     = '';
+  cdEl.classList.remove('urgent');
+}
+
+// ── 음성 ───────────────────────────────────────────────────
+let voicesLoaded = false;
+function speak(color) {
+  if (!opts.voice || !('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const msg = color==='green' ? '초록불입니다. 건너세요.' : '빨간불입니다. 멈추세요.';
+  const u   = new SpeechSynthesisUtterance(msg);
+  u.lang    = 'ko-KR';
+  u.rate    = 0.9;
+  u.volume  = 1;
+  const voices = window.speechSynthesis.getVoices();
+  const ko     = voices.find(v => v.lang.startsWith('ko'));
+  if (ko) u.voice = ko;
+  window.speechSynthesis.speak(u);
+}
+
+// ── 진동 ───────────────────────────────────────────────────
+function vibrate(color) {
+  if (!opts.vib || !navigator.vibrate) return;
+  navigator.vibrate(
+    color === 'green'
+      ? [200, 100, 200]             // 짧게 2번
+      : [500, 150, 500, 150, 500]   // 길게 3번
+  );
+}
+
+// 음성 목록 미리 로드
+if ('speechSynthesis' in window) {
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+  speechSynthesis.getVoices();
+}
+</script>
+</body>
+</html>
