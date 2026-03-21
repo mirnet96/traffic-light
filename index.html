@@ -166,7 +166,7 @@
 
   <!-- 상단 배너 -->
   <div id="banner">
-    <div id="signal-emoji">������</div>
+    <div id="signal-emoji">🔍</div>
     <div id="signal-text">신호등 알리미</div>
     <div id="signal-sub">카메라를 신호등 방향으로</div>
     <div id="countdown"></div>
@@ -181,12 +181,12 @@
 
     <!-- 시작 전 오버레이 -->
     <div id="start-overlay">
-      <h2>������ 신호등 알리미</h2>
+      <h2>🚦 신호등 알리미</h2>
       <p>카메라를 건너편 신호등 방향으로<br>향하면 자동으로 감지합니다.</p>
       <button id="btn-start" onclick="startCamera()">카메라 시작</button>
       <div id="btn-test-row">
-        <button id="btn-t-red"   onclick="triggerSignal('red',30)">������ 빨간불 테스트</button>
-        <button id="btn-t-green" onclick="triggerSignal('green',25)">������ 초록불 테스트</button>
+        <button id="btn-t-red"   onclick="triggerSignal('red',30)">🔴 빨간불 테스트</button>
+        <button id="btn-t-green" onclick="triggerSignal('green',25)">🟢 초록불 테스트</button>
       </div>
     </div>
   </div>
@@ -194,11 +194,11 @@
   <!-- 하단 컨트롤 -->
   <div id="control-bar">
     <button class="ctrl-btn active" id="ctrl-voice" onclick="toggleCtrl(this,'voice')" aria-label="음성 안내">
-      <span class="ctrl-icon">������</span>
+      <span class="ctrl-icon">🔊</span>
       <span>음성</span>
     </button>
     <button class="ctrl-btn active" id="ctrl-vib" onclick="toggleCtrl(this,'vib')" aria-label="진동">
-      <span class="ctrl-icon">������</span>
+      <span class="ctrl-icon">📳</span>
       <span>진동</span>
     </button>
     <button class="ctrl-btn active" id="ctrl-count" onclick="toggleCtrl(this,'count')" aria-label="카운트다운">
@@ -206,7 +206,7 @@
       <span>카운트</span>
     </button>
     <button class="ctrl-btn active" id="ctrl-box" onclick="toggleCtrl(this,'box')" aria-label="위치 표시">
-      <span class="ctrl-icon">������</span>
+      <span class="ctrl-icon">📦</span>
       <span>위치표시</span>
     </button>
     <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
@@ -361,7 +361,7 @@ async function detectAI() {
     dctx.fillStyle = '#fff';
     dctx.font = 'bold 12px system-ui';
     dctx.fillText(
-      color==='green'?'������ 초록불':color==='red'?'������ 빨간불':'������ 신호등',
+      color==='green'?'🟢 초록불':color==='red'?'🔴 빨간불':'🔍 신호등',
       bx*sx + 6, by*sy - 9
     );
 
@@ -398,7 +398,7 @@ function detectColor() {
 
   chipEl.textContent = color==='unknown'
     ? '신호등 탐색 중...'
-    : (color==='green'?'������ 초록불 감지':'������ 빨간불 감지');
+    : (color==='green'?'🟢 초록불 감지':'🔴 빨간불 감지');
 
   if (color !== 'unknown' && color !== currentSignal) {
     triggerSignal(color, color==='green'?25:30);
@@ -459,11 +459,11 @@ function applyBanner(color, seconds) {
   app.className  = color;
 
   if (color === 'green') {
-    sigEmoji.textContent = '������';
+    sigEmoji.textContent = '🟢';
     sigText.textContent  = '건너세요';
     sigSub.textContent   = '초록불입니다';
   } else {
-    sigEmoji.textContent = '������';
+    sigEmoji.textContent = '🔴';
     sigText.textContent  = '멈추세요';
     sigSub.textContent   = '빨간불입니다';
   }
@@ -493,7 +493,7 @@ function clearState() {
   currentSignal = 'unknown';
   clearInterval(countdownTimer);
   app.className        = '';
-  sigEmoji.textContent = '������';
+  sigEmoji.textContent = '🔍';
   sigText.textContent  = '신호등 탐색 중';
   sigSub.textContent   = '카메라를 신호등 방향으로';
   cdEl.textContent     = '';
