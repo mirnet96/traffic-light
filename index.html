@@ -12,7 +12,36 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
-#app{height:100%;width:100%;position:relative;overflow:hidden}
+#app{height:100%;width:100%;position:relative;display:flex;flex-direction:column;}
+
+/* ── 탭 바 ── */
+#tab-bar{
+  position:relative;z-index:50;
+  display:flex;background:#0a0f1e;
+  border-bottom:1px solid rgba(255,255,255,0.08);
+  flex-shrink:0;
+}
+.tab-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;padding:10px 4px;padding-top:max(env(safe-area-inset-top,0px),10px);
+  border:none;background:none;cursor:pointer;color:rgba(255,255,255,0.35);
+  font-size:10px;font-weight:700;letter-spacing:0.3px;transition:color .2s;
+  position:relative;
+}
+.tab-btn.active{color:#60a5fa;}
+.tab-btn.active::after{
+  content:'';position:absolute;bottom:0;left:20%;right:20%;
+  height:2px;background:#60a5fa;border-radius:2px 2px 0 0;
+}
+.tab-icon{font-size:20px;line-height:1;}
+
+/* ── 탭 페이지 ── */
+.tab-page{flex:1;position:relative;overflow:hidden;display:none;}
+.tab-page.active{display:flex;flex-direction:column;}
+
+/* ════════════════════════════════════════
+   탭 1: 자동 감지
+════════════════════════════════════════ */
 #cam-wrap{position:absolute;inset:0;z-index:1;background:#000;}
 #video{width:100%;height:100%;object-fit:cover;display:block}
 #detect-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2}
@@ -25,8 +54,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 #border-signal.idle {box-shadow:inset 0 0 0 5px rgba(59,130,246,0.4);}
 #banner{
   position:absolute;top:0;left:0;right:0;z-index:10;
-  padding-top:max(env(safe-area-inset-top,0px),10px);
-  padding-left:16px;padding-right:16px;padding-bottom:10px;
+  padding:10px 16px 10px;
   display:flex;align-items:center;gap:10px;
   background:rgba(0,0,0,0.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   transition:background 0.22s;
@@ -34,7 +62,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 #banner.green{background:rgba(0,55,28,0.82);}
 #banner.red  {background:rgba(75,0,0,0.82);}
 #signal-info{flex:1;min-width:0}
-#signal-text{font-size:30px;font-weight:800;line-height:1.1;letter-spacing:-0.5px}
+#signal-text{font-size:28px;font-weight:800;line-height:1.1;letter-spacing:-0.5px}
 #signal-sub{font-size:11px;color:rgba(255,255,255,0.5);margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
 .src-badge{display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;}
 .src-badge.show{display:flex}
@@ -44,7 +72,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 #badge-coco .badge-dot{background:#818cf8}
 #badge-hsv{background:rgba(100,116,139,0.25);border:1px solid rgba(100,116,139,0.5);color:#94a3b8;}
 #badge-hsv .badge-dot{background:#64748b}
-#countdown{font-size:40px;font-weight:900;color:rgba(255,255,255,0.95);flex-shrink:0;text-align:right;line-height:1;min-width:60px;}
+#countdown{font-size:38px;font-weight:900;color:rgba(255,255,255,0.95);flex-shrink:0;text-align:right;line-height:1;min-width:56px;}
 #countdown.urgent{color:#fbbf24;animation:blink .4s ease-in-out infinite alternate}
 @keyframes blink{from{opacity:1}to{opacity:0.1}}
 #signal-center{
@@ -53,19 +81,19 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 }
 #signal-center.show{display:flex;}
 #signal-center-text{
-  font-size:56px;font-weight:900;letter-spacing:-1px;
-  text-shadow:0 2px 20px rgba(0,0,0,0.9);padding:12px 40px;border-radius:18px;
+  font-size:52px;font-weight:900;letter-spacing:-1px;
+  text-shadow:0 2px 20px rgba(0,0,0,0.9);padding:12px 36px;border-radius:18px;
 }
 #signal-center-text.green{background:rgba(0,75,38,0.9);color:#4ade80;border:2px solid rgba(34,197,94,0.7);}
 #signal-center-text.red  {background:rgba(95,0,0,0.9);color:#f87171;border:2px solid rgba(239,68,68,0.7);}
-#big-count{font-size:84px;font-weight:900;text-shadow:0 4px 28px rgba(0,0,0,0.8);line-height:1;}
+#big-count{font-size:80px;font-weight:900;text-shadow:0 4px 28px rgba(0,0,0,0.8);line-height:1;}
 #big-count.green{color:#4ade80;}
 #big-count.urgent-c{color:#fbbf24;animation:blink .4s ease-in-out infinite alternate;}
 #count-notice{font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);background:rgba(0,0,0,0.5);padding:3px 12px;border-radius:10px;display:none;}
 #count-notice.show{display:block;}
 #detect-chip{
   position:absolute;z-index:10;left:50%;
-  bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 68px);
+  bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 64px);
   transform:translateX(-50%);
   background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   color:rgba(255,255,255,0.9);font-size:13px;font-weight:600;
@@ -75,9 +103,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 }
 #conf-bar-wrap{
   position:absolute;z-index:10;left:50%;
-  bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 106px);
-  transform:translateX(-50%);
-  display:none;align-items:center;gap:8px;
+  bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 102px);
+  transform:translateX(-50%);display:none;align-items:center;gap:8px;
 }
 #conf-bar-wrap.show{display:flex;}
 #conf-bar-bg{width:120px;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;}
@@ -88,7 +115,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   align-items:center;justify-content:space-around;
   background:rgba(0,0,0,0.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border-top:1px solid rgba(255,255,255,0.08);
-  padding:8px 6px;padding-bottom:max(env(safe-area-inset-bottom,12px),12px);gap:2px;
+  padding:8px 6px;padding-bottom:max(env(safe-area-inset-bottom,10px),10px);gap:2px;
 }
 .ctrl-btn{display:flex;flex-direction:column;align-items:center;gap:3px;
   background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.28);
@@ -99,17 +126,18 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 .ctrl-sub{font-size:9px;}
 #btn-stop-cam{background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
   color:#f87171;font-size:13px;font-weight:600;padding:9px 14px;border-radius:10px;cursor:pointer;}
+/* 시작 오버레이 */
 #start-overlay{
   position:absolute;inset:0;z-index:20;background:rgba(5,8,18,0.98);
   display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
-  gap:14px;padding:44px 22px 28px;text-align:center;overflow-y:auto;
+  gap:14px;padding:30px 22px 24px;text-align:center;overflow-y:auto;
 }
 .big-tl{width:54px;display:flex;flex-direction:column;align-items:center;gap:5px;
   padding:8px 10px;background:#1e293b;border-radius:10px;border:2px solid #334155;}
 .tl-dot{width:20px;height:20px;border-radius:50%;background:#334155}
 .tl-dot.r{background:#ef4444;box-shadow:0 0 12px rgba(239,68,68,0.8)}
 .tl-dot.g{background:#22c55e;box-shadow:0 0 12px rgba(34,197,94,0.8)}
-#start-overlay h2{font-size:22px;font-weight:800;letter-spacing:-.5px}
+#start-overlay h2{font-size:21px;font-weight:800;letter-spacing:-.5px}
 .desc{font-size:13px;color:rgba(255,255,255,0.45);line-height:1.9;max-width:300px;}
 .tr{color:rgba(239,68,68,0.95);font-weight:700}
 .tg{color:rgba(34,197,94,0.95);font-weight:700}
@@ -117,128 +145,332 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 .info-card h4{font-size:11px;font-weight:700;margin-bottom:8px;color:rgba(255,255,255,0.45);letter-spacing:0.5px;text-transform:uppercase;}
 .info-row{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:rgba(255,255,255,0.45);padding:3px 0;line-height:1.5;}
 .info-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:3px}
-#btn-start{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border:none;border-radius:14px;font-size:18px;font-weight:800;padding:18px 0;cursor:pointer;width:100%;max-width:300px;box-shadow:0 4px 20px rgba(37,99,235,0.45);}
+#btn-start{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;border:none;border-radius:14px;font-size:18px;font-weight:800;padding:16px 0;cursor:pointer;width:100%;max-width:300px;box-shadow:0 4px 20px rgba(37,99,235,0.45);}
 #btn-start:active{opacity:.85;transform:scale(.98)}
 .test-row{display:flex;gap:10px;width:100%;max-width:300px}
-.test-row button{flex:1;padding:14px 8px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+.test-row button{flex:1;padding:13px 8px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer}
 .btn-r{background:#dc2626;color:#fff;}
 .btn-g{background:#16a34a;color:#fff;}
 .hint-btm{font-size:12px;color:rgba(255,255,255,0.2)}
-/* 카카오톡 안내 배너 */
-#kakao-banner{
-  width:100%;max-width:320px;background:rgba(254,240,138,0.12);
+#kakao-banner{width:100%;max-width:320px;background:rgba(254,240,138,0.12);
   border:1px solid rgba(254,240,138,0.35);border-radius:12px;
   padding:10px 14px;font-size:12px;color:rgba(254,240,138,0.9);
-  line-height:1.6;text-align:left;display:none;
-}
+  line-height:1.6;text-align:left;display:none;}
 #kakao-banner.show{display:block;}
 #kakao-banner strong{color:#fde047;}
 #model-bar{position:absolute;top:0;left:0;right:0;z-index:25;background:rgba(0,0,0,0.88);
   color:rgba(255,255,255,0.6);font-size:13px;padding:10px;text-align:center;display:none;}
 #model-bar.v{display:block}
+
+/* ════════════════════════════════════════
+   탭 2: 신호등 확대 뷰어
+════════════════════════════════════════ */
+#page-zoom{background:#000;flex-direction:column;}
+
+/* 카메라 영역 (상단 60%) */
+#zoom-cam-wrap{
+  position:relative;flex:1;overflow:hidden;background:#000;
+}
+#zoom-video{width:100%;height:100%;object-fit:cover;display:block;}
+#zoom-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;}
+
+/* 확대 패널 (하단 고정) */
+#zoom-panel{
+  flex-shrink:0;
+  background:#0a0f1e;
+  border-top:1px solid rgba(255,255,255,0.08);
+  display:flex;flex-direction:column;
+  height:42%;
+  min-height:200px;
+  max-height:320px;
+}
+#zoom-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px 8px;flex-shrink:0;
+}
+#zoom-title{font-size:13px;font-weight:700;color:rgba(255,255,255,0.7);}
+#zoom-status{
+  font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;
+  background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);
+  transition:all .3s;
+}
+#zoom-status.red-st {background:rgba(239,68,68,0.2);color:#f87171;}
+#zoom-status.green-st{background:rgba(34,197,94,0.2);color:#4ade80;}
+#zoom-status.scan-st{background:rgba(59,130,246,0.15);color:#93c5fd;}
+
+/* 확대 표시 영역 */
+#zoom-display{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  padding:0 16px 8px;gap:16px;overflow:hidden;
+}
+
+/* 확대된 신호등 캔버스 */
+#zoom-result-canvas{
+  height:100%;max-height:160px;
+  aspect-ratio:1/2;
+  border-radius:10px;
+  border:2px solid rgba(255,255,255,0.1);
+  background:#111;
+  image-rendering:pixelated;
+  flex-shrink:0;
+  transition:border-color .3s;
+}
+#zoom-result-canvas.red-border  {border-color:rgba(239,68,68,0.7);}
+#zoom-result-canvas.green-border{border-color:rgba(34,197,94,0.7);}
+
+/* 신호 정보 */
+#zoom-info-panel{
+  flex:1;display:flex;flex-direction:column;gap:10px;min-width:0;
+}
+.zoom-info-row{display:flex;flex-direction:column;gap:3px;}
+.zoom-info-label{font-size:10px;color:rgba(255,255,255,0.35);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;}
+.zoom-info-value{font-size:15px;font-weight:700;color:rgba(255,255,255,0.85);}
+
+/* 색상 막대 */
+#zoom-color-bars{display:flex;gap:6px;align-items:flex-end;height:36px;}
+.cbar{width:28px;border-radius:4px 4px 0 0;transition:height .3s,background .3s;background:#1e293b;min-height:4px;}
+#cbar-red  {background:rgba(239,68,68,0.7);}
+#cbar-green{background:rgba(34,197,94,0.7);}
+
+/* 확대 배율 슬라이더 */
+#zoom-controls{
+  padding:0 16px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0;
+}
+#zoom-label{font-size:11px;color:rgba(255,255,255,0.4);white-space:nowrap;}
+#zoom-slider{flex:1;accent-color:#60a5fa;}
+#zoom-val{font-size:11px;font-weight:700;color:#60a5fa;min-width:28px;text-align:right;}
+
+/* 카메라 미시작 상태 */
+#zoom-start-msg{
+  position:absolute;inset:0;z-index:10;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:rgba(5,8,18,0.97);
+}
+#zoom-start-msg p{font-size:14px;color:rgba(255,255,255,0.45);text-align:center;line-height:1.6;max-width:260px;}
+#btn-zoom-start{background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;border:none;
+  border-radius:12px;font-size:16px;font-weight:800;padding:14px 32px;cursor:pointer;}
+#btn-zoom-start:active{opacity:.85;transform:scale(.98)}
+#btn-zoom-stop{
+  background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
+  color:#f87171;font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;
+  cursor:pointer;display:none;
+}
+#btn-zoom-stop.show{display:block;}
+
+/* 스캔 애니메이션 */
+#scan-line{
+  position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(59,130,246,0.8),transparent);
+  z-index:3;pointer-events:none;
+  animation:scanMove 2s linear infinite;display:none;
+}
+#scan-line.show{display:block;}
+@keyframes scanMove{
+  0%  {top:0;opacity:1;}
+  90% {top:calc(100% - 2px);opacity:1;}
+  100%{top:calc(100% - 2px);opacity:0;}
+}
+
+/* 탐지 박스 깜빡임 */
+@keyframes boxPulse{0%,100%{opacity:1}50%{opacity:0.5}}
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="cam-wrap">
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="detect-canvas"></canvas>
-  </div>
-  <div id="bg-overlay"></div>
-  <div id="border-signal" class="idle"></div>
 
-  <div id="signal-center">
-    <div id="signal-center-text"></div>
-    <div id="big-count"></div>
-    <div id="count-notice">* 카운트는 예측값입니다</div>
-  </div>
-
-  <div id="banner">
-    <div id="signal-info">
-      <div id="signal-text">신호등 알리미</div>
-      <div id="signal-sub">
-        <span id="sub-text">저시력자 보행 보조</span>
-        <span id="badge-coco" class="src-badge"><span class="badge-dot"></span>AI감지</span>
-        <span id="badge-hsv" class="src-badge"><span class="badge-dot"></span>색상분석</span>
-      </div>
-    </div>
-    <div id="countdown"></div>
-  </div>
-
-  <div id="conf-bar-wrap">
-    <div id="conf-bar-bg"><div id="conf-bar"></div></div>
-    <div id="conf-label">신뢰도</div>
-  </div>
-  <div id="detect-chip">카메라를 시작하세요</div>
-
-  <div id="control-bar">
-    <button class="ctrl-btn active" id="ctrl-voice" onclick="toggleCtrl(this,'voice')">
-      <span class="ctrl-lbl">음성</span><span class="ctrl-sub">ON</span>
+  <!-- ── 탭 바 ── -->
+  <div id="tab-bar">
+    <button class="tab-btn active" id="tab-btn-1" onclick="switchTab(1)">
+      <span class="tab-icon">������</span>
+      <span>자동 감지</span>
     </button>
-    <button class="ctrl-btn active" id="ctrl-vib" onclick="toggleCtrl(this,'vib')">
-      <span class="ctrl-lbl">진동</span><span class="ctrl-sub">ON</span>
+    <button class="tab-btn" id="tab-btn-2" onclick="switchTab(2)">
+      <span class="tab-icon">������</span>
+      <span>확대 뷰어</span>
     </button>
-    <button class="ctrl-btn active" id="ctrl-count" onclick="toggleCtrl(this,'count')">
-      <span class="ctrl-lbl">카운트</span><span class="ctrl-sub">ON</span>
-    </button>
-    <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
   </div>
 
-  <div id="start-overlay">
-    <div class="big-tl">
-      <div class="tl-dot r"></div>
-      <div class="tl-dot"></div>
-      <div class="tl-dot g"></div>
+  <!-- ════════════════════════════════════
+       탭 1: 자동 감지
+  ════════════════════════════════════ -->
+  <div class="tab-page active" id="page-detect">
+    <div id="cam-wrap">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="detect-canvas"></canvas>
     </div>
-    <h2>보행자 신호등 알리미</h2>
-    <p class="desc">
-      저시력자를 위한 신호등 인식 보조 앱<br>
-      카메라를 건너편 신호등 방향으로 향하세요<br><br>
-      <span class="tr">빨간불</span> — 검은 박스 + 빨강 서있는 사람<br>
-      <span class="tg">초록불</span> — 검은 박스 + 청록 걷는 사람
-    </p>
+    <div id="bg-overlay"></div>
+    <div id="border-signal" class="idle"></div>
+    <div id="signal-center">
+      <div id="signal-center-text"></div>
+      <div id="big-count"></div>
+      <div id="count-notice">* 카운트는 예측값입니다</div>
+    </div>
+    <div id="banner">
+      <div id="signal-info">
+        <div id="signal-text">신호등 알리미</div>
+        <div id="signal-sub">
+          <span id="sub-text">저시력자 보행 보조</span>
+          <span id="badge-coco" class="src-badge"><span class="badge-dot"></span>AI감지</span>
+          <span id="badge-hsv"  class="src-badge"><span class="badge-dot"></span>색상분석</span>
+        </div>
+      </div>
+      <div id="countdown"></div>
+    </div>
+    <div id="conf-bar-wrap">
+      <div id="conf-bar-bg"><div id="conf-bar"></div></div>
+      <div id="conf-label">신뢰도</div>
+    </div>
+    <div id="detect-chip">카메라를 시작하세요</div>
+    <div id="control-bar">
+      <button class="ctrl-btn active" id="ctrl-voice" onclick="toggleCtrl(this,'voice')">
+        <span class="ctrl-lbl">음성</span><span class="ctrl-sub">ON</span>
+      </button>
+      <button class="ctrl-btn active" id="ctrl-vib" onclick="toggleCtrl(this,'vib')">
+        <span class="ctrl-lbl">진동</span><span class="ctrl-sub">ON</span>
+      </button>
+      <button class="ctrl-btn active" id="ctrl-count" onclick="toggleCtrl(this,'count')">
+        <span class="ctrl-lbl">카운트</span><span class="ctrl-sub">ON</span>
+      </button>
+      <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
+    </div>
+    <!-- 시작 오버레이 -->
+    <div id="start-overlay">
+      <div class="big-tl">
+        <div class="tl-dot r"></div><div class="tl-dot"></div><div class="tl-dot g"></div>
+      </div>
+      <h2>보행자 신호등 알리미</h2>
+      <p class="desc">
+        저시력자를 위한 신호등 인식 보조 앱<br>
+        카메라를 건너편 신호등 방향으로 향하세요<br><br>
+        <span class="tr">빨간불</span> — 검은 박스 + 빨강 서있는 사람<br>
+        <span class="tg">초록불</span> — 검은 박스 + 청록 걷는 사람
+      </p>
+      <div id="kakao-banner">
+        ⚠️ <strong>카카오톡 내부 브라우저</strong>에서는 음성이 나오지 않을 수 있습니다.<br>
+        우측 하단 <strong>⋮ → 다른 브라우저로 열기</strong>를 눌러<br>
+        크롬에서 열면 음성이 정상 작동합니다.<br>
+        <span style="color:rgba(254,240,138,0.5);font-size:11px">비프음은 카카오톡에서도 작동합니다</span>
+      </div>
+      <div class="info-card">
+        <h4>실제 환경 최적화 감지 방식</h4>
+        <div class="info-row">
+          <div class="info-dot" style="background:#818cf8"></div>
+          <span>AI 박스 감지 — COCO-SSD로 신호등 위치 특정 후 해당 영역만 분석</span>
+        </div>
+        <div class="info-row">
+          <div class="info-dot" style="background:#64748b"></div>
+          <span>화면 상단 45% 한정 탐색 — 버스·바닥 완전 제외</span>
+        </div>
+        <div class="info-row">
+          <div class="info-dot" style="background:#22c55e"></div>
+          <span>청록 전용 인식 — 신호등 청록(H:145~195), 버스 초록(H:100~140) 제외</span>
+        </div>
+      </div>
+      <button id="btn-start" onclick="startCamera()">카메라 시작</button>
+      <div class="test-row">
+        <button class="btn-r" onclick="testSignal('red')">빨간불 테스트</button>
+        <button class="btn-g" onclick="testSignal('green')">초록불 테스트</button>
+      </div>
+      <p class="hint-btm">테스트로 진동 · 음성 · 화면을 먼저 확인하세요</p>
+    </div>
+    <div id="model-bar"></div>
+  </div><!-- /page-detect -->
 
-    <!-- 카카오톡 인앱브라우저 감지 시 표시 -->
-    <div id="kakao-banner">
-      ⚠️ <strong>카카오톡 내부 브라우저</strong>에서는 음성이 나오지 않을 수 있습니다.<br>
-      우측 하단 <strong>⋮ → 다른 브라우저로 열기</strong>를 눌러<br>
-      크롬에서 열면 음성이 정상 작동합니다.<br>
-      <span style="color:rgba(254,240,138,0.5);font-size:11px">비프음은 카카오톡에서도 작동합니다</span>
+  <!-- ════════════════════════════════════
+       탭 2: 확대 뷰어
+  ════════════════════════════════════ -->
+  <div class="tab-page" id="page-zoom">
+
+    <!-- 카메라 라이브 뷰 + 감지 오버레이 -->
+    <div id="zoom-cam-wrap">
+      <video id="zoom-video" autoplay playsinline muted></video>
+      <canvas id="zoom-canvas"></canvas>
+      <div id="scan-line"></div>
+
+      <!-- 카메라 미시작 안내 -->
+      <div id="zoom-start-msg">
+        <span style="font-size:48px">������</span>
+        <p>신호등을 찾아<br>자동으로 확대해드립니다<br><span style="color:rgba(255,255,255,0.25);font-size:12px">화면 상단 45% 영역을 탐색합니다</span></p>
+        <button id="btn-zoom-start" onclick="startZoomCamera()">확대 뷰어 시작</button>
+      </div>
     </div>
 
-    <div class="info-card">
-      <h4>실제 환경 최적화 감지 방식</h4>
-      <div class="info-row">
-        <div class="info-dot" style="background:#818cf8"></div>
-        <span>AI 박스 감지 — COCO-SSD로 신호등 위치 특정 후 해당 영역만 분석 (초록 버스 완전 차단)</span>
+    <!-- 확대 패널 -->
+    <div id="zoom-panel">
+      <div id="zoom-header">
+        <span id="zoom-title">신호등 확대 뷰</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="zoom-status">탐색 중...</span>
+          <button id="btn-zoom-stop" onclick="stopZoomCamera()">중지</button>
+        </div>
       </div>
-      <div class="info-row">
-        <div class="info-dot" style="background:#64748b"></div>
-        <span>화면 상단 45% 한정 탐색 — 바닥·버스 하단부 완전 제외</span>
+
+      <div id="zoom-display">
+        <!-- 확대된 신호등 이미지 -->
+        <canvas id="zoom-result-canvas" width="80" height="160"></canvas>
+
+        <!-- 정보 패널 -->
+        <div id="zoom-info-panel">
+          <div class="zoom-info-row">
+            <span class="zoom-info-label">감지 색상</span>
+            <span class="zoom-info-value" id="zi-color">—</span>
+          </div>
+          <div class="zoom-info-row">
+            <span class="zoom-info-label">색상 비율</span>
+            <div id="zoom-color-bars">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+                <div class="cbar" id="cbar-red"   style="height:4px;"></div>
+                <span style="font-size:9px;color:rgba(239,68,68,0.7);">빨</span>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+                <div class="cbar" id="cbar-green" style="height:4px;"></div>
+                <span style="font-size:9px;color:rgba(34,197,94,0.7);">초</span>
+              </div>
+            </div>
+          </div>
+          <div class="zoom-info-row">
+            <span class="zoom-info-label">위치</span>
+            <span class="zoom-info-value" id="zi-pos">—</span>
+          </div>
+          <div class="zoom-info-row">
+            <span class="zoom-info-label">크기</span>
+            <span class="zoom-info-value" id="zi-size">—</span>
+          </div>
+        </div>
       </div>
-      <div class="info-row">
-        <div class="info-dot" style="background:#fb923c"></div>
-        <span>크기 필터 — 발광 영역이 화면 3% 초과 시 버스로 판단하여 무시</span>
-      </div>
-      <div class="info-row">
-        <div class="info-dot" style="background:#22c55e"></div>
-        <span>청록 전용 인식 — 신호등 청록(H:145~195)만 반응, 버스 초록(H:100~140) 제외</span>
+
+      <!-- 확대 배율 -->
+      <div id="zoom-controls">
+        <span id="zoom-label">확대</span>
+        <input type="range" id="zoom-slider" min="2" max="10" value="4" step="0.5"
+               oninput="zoomLevel=parseFloat(this.value);document.getElementById('zoom-val').textContent=zoomLevel+'×'">
+        <span id="zoom-val">4×</span>
       </div>
     </div>
-    <button id="btn-start" onclick="startCamera()">카메라 시작</button>
-    <div class="test-row">
-      <button class="btn-r" onclick="testSignal('red')">빨간불 테스트</button>
-      <button class="btn-g" onclick="testSignal('green')">초록불 테스트</button>
-    </div>
-    <p class="hint-btm">테스트로 진동 · 음성 · 화면을 먼저 확인하세요</p>
-  </div>
-  <div id="model-bar"></div>
-</div>
+
+  </div><!-- /page-zoom -->
+
+</div><!-- /app -->
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
 <script>
-// ── DOM refs ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  공통 상태
+// ════════════════════════════════════════════════════════
+var currentTab = 1;
+
+function switchTab(n){
+  currentTab = n;
+  document.getElementById('tab-btn-1').classList.toggle('active', n===1);
+  document.getElementById('tab-btn-2').classList.toggle('active', n===2);
+  document.getElementById('page-detect').classList.toggle('active', n===1);
+  document.getElementById('page-zoom').classList.toggle('active', n===2);
+}
+
+// ════════════════════════════════════════════════════════
+//  탭1 DOM refs
+// ════════════════════════════════════════════════════════
 var video        = document.getElementById('video');
 var dcv          = document.getElementById('detect-canvas');
 var dctx         = dcv.getContext('2d');
@@ -270,173 +502,94 @@ var CONFIRM_COCO=2, CONFIRM_HSV=5, MISS_LIMIT=6;
 var countdownVal=0, countdownTimer=null;
 var cocoReady=false;
 
-// ── 카카오톡 인앱브라우저 감지 ────────────────────────────
-var isKakao = /KAKAOTALK/i.test(navigator.userAgent)
-           || /kakao/i.test(navigator.userAgent);
+// 카카오톡 감지
+var isKakao = /KAKAOTALK|kakao/i.test(navigator.userAgent);
 if(isKakao) kakaoBanner.classList.add('show');
 
-// ── Web Audio API ─────────────────────────────────────────
-var audioCtx = null;
-var audioUnlocked = false;
-
-// 페이지 로드 즉시 AudioContext 생성 시도 (일부 WebView에서는 바로 됨)
-try{
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}catch(e){ audioCtx = null; }
-
-// 최초 터치/클릭 시 반드시 언락
-document.addEventListener('touchstart', unlockAudio, {once:true, passive:true});
+// ════════════════════════════════════════════════════════
+//  오디오
+// ════════════════════════════════════════════════════════
+var audioCtx=null, audioUnlocked=false;
+try{ audioCtx=new(window.AudioContext||window.webkitAudioContext)(); }catch(e){}
+document.addEventListener('touchstart', unlockAudio, {once:true,passive:true});
 document.addEventListener('click',      unlockAudio, {once:true});
 
 function unlockAudio(){
-  if(audioUnlocked) return;
-  audioUnlocked = true;
-
-  // AudioContext 생성 또는 재개
-  if(!audioCtx){
-    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    catch(e){ audioCtx = null; }
-  }
-  if(audioCtx && audioCtx.state === 'suspended'){
-    audioCtx.resume();
-  }
-
-  // 무음 버퍼 재생으로 AudioContext 완전 언락
+  if(audioUnlocked) return; audioUnlocked=true;
+  if(!audioCtx){ try{ audioCtx=new(window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
   if(audioCtx){
     try{
-      var buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.05, audioCtx.sampleRate);
-      var src = audioCtx.createBufferSource();
-      src.buffer = buf;
-      src.connect(audioCtx.destination);
-      src.start(0);
+      var buf=audioCtx.createBuffer(1,audioCtx.sampleRate*0.05,audioCtx.sampleRate);
+      var src=audioCtx.createBufferSource(); src.buffer=buf;
+      src.connect(audioCtx.destination); src.start(0);
     }catch(e){}
   }
-
-  // speechSynthesis 언락 (카카오톡 외 일반 브라우저용)
   if('speechSynthesis' in window){
-    try{
-      speechSynthesis.cancel();
-      var u = new SpeechSynthesisUtterance('');
-      u.lang='ko-KR'; u.volume=0; u.rate=10;
-      speechSynthesis.speak(u);
-    }catch(e){}
-    if(!speechSynthesis.getVoices().length)
-      speechSynthesis.onvoiceschanged = function(){ speechSynthesis.getVoices(); };
+    try{ speechSynthesis.cancel(); var u=new SpeechSynthesisUtterance(''); u.lang='ko-KR';u.volume=0;u.rate=10; speechSynthesis.speak(u); }catch(e){}
+    if(!speechSynthesis.getVoices().length) speechSynthesis.onvoiceschanged=function(){speechSynthesis.getVoices();};
   }
 }
-
-// ══════════════════════════════════════════════════════════
-//  speak() — 3단계 폴백 전략
-//
-//  1순위: speechSynthesis (크롬/사파리 등 정상 브라우저)
-//         → TTS 실패 시 onerror에서 자동으로 비프음 폴백
-//
-//  2순위: Web Audio API 비프음 (카카오톡 WebView 등 TTS 불가)
-//         초록불: 낮은음(880Hz) → 높은음(1046Hz)  [긍정 상승]
-//         빨간불: 높은음(494Hz) → 낮은음(330Hz)   [경고 하강]
-//
-//  3순위: 진동만 (오디오 전체 불가 환경)
-// ══════════════════════════════════════════════════════════
 function speak(text){
   if(!opts.voice) return;
-  var isGreen = text.indexOf('초록') !== -1;
-
-  // AudioContext 상태 확인 및 재개
-  if(audioCtx && audioCtx.state === 'suspended'){
-    audioCtx.resume();
-  }
-
-  // 1순위: speechSynthesis TTS 시도
+  var isGreen=text.indexOf('초록')!==-1;
+  if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
   if('speechSynthesis' in window){
     speechSynthesis.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang='ko-KR'; u.rate=0.92; u.volume=1; u.pitch=1;
-    var voices = speechSynthesis.getVoices();
-    var koVoice = voices.find(function(v){return v.lang==='ko-KR';})
-               || voices.find(function(v){return v.lang.startsWith('ko');});
-    if(koVoice) u.voice = koVoice;
-
-    // TTS 실패 시 자동으로 비프음 폴백
-    u.onerror = function(e){ playBeep(isGreen); };
-
-    var delay = /Android/i.test(navigator.userAgent) ? 200 : 0;
-    setTimeout(function(){
-      try{ speechSynthesis.speak(u); }catch(e){ playBeep(isGreen); }
-    }, delay);
-
-    // 카카오톡에서는 TTS가 묵음이므로 비프음도 같이 재생
-    if(isKakao){ playBeep(isGreen); }
+    var u=new SpeechSynthesisUtterance(text);
+    u.lang='ko-KR';u.rate=0.92;u.volume=1;u.pitch=1;
+    var voices=speechSynthesis.getVoices();
+    var ko=voices.find(function(v){return v.lang==='ko-KR';})||voices.find(function(v){return v.lang.startsWith('ko');});
+    if(ko) u.voice=ko;
+    u.onerror=function(){playBeep(isGreen);};
+    setTimeout(function(){try{speechSynthesis.speak(u);}catch(e){playBeep(isGreen);}},/Android/i.test(navigator.userAgent)?200:0);
+    if(isKakao) playBeep(isGreen);
     return;
   }
-
-  // speechSynthesis 자체가 없으면 비프음
   playBeep(isGreen);
 }
-
-// ── Web Audio API 비프음 생성 ─────────────────────────────
 function playBeep(isGreen){
-  if(!audioCtx){
-    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-    catch(e){ return; }
-  }
-  if(audioCtx.state === 'suspended'){
-    audioCtx.resume().then(function(){ _doBeep(isGreen); });
-    return;
-  }
+  if(!audioCtx){try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){return;}}
+  if(audioCtx.state==='suspended'){audioCtx.resume().then(function(){_doBeep(isGreen);});return;}
   _doBeep(isGreen);
 }
-
 function _doBeep(isGreen){
   try{
-    var now = audioCtx.currentTime;
-    if(isGreen){
-      // 초록불: 삐↑삐↑ (상승 패턴 — 건너세요)
-      _tone(880,  now,        0.18, 0.7);
-      _tone(1046, now + 0.25, 0.18, 0.7);
-    } else {
-      // 빨간불: 뚜↓뚜 (하강 패턴 — 멈추세요)
-      _tone(494, now,        0.22, 0.8);
-      _tone(330, now + 0.30, 0.22, 0.8);
-    }
+    var now=audioCtx.currentTime;
+    if(isGreen){_tone(880,now,0.18,0.7);_tone(1046,now+0.25,0.18,0.7);}
+    else{_tone(494,now,0.22,0.8);_tone(330,now+0.30,0.22,0.8);}
   }catch(e){}
 }
-
-function _tone(freq, startTime, duration, volume){
+function _tone(freq,startTime,duration,volume){
   try{
-    var osc  = audioCtx.createOscillator();
-    var gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, startTime);
-    gain.gain.setValueAtTime(0, startTime);
-    gain.gain.linearRampToValueAtTime(volume, startTime + 0.015);
-    gain.gain.setValueAtTime(volume, startTime + duration - 0.025);
-    gain.gain.linearRampToValueAtTime(0, startTime + duration);
-    osc.start(startTime);
-    osc.stop(startTime + duration + 0.01);
+    var osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
+    osc.connect(gain);gain.connect(audioCtx.destination);
+    osc.type='sine';osc.frequency.setValueAtTime(freq,startTime);
+    gain.gain.setValueAtTime(0,startTime);
+    gain.gain.linearRampToValueAtTime(volume,startTime+0.015);
+    gain.gain.setValueAtTime(volume,startTime+duration-0.025);
+    gain.gain.linearRampToValueAtTime(0,startTime+duration);
+    osc.start(startTime);osc.stop(startTime+duration+0.01);
   }catch(e){}
 }
 
-// ── COCO 모델 로드 ────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  COCO 모델
+// ════════════════════════════════════════════════════════
 async function loadCoco(){
   showBar('AI 모델 로딩 중...');
-  try{
-    cocoDetector = await cocoSsd.load({base:'lite_mobilenet_v2'});
-    cocoReady = true;
-    showBar('AI 감지 준비 완료', 1800);
-  }catch(e){ showBar('색상 분석 모드로 동작합니다', 1800); }
+  try{ cocoDetector=await cocoSsd.load({base:'lite_mobilenet_v2'}); cocoReady=true; showBar('AI 감지 준비 완료',1800); }
+  catch(e){ showBar('색상 분석 모드로 동작합니다',1800); }
 }
 function showBar(msg,ms){
-  modelBar.textContent=msg; modelBar.classList.add('v');
+  modelBar.textContent=msg;modelBar.classList.add('v');
   if(ms) setTimeout(function(){modelBar.classList.remove('v');},ms);
 }
 loadCoco();
 
 function toggleCtrl(btn,key){
-  opts[key]=!opts[key]; btn.classList.toggle('active',opts[key]);
-  var sub=btn.querySelector('.ctrl-sub');
-  if(sub) sub.textContent=opts[key]?'ON':'OFF';
+  opts[key]=!opts[key];btn.classList.toggle('active',opts[key]);
+  var sub=btn.querySelector('.ctrl-sub');if(sub) sub.textContent=opts[key]?'ON':'OFF';
 }
 function showConfidence(score,color){
   confBarWrap.classList.add('show');
@@ -446,130 +599,351 @@ function showConfidence(score,color){
   confLabel.textContent='신뢰도 '+pct+'%';
 }
 function setBadge(src){
-  badgeCoco.classList.toggle('show', src==='coco');
-  badgeHsv.classList.toggle('show',  src==='hsv');
+  badgeCoco.classList.toggle('show',src==='coco');
+  badgeHsv.classList.toggle('show',src==='hsv');
 }
 
-// ── 메인 감지 루프 (0.5초마다) ───────────────────────────
+// ════════════════════════════════════════════════════════
+//  탭1: 자동 감지 루프
+// ════════════════════════════════════════════════════════
 async function runDetection(){
   if(!stream||video.readyState<2) return;
   syncCanvas();
   if(cocoReady&&cocoDetector&&!cocoLock){
-    cocoLock=true;
-    try{ await detectWithCOCO(); }finally{ cocoLock=false; }
+    cocoLock=true; try{await detectWithCOCO();}finally{cocoLock=false;}
   } else { detectWithHSV(); }
 }
-
-// ──────────────────────────────────────────────────────────
-//  경로 1: COCO AI 감지
-//  신호등 박스를 AI로 특정 → 해당 영역만 분리 분석
-//  초록 버스, 나무, 하늘 등 배경 완전 차단
-// ──────────────────────────────────────────────────────────
 async function detectWithCOCO(){
-  var preds;
-  try{ preds=await cocoDetector.detect(video); }
-  catch(e){ detectWithHSV(); return; }
-
-  var lights=preds.filter(function(p){
-    return p.class==='traffic light' && p.score>0.25;
-  });
-  if(!lights.length){ detectWithHSV(); return; }
-
+  var preds; try{preds=await cocoDetector.detect(video);}catch(e){detectWithHSV();return;}
+  var lights=preds.filter(function(p){return p.class==='traffic light'&&p.score>0.25;});
+  if(!lights.length){detectWithHSV();return;}
   lights.sort(function(a,b){return b.score-a.score;});
   var best=lights[0];
   var bx=best.bbox[0],by=best.bbox[1],bw=best.bbox[2],bh=best.bbox[3];
-  var vw=video.videoWidth, vh=video.videoHeight;
-
-  var SW=24, SH=48;
-  var tmp=document.createElement('canvas');
-  tmp.width=SW; tmp.height=SH;
+  var vw=video.videoWidth,vh=video.videoHeight;
+  var SW=24,SH=48,tmp=document.createElement('canvas');
+  tmp.width=SW;tmp.height=SH;
   var c2=tmp.getContext('2d');
-  c2.drawImage(video,
-    Math.max(0,bx), Math.max(0,by),
-    Math.min(bw,vw-bx), Math.min(bh,vh-by),
-    0,0,SW,SH);
-  var imgData=c2.getImageData(0,0,SW,SH).data;
-  var result=analyzeSignalBox(imgData,SW,SH);
-
+  c2.drawImage(video,Math.max(0,bx),Math.max(0,by),Math.min(bw,vw-bx),Math.min(bh,vh-by),0,0,SW,SH);
+  var result=analyzeSignalBox(c2.getImageData(0,0,SW,SH).data,SW,SH);
   dctx.clearRect(0,0,dcv.width,dcv.height);
   if(result.color!=='unknown'){
     drawBox(bx,by,bw,bh,result.color,Math.round(result.score*100),'AI');
-    showConfidence(result.score,result.color);
-    setBadge('coco');
+    showConfidence(result.score,result.color);setBadge('coco');
     chipEl.textContent='[AI] '+(result.color==='green'?'초록불 감지':'빨간불 감지');
   }
   processResult(result.color,result.score,'coco',CONFIRM_COCO);
 }
-
-// ──────────────────────────────────────────────────────────
-//  신호등 박스 내부 HSV 색상 분석
-//
-//  실제 사진 측정값 기반:
-//  [초록불] H=145~195 (청록/민트), S>=0.45, V>=0.45
-//  [빨간불] H=0~15 또는 345~360 (순수빨강), S>=0.65, V>=0.55
-//  [하우징] V<0.22 (검은색) — 전체의 20% 이상이어야 신호등
-//
-//  버스 초록(H=100~140)은 청록 범위(H=145~195) 밖 → 자동 제외
-// ──────────────────────────────────────────────────────────
 function analyzeSignalBox(data,w,h){
-  var darkPx=0, redPx=0, grnPx=0, tot=w*h;
+  var darkPx=0,redPx=0,grnPx=0,tot=w*h;
   for(var i=0;i<data.length;i+=4){
     var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
     if(a<80) continue;
-    var rf=r/255, gf=g/255, bf=b/255;
-    var mx=Math.max(rf,gf,bf), mn=Math.min(rf,gf,bf), d=mx-mn;
-    if(mx<0.22){ darkPx++; continue; }
+    var rf=r/255,gf=g/255,bf=b/255,mx=Math.max(rf,gf,bf),mn=Math.min(rf,gf,bf),d=mx-mn;
+    if(mx<0.22){darkPx++;continue;}
     var sat=mx>0?d/mx:0;
     if(sat<0.45||mx<0.45) continue;
     var hue=0;
     if(d>0){
-      if(mx===rf)       hue=60*((gf-bf)/d%6);
-      else if(mx===gf)  hue=60*((bf-rf)/d+2);
-      else              hue=60*((rf-gf)/d+4);
+      if(mx===rf) hue=60*((gf-bf)/d%6);
+      else if(mx===gf) hue=60*((bf-rf)/d+2);
+      else hue=60*((rf-gf)/d+4);
       if(hue<0) hue+=360;
     }
-    if((hue<=15||hue>=345) && sat>=0.65 && mx>=0.55) redPx++;
-    else if(hue>=145&&hue<=195 && sat>=0.45 && mx>=0.45) grnPx++;
+    if((hue<=15||hue>=345)&&sat>=0.65&&mx>=0.55) redPx++;
+    else if(hue>=145&&hue<=195&&sat>=0.45&&mx>=0.45) grnPx++;
   }
   if(darkPx/tot<0.20) return {color:'unknown',score:0};
-  var rr=redPx/tot, gr=grnPx/tot;
-  if(rr>0.04&&rr<0.50&&rr>gr*1.3) return {color:'red',   score:Math.min(0.45+rr*3,1.0)};
-  if(gr>0.04&&gr<0.50&&gr>rr*1.3) return {color:'green', score:Math.min(0.45+gr*3,1.0)};
+  var rr=redPx/tot,gr=grnPx/tot;
+  if(rr>0.04&&rr<0.50&&rr>gr*1.3) return {color:'red',score:Math.min(0.45+rr*3,1.0)};
+  if(gr>0.04&&gr<0.50&&gr>rr*1.3) return {color:'green',score:Math.min(0.45+gr*3,1.0)};
   return {color:'unknown',score:0};
+}
+function detectWithHSV(){
+  var vw=video.videoWidth,vh=video.videoHeight;
+  if(!vw||!vh) return;
+  var SW=160,SH=Math.round(vh*SW/vw);
+  var tmp=document.createElement('canvas');tmp.width=SW;tmp.height=SH;
+  tmp.getContext('2d').drawImage(video,0,0,SW,SH);
+  var data=tmp.getContext('2d').getImageData(0,0,SW,SH).data;
+  var maxY=Math.floor(SH*0.45),totalScreen=SW*SH;
+  var COLS=16,ROWS=7,cw=Math.floor(SW/COLS),ch=Math.floor(maxY/ROWS);
+  var bestRed={score:0,x:0,y:0,w:0,h:0},bestGrn={score:0,x:0,y:0,w:0,h:0};
+  var scaleX=vw/SW,scaleY=vh/SH;
+  for(var row=0;row<ROWS;row++){
+    for(var col=0;col<COLS;col++){
+      var x0=col*cw,y0=row*ch,darkC=0,redC=0,grnC=0,cellTot=0;
+      for(var py=y0;py<y0+ch&&py<maxY;py++){
+        for(var px=x0;px<x0+cw&&px<SW;px++){
+          var i=(py*SW+px)*4;
+          var r=data[i],g=data[i+1],b=data[i+2];
+          var rf=r/255,gf=g/255,bf=b/255,mx=Math.max(rf,gf,bf),mn=Math.min(rf,gf,bf),d=mx-mn;
+          cellTot++;
+          if(mx<0.22){darkC++;continue;}
+          var sat=mx>0?d/mx:0;if(sat<0.45||mx<0.45) continue;
+          var hue=0;
+          if(d>0){
+            if(mx===rf) hue=60*((gf-bf)/d%6);
+            else if(mx===gf) hue=60*((bf-rf)/d+2);
+            else hue=60*((rf-gf)/d+4);
+            if(hue<0) hue+=360;
+          }
+          if((hue<=15||hue>=345)&&sat>=0.65&&mx>=0.55) redC++;
+          else if(hue>=145&&hue<=195&&sat>=0.45&&mx>=0.45) grnC++;
+        }
+      }
+      if(cellTot===0) continue;
+      var dr=darkC/cellTot,rr=redC/cellTot,gr=grnC/cellTot;
+      if(dr<0.15) continue;
+      var redAbs=redC/totalScreen,grnAbs=grnC/totalScreen;
+      if(rr>0.06&&rr<0.60&&rr>gr*1.3&&redAbs<0.020){var s=rr*(1+dr);if(s>bestRed.score) bestRed={score:s,x:x0,y:y0,w:cw,h:ch};}
+      if(gr>0.06&&gr<0.60&&gr>rr*1.3&&grnAbs<0.020){var s2=gr*(1+dr);if(s2>bestGrn.score) bestGrn={score:s2,x:x0,y:y0,w:cw,h:ch};}
+    }
+  }
+  dctx.clearRect(0,0,dcv.width,dcv.height);
+  var color='unknown',score=0,box=null;
+  if(bestRed.score>0.07||bestGrn.score>0.07){
+    if(bestRed.score>bestGrn.score*1.4){color='red';score=Math.min(bestRed.score*1.8,0.70);box=bestRed;}
+    else if(bestGrn.score>bestRed.score*1.4){color='green';score=Math.min(bestGrn.score*1.8,0.70);box=bestGrn;}
+    if(color!=='unknown'&&box){
+      drawBox(box.x*scaleX,box.y*scaleY,box.w*scaleX,box.h*scaleY,color,Math.round(score*100),'HSV');
+      showConfidence(score,color);setBadge('hsv');
+      chipEl.textContent='[색상] '+(color==='green'?'초록불 감지':'빨간불 감지');
+    }
+  }
+  processResult(color,score,'hsv',CONFIRM_HSV);
+}
+function processResult(color,score,method,confirmNeeded){
+  if(color==='unknown'){
+    missFrames++;pendingSignal='unknown';pendingFrames=0;
+    if(missFrames>=MISS_LIMIT&&currentSignal!=='unknown'){resetSignal();missFrames=0;}
+    if(method==='hsv'){setBadge('');chipEl.textContent='신호등 탐색 중... (상단을 향해주세요)';confBarWrap.classList.remove('show');}
+    return;
+  }
+  missFrames=0;
+  if(color===pendingSignal) pendingFrames++;
+  else{pendingSignal=color;pendingFrames=1;return;}
+  if(pendingFrames>=confirmNeeded){
+    pendingFrames=0;
+    if(color!==currentSignal){currentSignal=color;fireSignal(color,25);}
+  }
+}
+function drawBox(bx,by,bw,bh,color,pct,label){
+  var vw=video.videoWidth,vh=video.videoHeight,sx=dcv.width/vw,sy=dcv.height/vh;
+  var col=color==='green'?'#22c55e':'#ef4444';
+  dctx.strokeStyle=col;dctx.lineWidth=3;
+  dctx.beginPath();
+  if(dctx.roundRect) dctx.roundRect(bx*sx,by*sy,bw*sx,bh*sy,8); else dctx.rect(bx*sx,by*sy,bw*sx,bh*sy);
+  dctx.stroke();
+  dctx.fillStyle=col;
+  if(dctx.roundRect) dctx.roundRect(bx*sx,(by*sy)-19,135,16,3); else dctx.rect(bx*sx,(by*sy)-19,135,16);
+  dctx.fill();
+  dctx.fillStyle='#000';dctx.font='bold 9px system-ui';
+  dctx.fillText((label||'')+(color==='green'?' 초록불':' 빨간불')+' '+pct+'%',bx*sx+4,by*sy-7);
+}
+function syncCanvas(){
+  var r=video.getBoundingClientRect(),w=Math.floor(r.width),h=Math.floor(r.height);
+  if(dcv.width!==w||dcv.height!==h){dcv.width=w;dcv.height=h;}
+}
+async function startCamera(){
+  unlockAudio();
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}},audio:false});
+    video.srcObject=stream;
+    await new Promise(function(r){video.onloadedmetadata=r;});
+    startOvl.style.display='none';ctrlBar.style.display='flex';
+    setUI('idle');chipEl.textContent='신호등 탐색 중... (상단을 향해주세요)';
+    detectTimer=setInterval(runDetection,500);
+  }catch(e){alert('카메라를 사용할 수 없습니다.\n'+e.message);}
+}
+function stopCamera(){
+  if(stream) stream.getTracks().forEach(function(t){t.stop();});
+  stream=null;clearInterval(detectTimer);
+  ctrlBar.style.display='none';startOvl.style.display='flex';
+  resetAll();chipEl.textContent='카메라를 시작하세요';confBarWrap.classList.remove('show');
+}
+function fireSignal(color,seconds){
+  applyUI(color,seconds);
+  speak(color==='green'?'초록불입니다. 건너세요.':'빨간불입니다. 멈추세요.');
+  vibrate(color);
+}
+function testSignal(color){
+  unlockAudio();currentSignal=color;fireSignal(color,color==='green'?25:0);
+}
+function applyUI(color,seconds){
+  clearInterval(countdownTimer);setUI(color);
+  if(opts.count&&color==='green'&&seconds>0){
+    countdownVal=seconds;showCount(countdownVal,color);countNotice.classList.add('show');
+    countdownTimer=setInterval(function(){
+      countdownVal--;
+      if(countdownVal<=0){clearInterval(countdownTimer);cdEl.textContent='';bigCount.textContent='';bigCount.className='';cdEl.classList.remove('urgent');countNotice.classList.remove('show');}
+      else{showCount(countdownVal,color);if(countdownVal<=5&&opts.vib) navigator.vibrate&&navigator.vibrate(80);}
+    },1000);
+  } else{cdEl.textContent='';countNotice.classList.remove('show');}
+}
+function showCount(val,color){
+  cdEl.textContent=val+'초';cdEl.classList.toggle('urgent',val<=5);
+  bigCount.textContent=val+'초';bigCount.className=(val<=5?'urgent-c':color);
+}
+function setUI(state){
+  bgOverlay.className=state;borderSignal.className=state;banner.className=state;
+  if(state==='green'){sigText.textContent='건너세요';sigCenterTxt.textContent='건너세요';sigCenterTxt.className='green';sigCenter.classList.add('show');}
+  else if(state==='red'){sigText.textContent='멈추세요';sigCenterTxt.textContent='멈추세요';sigCenterTxt.className='red';sigCenter.classList.add('show');}
+  else{sigText.textContent='신호등 알리미';sigCenter.classList.remove('show');}
+}
+function resetSignal(){
+  currentSignal='unknown';clearInterval(countdownTimer);setUI('idle');
+  cdEl.textContent='';cdEl.classList.remove('urgent');bigCount.textContent='';bigCount.className='';
+  countNotice.classList.remove('show');dctx.clearRect(0,0,dcv.width,dcv.height);
+}
+function resetAll(){pendingSignal='unknown';pendingFrames=0;missFrames=0;resetSignal();setBadge('');}
+function vibrate(color){
+  if(!opts.vib||!navigator.vibrate) return;
+  navigator.vibrate(color==='green'?[200,100,200,100,200]:[600,150,600,150,600]);
+}
+
+// ════════════════════════════════════════════════════════
+//  탭2: 확대 뷰어
+// ════════════════════════════════════════════════════════
+var zoomStream=null, zoomTimer=null;
+var zoomLevel=4;
+var zoomVideo    = document.getElementById('zoom-video');
+var zoomCanvas   = document.getElementById('zoom-canvas');
+var zctx         = zoomCanvas.getContext('2d');
+var zoomResult   = document.getElementById('zoom-result-canvas');
+var zrCtx        = zoomResult.getContext('2d');
+var zoomStartMsg = document.getElementById('zoom-start-msg');
+var scanLine     = document.getElementById('scan-line');
+var zoomStatus   = document.getElementById('zoom-status');
+var btnZoomStop  = document.getElementById('btn-zoom-stop');
+
+// 확대 뷰어 정보 요소
+var ziColor = document.getElementById('zi-color');
+var ziPos   = document.getElementById('zi-pos');
+var ziSize  = document.getElementById('zi-size');
+var cbarRed = document.getElementById('cbar-red');
+var cbarGrn = document.getElementById('cbar-green');
+
+async function startZoomCamera(){
+  unlockAudio();
+  try{
+    zoomStream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}},audio:false
+    });
+    zoomVideo.srcObject=zoomStream;
+    await new Promise(function(r){zoomVideo.onloadedmetadata=r;});
+    zoomStartMsg.style.display='none';
+    scanLine.classList.add('show');
+    btnZoomStop.classList.add('show');
+    zoomStatus.textContent='탐색 중...';
+    zoomStatus.className='scan-st';
+    zoomTimer=setInterval(runZoomDetection,400);
+  }catch(e){alert('카메라를 사용할 수 없습니다.\n'+e.message);}
+}
+
+function stopZoomCamera(){
+  if(zoomStream) zoomStream.getTracks().forEach(function(t){t.stop();});
+  zoomStream=null;clearInterval(zoomTimer);
+  scanLine.classList.remove('show');
+  btnZoomStop.classList.remove('show');
+  zoomStartMsg.style.display='flex';
+  zoomStatus.textContent='중지됨';
+  zoomStatus.className='';
+  zctx.clearRect(0,0,zoomCanvas.width,zoomCanvas.height);
+  zrCtx.clearRect(0,0,zoomResult.width,zoomResult.height);
+  updateZoomInfo(null);
+}
+
+function syncZoomCanvas(){
+  var r=zoomVideo.getBoundingClientRect();
+  var w=Math.floor(r.width),h=Math.floor(r.height);
+  if(zoomCanvas.width!==w||zoomCanvas.height!==h){zoomCanvas.width=w;zoomCanvas.height=h;}
 }
 
 // ──────────────────────────────────────────────────────────
-//  경로 2: HSV 폴백 (COCO 미감지 시)
+//  확대 뷰어 감지 루프
 //
-//  실제 환경 제약:
-//  ① 화면 상단 45%만 탐색 (신호등은 항상 위쪽)
-//  ② 발광 픽셀 절대 수 < 화면 전체의 2% (버스 차단)
-//  ③ 검은 하우징 비율 >= 15% (신호등 고유 특성)
-//  ④ 청록 H=145~195 (버스 초록 H=100~140 완전 제외)
+//  전략:
+//  1. COCO 사용 가능 → traffic light 박스 우선
+//  2. 없으면 HSV 그리드로 신호등 후보 셀 탐색
+//  3. 찾은 영역을 zoom-result-canvas에 크게 확대 렌더링
+//  4. 오버레이 캔버스에 탐지 박스 + 색상 정보 표시
 // ──────────────────────────────────────────────────────────
-function detectWithHSV(){
-  var vw=video.videoWidth, vh=video.videoHeight;
-  if(!vw||!vh) return;
+var zCocoLock=false;
 
-  var SW=160, SH=Math.round(vh*SW/vw);
-  var tmp=document.createElement('canvas');
-  tmp.width=SW; tmp.height=SH;
-  tmp.getContext('2d').drawImage(video,0,0,SW,SH);
+async function runZoomDetection(){
+  if(!zoomStream||zoomVideo.readyState<2) return;
+  syncZoomCanvas();
+
+  var found=null; // {x,y,w,h,color,redRatio,grnRatio} in video coords
+
+  // COCO 우선
+  if(cocoReady&&cocoDetector&&!zCocoLock){
+    zCocoLock=true;
+    try{
+      var preds=await cocoDetector.detect(zoomVideo);
+      var lights=preds.filter(function(p){return p.class==='traffic light'&&p.score>0.22;});
+      if(lights.length){
+        lights.sort(function(a,b){return b.score-a.score;});
+        var best=lights[0];
+        var bx=best.bbox[0],by=best.bbox[1],bw=best.bbox[2],bh=best.bbox[3];
+        var vw=zoomVideo.videoWidth,vh=zoomVideo.videoHeight;
+        // 박스 분석
+        var SW=32,SH=64,tmp=document.createElement('canvas');
+        tmp.width=SW;tmp.height=SH;
+        var tc=tmp.getContext('2d');
+        tc.drawImage(zoomVideo,Math.max(0,bx),Math.max(0,by),Math.min(bw,vw-bx),Math.min(bh,vh-by),0,0,SW,SH);
+        var id=tc.getImageData(0,0,SW,SH).data;
+        var cr=analyzeColorRatios(id,SW,SH);
+        found={x:bx,y:by,w:bw,h:bh,color:cr.color,redRatio:cr.red,grnRatio:cr.green,method:'AI'};
+      }
+    }catch(e){}
+    finally{zCocoLock=false;}
+  }
+
+  // COCO 실패 시 HSV 그리드 탐색
+  if(!found){
+    found=zoomHSVSearch();
+  }
+
+  // 결과 렌더링
+  zctx.clearRect(0,0,zoomCanvas.width,zoomCanvas.height);
+
+  if(found){
+    renderZoomBox(found);
+    renderZoomResult(found);
+    updateZoomInfo(found);
+  } else {
+    // 미발견
+    zrCtx.clearRect(0,0,zoomResult.width,zoomResult.height);
+    zrCtx.fillStyle='#0a0f1e';
+    zrCtx.fillRect(0,0,zoomResult.width,zoomResult.height);
+    zrCtx.fillStyle='rgba(255,255,255,0.15)';
+    zrCtx.font='11px system-ui';
+    zrCtx.textAlign='center';
+    zrCtx.fillText('탐색 중',zoomResult.width/2,zoomResult.height/2);
+    updateZoomInfo(null);
+    zoomStatus.textContent='탐색 중...';
+    zoomStatus.className='scan-st';
+    zoomResult.className='';
+  }
+}
+
+// HSV 그리드로 신호등 후보 찾기
+function zoomHSVSearch(){
+  var vw=zoomVideo.videoWidth,vh=zoomVideo.videoHeight;
+  if(!vw||!vh) return null;
+  var SW=160,SH=Math.round(vh*SW/vw);
+  var tmp=document.createElement('canvas');tmp.width=SW;tmp.height=SH;
+  tmp.getContext('2d').drawImage(zoomVideo,0,0,SW,SH);
   var data=tmp.getContext('2d').getImageData(0,0,SW,SH).data;
-
-  var maxY=Math.floor(SH*0.45);  // ① 상단 45%
-  var totalScreen=SW*SH;
-  var COLS=16, ROWS=7;
-  var cw=Math.floor(SW/COLS), ch=Math.floor(maxY/ROWS);
-  var bestRed={score:0,x:0,y:0,w:0,h:0};
-  var bestGrn={score:0,x:0,y:0,w:0,h:0};
-  var scaleX=vw/SW, scaleY=vh/SH;
-
+  var maxY=Math.floor(SH*0.55),totalScreen=SW*SH;
+  var COLS=16,ROWS=9,cw=Math.floor(SW/COLS),ch=Math.floor(maxY/ROWS);
+  var best={score:0,x:0,y:0,w:0,h:0,color:'unknown',redRatio:0,grnRatio:0};
+  var scaleX=vw/SW,scaleY=vh/SH;
   for(var row=0;row<ROWS;row++){
     for(var col=0;col<COLS;col++){
-      var x0=col*cw, y0=row*ch;
-      var darkC=0, redC=0, grnC=0, cellTot=0;
-
+      var x0=col*cw,y0=row*ch,darkC=0,redC=0,grnC=0,cellTot=0;
       for(var py=y0;py<y0+ch&&py<maxY;py++){
         for(var px=x0;px<x0+cw&&px<SW;px++){
           var i=(py*SW+px)*4;
@@ -577,211 +951,168 @@ function detectWithHSV(){
           var rf=r/255,gf=g/255,bf=b/255;
           var mx=Math.max(rf,gf,bf),mn=Math.min(rf,gf,bf),d=mx-mn;
           cellTot++;
-          if(mx<0.22){ darkC++; continue; }
-          var sat=mx>0?d/mx:0;
-          if(sat<0.45||mx<0.45) continue;
+          if(mx<0.22){darkC++;continue;}
+          var sat=mx>0?d/mx:0;if(sat<0.45||mx<0.45) continue;
           var hue=0;
           if(d>0){
-            if(mx===rf)       hue=60*((gf-bf)/d%6);
-            else if(mx===gf)  hue=60*((bf-rf)/d+2);
-            else              hue=60*((rf-gf)/d+4);
+            if(mx===rf) hue=60*((gf-bf)/d%6);
+            else if(mx===gf) hue=60*((bf-rf)/d+2);
+            else hue=60*((rf-gf)/d+4);
             if(hue<0) hue+=360;
           }
           if((hue<=15||hue>=345)&&sat>=0.65&&mx>=0.55) redC++;
           else if(hue>=145&&hue<=195&&sat>=0.45&&mx>=0.45) grnC++;
         }
       }
-
       if(cellTot===0) continue;
-      var dr=darkC/cellTot, rr=redC/cellTot, gr=grnC/cellTot;
-      if(dr<0.15) continue;  // ③ 하우징 필수
-
-      var redAbs=redC/totalScreen, grnAbs=grnC/totalScreen;
-
-      if(rr>0.06&&rr<0.60&&rr>gr*1.3&&redAbs<0.020){
-        var s=rr*(1+dr);
-        if(s>bestRed.score) bestRed={score:s,x:x0,y:y0,w:cw,h:ch};
-      }
-      if(gr>0.06&&gr<0.60&&gr>rr*1.3&&grnAbs<0.020){
-        var s2=gr*(1+dr);
-        if(s2>bestGrn.score) bestGrn={score:s2,x:x0,y:y0,w:cw,h:ch};
+      var dr=darkC/cellTot,rr=redC/cellTot,gr=grnC/cellTot;
+      if(dr<0.12) continue;
+      var redAbs=redC/totalScreen,grnAbs=grnC/totalScreen;
+      var score=0,color='unknown';
+      if(rr>0.05&&rr<0.65&&rr>gr*1.2&&redAbs<0.025){score=rr*(1+dr);color='red';}
+      else if(gr>0.05&&gr<0.65&&gr>rr*1.2&&grnAbs<0.025){score=gr*(1+dr);color='green';}
+      if(score>best.score){
+        // 박스를 신호등 비율(1:2)에 맞게 확장
+        var cx=(x0+cw/2)*scaleX, cy=(y0+ch/2)*scaleY;
+        var bh2=Math.max(ch*scaleY*2.5, 40);
+        var bw2=bh2*0.55;
+        best={
+          score:score,
+          x:cx-bw2/2, y:cy-bh2/2,
+          w:bw2, h:bh2,
+          color:color,
+          redRatio:rr, grnRatio:gr,
+          method:'HSV'
+        };
       }
     }
   }
-
-  dctx.clearRect(0,0,dcv.width,dcv.height);
-  var color='unknown', score=0, box=null;
-
-  if(bestRed.score>0.07||bestGrn.score>0.07){
-    if(bestRed.score>bestGrn.score*1.4){
-      color='red'; score=Math.min(bestRed.score*1.8,0.70); box=bestRed;
-    } else if(bestGrn.score>bestRed.score*1.4){
-      color='green'; score=Math.min(bestGrn.score*1.8,0.70); box=bestGrn;
-    }
-    if(color!=='unknown'&&box){
-      drawBox(box.x*scaleX,box.y*scaleY,box.w*scaleX,box.h*scaleY,
-              color,Math.round(score*100),'HSV');
-      showConfidence(score,color);
-      setBadge('hsv');
-      chipEl.textContent='[색상] '+(color==='green'?'초록불 감지':'빨간불 감지');
-    }
-  }
-  processResult(color,score,'hsv',CONFIRM_HSV);
+  return best.score>0.05 ? best : null;
 }
 
-// ── 결과 처리 (연속 확인 후 신호 발동) ───────────────────
-function processResult(color,score,method,confirmNeeded){
-  if(color==='unknown'){
-    missFrames++;
-    pendingSignal='unknown'; pendingFrames=0;
-    if(missFrames>=MISS_LIMIT&&currentSignal!=='unknown'){
-      resetSignal(); missFrames=0;
-    }
-    if(method==='hsv'){
-      setBadge('');
-      chipEl.textContent='신호등 탐색 중... (상단을 향해주세요)';
-      confBarWrap.classList.remove('show');
-    }
+// 오버레이 캔버스에 박스 그리기
+function renderZoomBox(found){
+  var vw=zoomVideo.videoWidth,vh=zoomVideo.videoHeight;
+  var sx=zoomCanvas.width/vw,sy=zoomCanvas.height/vh;
+  var col=found.color==='green'?'#22c55e':found.color==='red'?'#ef4444':'#60a5fa';
+
+  // 박스
+  zctx.strokeStyle=col;zctx.lineWidth=3;
+  zctx.beginPath();
+  if(zctx.roundRect) zctx.roundRect(found.x*sx,found.y*sy,found.w*sx,found.h*sy,8);
+  else zctx.rect(found.x*sx,found.y*sy,found.w*sx,found.h*sy);
+  zctx.stroke();
+
+  // 모서리 강조선
+  var x=found.x*sx,y=found.y*sy,w=found.w*sx,h=found.h*sy,len=Math.min(w,h)*0.25;
+  zctx.strokeStyle=col;zctx.lineWidth=4;
+  zctx.beginPath();
+  // 좌상
+  zctx.moveTo(x,y+len);zctx.lineTo(x,y);zctx.lineTo(x+len,y);
+  // 우상
+  zctx.moveTo(x+w-len,y);zctx.lineTo(x+w,y);zctx.lineTo(x+w,y+len);
+  // 좌하
+  zctx.moveTo(x,y+h-len);zctx.lineTo(x,y+h);zctx.lineTo(x+len,y+h);
+  // 우하
+  zctx.moveTo(x+w-len,y+h);zctx.lineTo(x+w,y+h);zctx.lineTo(x+w,y+h-len);
+  zctx.stroke();
+
+  // 라벨
+  var lbl=(found.method||'')+(found.color==='green'?' 초록불':found.color==='red'?' 빨간불':' 탐색중');
+  zctx.fillStyle=col;
+  if(zctx.roundRect) zctx.roundRect(x,y-20,lbl.length*8+10,18,3);
+  else zctx.rect(x,y-20,lbl.length*8+10,18);
+  zctx.fill();
+  zctx.fillStyle='#000';zctx.font='bold 10px system-ui';
+  zctx.fillText(lbl,x+5,y-6);
+}
+
+// 확대 결과 캔버스 렌더링
+function renderZoomResult(found){
+  var vw=zoomVideo.videoWidth,vh=zoomVideo.videoHeight;
+  // 패딩 추가해서 주변 맥락 포함
+  var padX=found.w*0.4, padY=found.h*0.3;
+  var sx=Math.max(0,found.x-padX);
+  var sy=Math.max(0,found.y-padY);
+  var sw=Math.min(found.w+padX*2, vw-sx);
+  var sh=Math.min(found.h+padY*2, vh-sy);
+
+  // zoom-result-canvas 크기를 종횡비에 맞게
+  var aspect=sw/sh;
+  var rh=zoomResult.height, rw=Math.round(rh*aspect);
+  if(zoomResult.width!==rw){ zoomResult.width=rw; }
+
+  // 선명하게 확대 (pixelated)
+  zrCtx.imageSmoothingEnabled=false;
+  zrCtx.drawImage(zoomVideo, sx,sy,sw,sh, 0,0,zoomResult.width,zoomResult.height);
+
+  // 색상 오버레이 (반투명)
+  if(found.color==='green'){
+    zrCtx.fillStyle='rgba(34,197,94,0.12)';
+    zrCtx.fillRect(0,0,zoomResult.width,zoomResult.height);
+  } else if(found.color==='red'){
+    zrCtx.fillStyle='rgba(239,68,68,0.12)';
+    zrCtx.fillRect(0,0,zoomResult.width,zoomResult.height);
+  }
+
+  // 테두리 색상 업데이트
+  zoomResult.className = found.color==='green'?'green-border':found.color==='red'?'red-border':'';
+}
+
+// 정보 패널 업데이트
+function updateZoomInfo(found){
+  if(!found){
+    ziColor.textContent='—';ziPos.textContent='—';ziSize.textContent='—';
+    cbarRed.style.height='4px';cbarGrn.style.height='4px';
+    zoomStatus.textContent='탐색 중...';zoomStatus.className='scan-st';
+    zoomResult.className='';
     return;
   }
-  missFrames=0;
-  if(color===pendingSignal){
-    pendingFrames++;
-  } else {
-    pendingSignal=color; pendingFrames=1; return;
-  }
-  if(pendingFrames>=confirmNeeded){
-    pendingFrames=0;
-    if(color!==currentSignal){
-      currentSignal=color;
-      fireSignal(color,25);
+  var colorTxt = found.color==='green'?'������ 초록불':found.color==='red'?'������ 빨간불':'— 미확인';
+  ziColor.textContent=colorTxt;
+
+  var vw=zoomVideo.videoWidth,vh=zoomVideo.videoHeight;
+  var cx=Math.round((found.x+found.w/2)/vw*100);
+  var cy=Math.round((found.y+found.h/2)/vh*100);
+  ziPos.textContent='좌우 '+cx+'%  상하 '+cy+'%';
+  ziSize.textContent=Math.round(found.w)+'×'+Math.round(found.h)+'px';
+
+  // 색상 막대
+  var rPct=Math.round((found.redRatio||0)*300);
+  var gPct=Math.round((found.grnRatio||0)*300);
+  cbarRed.style.height=Math.max(4,Math.min(rPct,32))+'px';
+  cbarGrn.style.height=Math.max(4,Math.min(gPct,32))+'px';
+
+  // 상태 배지
+  if(found.color==='green'){zoomStatus.textContent='������ 초록불 감지';zoomStatus.className='green-st';}
+  else if(found.color==='red'){zoomStatus.textContent='������ 빨간불 감지';zoomStatus.className='red-st';}
+  else{zoomStatus.textContent='위치 확인 중';zoomStatus.className='scan-st';}
+}
+
+// 색상 비율 분석 (확대 뷰어용)
+function analyzeColorRatios(data,w,h){
+  var redPx=0,grnPx=0,darkPx=0,tot=w*h;
+  for(var i=0;i<data.length;i+=4){
+    var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
+    if(a<80) continue;
+    var rf=r/255,gf=g/255,bf=b/255,mx=Math.max(rf,gf,bf),mn=Math.min(rf,gf,bf),d=mx-mn;
+    if(mx<0.22){darkPx++;continue;}
+    var sat=mx>0?d/mx:0;if(sat<0.4||mx<0.4) continue;
+    var hue=0;
+    if(d>0){
+      if(mx===rf) hue=60*((gf-bf)/d%6);
+      else if(mx===gf) hue=60*((bf-rf)/d+2);
+      else hue=60*((rf-gf)/d+4);
+      if(hue<0) hue+=360;
     }
+    if((hue<=20||hue>=340)&&sat>=0.55&&mx>=0.50) redPx++;
+    else if(hue>=140&&hue<=200&&sat>=0.40&&mx>=0.40) grnPx++;
   }
-}
-
-// ── 박스 그리기 ───────────────────────────────────────────
-function drawBox(bx,by,bw,bh,color,pct,label){
-  var vw=video.videoWidth, vh=video.videoHeight;
-  var sx=dcv.width/vw, sy=dcv.height/vh;
-  var col=color==='green'?'#22c55e':'#ef4444';
-  dctx.strokeStyle=col; dctx.lineWidth=3;
-  dctx.beginPath();
-  if(dctx.roundRect) dctx.roundRect(bx*sx,by*sy,bw*sx,bh*sy,8);
-  else dctx.rect(bx*sx,by*sy,bw*sx,bh*sy);
-  dctx.stroke();
-  var lw=135;
-  dctx.fillStyle=col;
-  if(dctx.roundRect) dctx.roundRect(bx*sx,(by*sy)-19,lw,16,3);
-  else dctx.rect(bx*sx,(by*sy)-19,lw,16);
-  dctx.fill();
-  dctx.fillStyle='#000'; dctx.font='bold 9px system-ui';
-  dctx.fillText(
-    (label||'')+(color==='green'?' 초록불':' 빨간불')+' '+pct+'%',
-    bx*sx+4, by*sy-7
-  );
-}
-
-function syncCanvas(){
-  var r=video.getBoundingClientRect();
-  var w=Math.floor(r.width), h=Math.floor(r.height);
-  if(dcv.width!==w||dcv.height!==h){ dcv.width=w; dcv.height=h; }
-}
-
-// ── 카메라 시작/정지 ──────────────────────────────────────
-async function startCamera(){
-  unlockAudio();
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}},
-      audio:false
-    });
-    video.srcObject=stream;
-    await new Promise(function(r){video.onloadedmetadata=r;});
-    startOvl.style.display='none';
-    ctrlBar.style.display='flex';
-    setUI('idle');
-    chipEl.textContent='신호등 탐색 중... (상단을 향해주세요)';
-    detectTimer=setInterval(runDetection,500);
-  }catch(e){ alert('카메라를 사용할 수 없습니다.\n'+e.message); }
-}
-
-function stopCamera(){
-  if(stream) stream.getTracks().forEach(function(t){t.stop();});
-  stream=null; clearInterval(detectTimer);
-  ctrlBar.style.display='none';
-  startOvl.style.display='flex';
-  resetAll();
-  chipEl.textContent='카메라를 시작하세요';
-  confBarWrap.classList.remove('show');
-}
-
-// ── 신호 발동 ─────────────────────────────────────────────
-function fireSignal(color,seconds){
-  applyUI(color,seconds);
-  speak(color==='green'?'초록불입니다. 건너세요.':'빨간불입니다. 멈추세요.');
-  vibrate(color);
-}
-function testSignal(color){
-  unlockAudio();
-  currentSignal=color;
-  fireSignal(color, color==='green'?25:0);
-}
-
-function applyUI(color,seconds){
-  clearInterval(countdownTimer); setUI(color);
-  if(opts.count&&color==='green'&&seconds>0){
-    countdownVal=seconds; showCount(countdownVal,color);
-    countNotice.classList.add('show');
-    countdownTimer=setInterval(function(){
-      countdownVal--;
-      if(countdownVal<=0){
-        clearInterval(countdownTimer);
-        cdEl.textContent=''; bigCount.textContent=''; bigCount.className='';
-        cdEl.classList.remove('urgent'); countNotice.classList.remove('show');
-      } else {
-        showCount(countdownVal,color);
-        if(countdownVal<=5&&opts.vib) navigator.vibrate&&navigator.vibrate(80);
-      }
-    },1000);
-  } else { cdEl.textContent=''; countNotice.classList.remove('show'); }
-}
-
-function showCount(val,color){
-  cdEl.textContent=val+'초'; cdEl.classList.toggle('urgent',val<=5);
-  bigCount.textContent=val+'초';
-  bigCount.className=(val<=5?'urgent-c':color);
-}
-
-function setUI(state){
-  bgOverlay.className=state; borderSignal.className=state; banner.className=state;
-  if(state==='green'){
-    sigText.textContent='건너세요';
-    sigCenterTxt.textContent='건너세요'; sigCenterTxt.className='green';
-    sigCenter.classList.add('show');
-  } else if(state==='red'){
-    sigText.textContent='멈추세요';
-    sigCenterTxt.textContent='멈추세요'; sigCenterTxt.className='red';
-    sigCenter.classList.add('show');
-  } else {
-    sigText.textContent='신호등 알리미';
-    sigCenter.classList.remove('show');
-  }
-}
-
-function resetSignal(){
-  currentSignal='unknown'; clearInterval(countdownTimer); setUI('idle');
-  cdEl.textContent=''; cdEl.classList.remove('urgent');
-  bigCount.textContent=''; bigCount.className='';
-  countNotice.classList.remove('show');
-  dctx.clearRect(0,0,dcv.width,dcv.height);
-}
-function resetAll(){
-  pendingSignal='unknown'; pendingFrames=0; missFrames=0;
-  resetSignal(); setBadge('');
-}
-function vibrate(color){
-  if(!opts.vib||!navigator.vibrate) return;
-  navigator.vibrate(color==='green'?[200,100,200,100,200]:[600,150,600,150,600]);
+  var rr=redPx/tot,gr=grnPx/tot;
+  var color='unknown';
+  if(rr>gr*1.3&&rr>0.03) color='red';
+  else if(gr>rr*1.3&&gr>0.03) color='green';
+  return {color:color,red:rr,green:gr};
 }
 </script>
 </body>
