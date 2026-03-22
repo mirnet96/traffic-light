@@ -19,23 +19,16 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 #video{width:100%;height:100%;object-fit:cover;display:block}
 #detect-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2}
 
-/* 전체화면 반투명 색상 오버레이 */
-#bg-overlay{position:absolute;inset:0;z-index:3;pointer-events:none;transition:background 0.3s ease;background:transparent;}
-#bg-overlay.green{background:rgba(0,120,60,0.42);}
-#bg-overlay.red  {background:rgba(160,0,0,0.42);}
+/* 전체화면 색상 오버레이 */
+#bg-overlay{position:absolute;inset:0;z-index:3;pointer-events:none;transition:background 0.25s ease;background:transparent;}
+#bg-overlay.green{background:rgba(0,110,55,0.45);}
+#bg-overlay.red  {background:rgba(150,0,0,0.45);}
 
-/* 테두리 신호 */
-#border-signal{position:absolute;inset:0;z-index:4;pointer-events:none;transition:box-shadow 0.3s ease;}
-#border-signal.green{box-shadow:inset 0 0 0 18px rgba(34,197,94,0.85);}
-#border-signal.red  {box-shadow:inset 0 0 0 18px rgba(239,68,68,0.85);}
-#border-signal.idle {box-shadow:inset 0 0 0 5px rgba(59,130,246,0.45);}
-
-/* Roboflow 스캔 링 */
-#scan-ring{position:absolute;top:50%;left:50%;width:110px;height:110px;margin:-55px 0 0 -55px;
-  border-radius:50%;border:3px solid transparent;border-top-color:#a855f7;border-right-color:#7c3aed;
-  animation:spin 0.9s linear infinite;display:none;z-index:5;pointer-events:none;}
-#scan-ring.show{display:block;}
-@keyframes spin{to{transform:rotate(360deg)}}
+/* 테두리 */
+#border-signal{position:absolute;inset:0;z-index:4;pointer-events:none;transition:box-shadow 0.25s ease;}
+#border-signal.green{box-shadow:inset 0 0 0 20px rgba(34,197,94,0.9);}
+#border-signal.red  {box-shadow:inset 0 0 0 20px rgba(239,68,68,0.9);}
+#border-signal.idle {box-shadow:inset 0 0 0 5px rgba(59,130,246,0.4);}
 
 /* 상단 배너 */
 #banner{
@@ -43,44 +36,46 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   padding-top:max(env(safe-area-inset-top,0px),10px);
   padding-left:16px;padding-right:16px;padding-bottom:10px;
   display:flex;align-items:center;gap:10px;
-  background:rgba(0,0,0,0.65);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  transition:background 0.3s;
+  background:rgba(0,0,0,0.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  transition:background 0.25s;
 }
-#banner.green{background:rgba(0,60,30,0.82);}
-#banner.red  {background:rgba(80,0,0,0.82);}
+#banner.green{background:rgba(0,55,28,0.82);}
+#banner.red  {background:rgba(75,0,0,0.82);}
 #signal-info{flex:1;min-width:0}
-#signal-text{font-size:28px;font-weight:800;line-height:1.1;letter-spacing:-0.5px}
+#signal-text{font-size:30px;font-weight:800;line-height:1.1;letter-spacing:-0.5px}
 #signal-sub{font-size:11px;color:rgba(255,255,255,0.5);margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
 
-/* 뱃지 */
+/* 감지 출처 뱃지 */
 .src-badge{display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;}
 .src-badge.show{display:flex}
-.badge-dot{width:6px;height:6px;border-radius:50%;animation:bpulse 1.1s ease-in-out infinite;}
+.badge-dot{width:6px;height:6px;border-radius:50%;animation:bpulse 1s ease-in-out infinite;}
 @keyframes bpulse{0%,100%{opacity:1}50%{opacity:0.2}}
-#badge-api {background:rgba(234,179,8,0.25); border:1px solid rgba(234,179,8,0.5); color:#fde68a;}
-#badge-api  .badge-dot{background:#fbbf24}
-#badge-rf  {background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#a5b4fc;}
-#badge-rf   .badge-dot{background:#818cf8}
-#badge-coco{background:rgba(20,184,166,0.2); border:1px solid rgba(20,184,166,0.45);color:#5eead4;}
+#badge-coco{background:rgba(20,184,166,0.2); border:1px solid rgba(20,184,166,0.5);color:#5eead4;}
 #badge-coco .badge-dot{background:#2dd4bf}
 #badge-hsv {background:rgba(100,116,139,0.25);border:1px solid rgba(100,116,139,0.5);color:#94a3b8;}
 #badge-hsv  .badge-dot{background:#64748b}
 
 /* 카운트다운 */
 #countdown{font-size:40px;font-weight:900;color:rgba(255,255,255,0.95);flex-shrink:0;text-align:right;line-height:1;min-width:60px;}
-#countdown.urgent{color:#fbbf24;animation:blink .45s ease-in-out infinite alternate}
-@keyframes blink{from{opacity:1}to{opacity:0.15}}
+#countdown.urgent{color:#fbbf24;animation:blink .4s ease-in-out infinite alternate}
+@keyframes blink{from{opacity:1}to{opacity:0.1}}
 
 /* 중앙 큰 신호 */
-#signal-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:8;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:10px;}
+#signal-center{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  z-index:8;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:10px;
+}
 #signal-center.show{display:flex;}
-#signal-center-text{font-size:52px;font-weight:900;letter-spacing:-1px;text-shadow:0 2px 20px rgba(0,0,0,0.8);padding:12px 36px;border-radius:18px;}
-#signal-center-text.green{background:rgba(0,80,40,0.88);color:#4ade80;border:2px solid rgba(34,197,94,0.6);}
-#signal-center-text.red  {background:rgba(100,0,0,0.88);color:#f87171;border:2px solid rgba(239,68,68,0.6);}
-#big-count{font-size:80px;font-weight:900;text-shadow:0 4px 28px rgba(0,0,0,0.75);line-height:1;}
+#signal-center-text{
+  font-size:56px;font-weight:900;letter-spacing:-1px;
+  text-shadow:0 2px 20px rgba(0,0,0,0.9);padding:12px 40px;border-radius:18px;
+}
+#signal-center-text.green{background:rgba(0,75,38,0.9);color:#4ade80;border:2px solid rgba(34,197,94,0.7);}
+#signal-center-text.red  {background:rgba(95,0,0,0.9);color:#f87171;border:2px solid rgba(239,68,68,0.7);}
+#big-count{font-size:84px;font-weight:900;text-shadow:0 4px 28px rgba(0,0,0,0.8);line-height:1;}
 #big-count.green{color:#4ade80;}
-#big-count.urgent-c{color:#fbbf24;animation:blink .45s ease-in-out infinite alternate;}
-#count-notice{font-size:11px;font-weight:600;color:rgba(255,255,255,0.55);background:rgba(0,0,0,0.5);padding:3px 12px;border-radius:10px;display:none;}
+#big-count.urgent-c{color:#fbbf24;animation:blink .4s ease-in-out infinite alternate;}
+#count-notice{font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);background:rgba(0,0,0,0.5);padding:3px 12px;border-radius:10px;display:none;}
 #count-notice.show{display:block;}
 
 /* 감지 칩 */
@@ -94,26 +89,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   white-space:nowrap;border:1px solid rgba(255,255,255,0.12);
   max-width:95%;text-align:center;overflow:hidden;text-overflow:ellipsis;
 }
-#detect-chip.api {border-color:rgba(234,179,8,0.5);}
-#detect-chip.rf  {border-color:rgba(99,102,241,0.5);}
 #detect-chip.coco{border-color:rgba(20,184,166,0.5);}
 #detect-chip.hsv {border-color:rgba(100,116,139,0.4);}
-
-/* GPS / 교차로 상태 칩 (detect-chip 위) */
-#gps-chip{
-  position:absolute;z-index:10;left:50%;
-  bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 104px);
-  transform:translateX(-50%);
-  font-size:11px;font-weight:600;
-  padding:4px 14px;border-radius:16px;
-  white-space:nowrap;
-  background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.1);
-  color:rgba(255,255,255,0.55);
-  display:none;
-}
-#gps-chip.show{display:block;}
-#gps-chip.ok  {border-color:rgba(234,179,8,0.4);color:#fde68a;}
-#gps-chip.warn{border-color:rgba(239,68,68,0.4);color:#fca5a5;}
 
 /* 하단 컨트롤 */
 #control-bar{
@@ -159,7 +136,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 .btn-r{background:#dc2626;color:#fff;}
 .btn-g{background:#16a34a;color:#fff;}
 .hint-btm{font-size:12px;color:rgba(255,255,255,0.2)}
-
 #model-bar{position:absolute;top:0;left:0;right:0;z-index:25;background:rgba(0,0,0,0.88);color:rgba(255,255,255,0.6);font-size:13px;padding:10px;text-align:center;display:none;}
 #model-bar.v{display:block}
 </style>
@@ -172,7 +148,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   </div>
   <div id="bg-overlay"></div>
   <div id="border-signal" class="idle"></div>
-  <div id="scan-ring"></div>
 
   <div id="signal-center">
     <div id="signal-center-text"></div>
@@ -185,8 +160,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
       <div id="signal-text">신호등 알리미</div>
       <div id="signal-sub">
         <span id="sub-text">저시력자 보행 보조</span>
-        <span id="badge-api"  class="src-badge"><span class="badge-dot"></span>T-Data API</span>
-        <span id="badge-rf"   class="src-badge"><span class="badge-dot"></span>Roboflow AI</span>
         <span id="badge-coco" class="src-badge"><span class="badge-dot"></span>COCO AI</span>
         <span id="badge-hsv"  class="src-badge"><span class="badge-dot"></span>색상분석</span>
       </div>
@@ -194,7 +167,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
     <div id="countdown"></div>
   </div>
 
-  <div id="gps-chip">GPS 준비 중...</div>
   <div id="detect-chip">카메라를 시작하세요</div>
 
   <div id="control-bar">
@@ -206,9 +178,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
     </button>
     <button class="ctrl-btn active" id="ctrl-count" onclick="toggleCtrl(this,'count')">
       <span class="ctrl-lbl">카운트</span><span class="ctrl-sub">ON</span>
-    </button>
-    <button class="ctrl-btn active" id="ctrl-rf" onclick="toggleCtrl(this,'rf')">
-      <span class="ctrl-lbl">AI</span><span class="ctrl-sub">ON</span>
     </button>
     <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
   </div>
@@ -227,33 +196,18 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
       <span class="tg">초록불</span> — 화면 초록 + 진동 + 음성 + 카운트
     </p>
     <div class="info-card">
-      <h4>감지 우선순위</h4>
+      <h4>감지 방식 (0.5초 주기)</h4>
       <div class="info-row">
-        <div class="info-dot" style="background:#fbbf24"></div>
-        <span>T-Data API + GPS — 현재 위치 가장 가까운 교차로 실시간 신호 (정확)</span>
+        <div class="info-dot" style="background:#2dd4bf"></div>
+        <span>COCO-SSD — 신호등 위치 감지 후 내부 색만 분석 (버스/배경 오인식 방지)</span>
+      </div>
+      <div class="info-row">
+        <div class="info-dot" style="background:#64748b"></div>
+        <span>HSV 색상분석 — 한국 보행자 신호등 실측값 기반 (청록 초록 / 주황 빨강)</span>
       </div>
       <div class="info-row">
         <div class="info-dot" style="background:#818cf8"></div>
-        <span>Roboflow AI — 신호등 전용 학습 모델</span>
-      </div>
-      <div class="info-row">
-        <div class="info-dot" style="background:#2dd4bf"></div>
-        <span>COCO-SSD — 신호등 박스 감지 후 내부 색 분석</span>
-      </div>
-      <div class="info-row">
-        <div class="info-dot" style="background:#64748b"></div>
-        <span>HSV 모양감지 — 원형 불빛 추출 후 색 판단</span>
-      </div>
-    </div>
-    <div class="info-card" style="border-color:rgba(251,191,36,0.2)">
-      <h4>카운트다운</h4>
-      <div class="info-row">
-        <div class="info-dot" style="background:#fbbf24"></div>
-        <span>T-Data API 연결시 — 실제 잔여시간 (정확)</span>
-      </div>
-      <div class="info-row">
-        <div class="info-dot" style="background:#64748b"></div>
-        <span>AI/색상 감지시 — 25초 예측값 (실제와 다를 수 있음)</span>
+        <span>두 방식 동시 실행 — 어느 쪽이든 먼저 감지된 결과 사용</span>
       </div>
     </div>
     <button id="btn-start" onclick="startCamera()">카메라 시작</button>
@@ -277,7 +231,6 @@ var dctx         = dcv.getContext('2d');
 var banner       = document.getElementById('banner');
 var bgOverlay    = document.getElementById('bg-overlay');
 var borderSignal = document.getElementById('border-signal');
-var scanRing     = document.getElementById('scan-ring');
 var sigText      = document.getElementById('signal-text');
 var sigCenter    = document.getElementById('signal-center');
 var sigCenterTxt = document.getElementById('signal-center-text');
@@ -285,480 +238,48 @@ var bigCount     = document.getElementById('big-count');
 var countNotice  = document.getElementById('count-notice');
 var cdEl         = document.getElementById('countdown');
 var chipEl       = document.getElementById('detect-chip');
-var gpsChip      = document.getElementById('gps-chip');
 var modelBar     = document.getElementById('model-bar');
 var ctrlBar      = document.getElementById('control-bar');
 var startOvl     = document.getElementById('start-overlay');
-var badgeAPI     = document.getElementById('badge-api');
-var badgeRF      = document.getElementById('badge-rf');
 var badgeCoco    = document.getElementById('badge-coco');
 var badgeHSV     = document.getElementById('badge-hsv');
 
-// ── 옵션 ────────────────────────────────────────────────
-var opts = { voice:true, vib:true, count:true, rf:true };
+var opts = { voice:true, vib:true, count:true };
 
-// ── 색상/모양 감지 파라미터 (한국 보행자 신호등 실측) ─────
-var CONFIRM_FRAMES = 10, MISS_LIMIT = 60;
-var BLOB_MIN_PIX = 20, BLOB_MAX_PIX = 8000;
-var BLOB_BRIGHT_TH = 0.50, BLOB_SAT_TH = 0.10;
-var GRN_H_MIN = 128, GRN_H_MAX = 200;
-var RED_H_MAX  = 28,  RED_H_MIN  = 332;
+// ══════════════════════════════════════════════════════════
+//  한국 보행자 신호등 실측 색상 파라미터
+//
+//  [초록불 실측] R=99~235, G=130~255, B=142~244
+//  특성: G > R, B도 높음 (청록 계열)
+//  → G - R > 5  AND  G > 130  AND  B > 100 (G와 B가 같이 높음)
+//  → 버스(순초록): G-B > 40 이므로 B < 100이면 제외
+//
+//  [빨간불 실측] R=150~255, G=50~150, B=60~160
+//  특성: R이 G보다 월등히 높음
+//  → R - G > 40  AND  R > 150
+//
+//  핵심 구분:
+//  신호등 초록 = G>R AND B>100 (청록)
+//  버스/나무 초록 = G>R AND B<80 (순초록) → 제외
+// ══════════════════════════════════════════════════════════
 
 // ── 상태 ─────────────────────────────────────────────────
-var stream=null, cocoDetector=null, loopId=null;
-var currentSignal='unknown', pendingSignal='unknown';
-var pendingFrames=0, missFrames=0;
-var countdownVal=0, countdownTimer=null;
-var cocoReady=false, frameCount=0;
-var apiCountdownIsReal = false;
-
-// ══════════════════════════════════════════════════════════
-//  GPS + T-Data API
-//  흐름:
-//  1. GPS로 현재 위치 획득
-//  2. v2xCrossroadMapInformation API로 교차로 목록 조회
-//     (전체 목록 — 서울 전체 약 788개)
-//  3. 각 교차로의 위도/경도와 내 위치 거리 계산 → 최근접 교차로 선택
-//  4. 해당 itstId로 신호 잔여시간 폴링
-//  5. GPS가 없거나 교차로가 너무 멀면 → AI 감지로 폴백
-// ══════════════════════════════════════════════════════════
-var TDATA_KEY   = '7c76f496-b1f7-459f-85f1-ec9359276fce';
-var PROXY       = 'https://corsproxy.io/?url=';
-var MAP_API_URL = 'http://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xCrossroadMapInformation/1.0';
-var SPT_API_URL = 'http://t-data.seoul.go.kr/apig/apiman-gateway/tapi/v2xSignalPhaseTimingInformation/1.0';
-
-var apiActive    = false;
-var apiTimer     = null;
-var API_MS       = 3500;
-var nearestItstId= '';
-var nearestName  = '';
-var nearestDist  = 9999;
-var GPS_STALE_MS = 30000; // 30초 후 GPS 재취득
-var MAX_DIST_M   = 300;   // 300m 이내 교차로만 사용
-
-var gpsLat = null, gpsLon = null, gpsWatcher = null;
-var intersections = []; // 교차로 목록 캐시
-
-// 위도/경도 → 거리(미터) 계산 (Haversine)
-function haversineDist(lat1, lon1, lat2, lon2){
-  var R = 6371000;
-  var dLat = (lat2-lat1) * Math.PI/180;
-  var dLon = (lon2-lon1) * Math.PI/180;
-  var a = Math.sin(dLat/2)*Math.sin(dLat/2)
-        + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)
-          *Math.sin(dLon/2)*Math.sin(dLon/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-// 교차로 목록 조회 (전체, 최초 1회)
-async function loadIntersections(){
-  if(intersections.length > 0) return intersections;
-  try{
-    // numOfRows=1000으로 서울 전체 교차로 한 번에 가져오기
-    var p = new URLSearchParams({apiKey:TDATA_KEY, type:'json', pageNo:1, numOfRows:1000});
-    var url = PROXY + encodeURIComponent(MAP_API_URL + '?' + p.toString());
-    var res = await fetch(url, {signal:AbortSignal.timeout(8000)});
-    if(!res.ok) return [];
-    var json = await res.json();
-    var items = json.body||json.items||json.item||json.list||json.data||[];
-    if(!Array.isArray(items)) items = items.item||[items];
-    // 위도/경도가 있는 것만 필터
-    intersections = items.filter(function(d){
-      return d.mapCtptIntLat && d.mapCtptIntLot && d.itstId;
-    }).map(function(d){
-      return {
-        id:   d.itstId,
-        name: d.itstNm || d.itstEngNm || ('교차로 '+d.itstId),
-        lat:  parseFloat(d.mapCtptIntLat),
-        lon:  parseFloat(d.mapCtptIntLot)
-      };
-    });
-    showBar('교차로 '+intersections.length+'개 로드 완료', 2000);
-    return intersections;
-  }catch(e){
-    showBar('교차로 목록 로드 실패', 2000);
-    return [];
-  }
-}
-
-// 현재 GPS로 가장 가까운 교차로 찾기
-function findNearest(lat, lon, list){
-  var best = null, bestDist = Infinity;
-  for(var i=0; i<list.length; i++){
-    var d = haversineDist(lat, lon, list[i].lat, list[i].lon);
-    if(d < bestDist){ bestDist=d; best=list[i]; }
-  }
-  return best ? {item:best, dist:bestDist} : null;
-}
-
-// GPS 위치 업데이트 콜백
-async function onGPS(pos){
-  gpsLat = pos.coords.latitude;
-  gpsLon = pos.coords.longitude;
-  if(intersections.length === 0) await loadIntersections();
-  if(intersections.length === 0) return;
-
-  var result = findNearest(gpsLat, gpsLon, intersections);
-  if(!result) return;
-
-  var distM = Math.round(result.dist);
-  nearestDist = distM;
-
-  if(distM <= MAX_DIST_M){
-    // 이전과 같은 교차로면 그냥 유지
-    if(nearestItstId === result.item.id) return;
-    nearestItstId = result.item.id;
-    nearestName   = result.item.name;
-    gpsChip.textContent = 'GPS: ' + nearestName + ' (' + distM + 'm)';
-    gpsChip.className   = 'show ok';
-    // 새 교차로로 API 연결
-    if(!apiActive){ apiActive=true; startApiPoll(); setBadge('api'); }
-    showBar(nearestName + ' 교차로 신호 연결됨', 2500);
-  } else {
-    // 너무 멀거나 서울 외 지역
-    nearestItstId = '';
-    nearestName   = '';
-    gpsChip.textContent = 'GPS: C-ITS 교차로 없음 (' + distM + 'm 이상)';
-    gpsChip.className   = 'show warn';
-    if(apiActive){ apiActive=false; clearInterval(apiTimer); setBadge(''); }
-  }
-}
-
-function onGPSError(err){
-  gpsChip.textContent = 'GPS 사용 불가 — AI 감지로 동작';
-  gpsChip.className   = 'show warn';
-  setTimeout(function(){ gpsChip.className=''; }, 4000);
-}
-
-// GPS 감시 시작
-function startGPS(){
-  if(!navigator.geolocation){ onGPSError(); return; }
-  gpsChip.textContent = 'GPS 위치 확인 중...';
-  gpsChip.className   = 'show';
-  // watchPosition: 이동 시 자동으로 교차로 재선택
-  gpsWatcher = navigator.geolocation.watchPosition(
-    onGPS, onGPSError,
-    {enableHighAccuracy:true, maximumAge:10000, timeout:15000}
-  );
-}
-
-// 신호 잔여시간 조회
-async function fetchSignal(){
-  if(!nearestItstId) return null;
-  try{
-    var p = new URLSearchParams({apiKey:TDATA_KEY, type:'json', pageNo:1, numOfRows:1, itstId:nearestItstId});
-    var url = PROXY + encodeURIComponent(SPT_API_URL + '?' + p.toString());
-    var res = await fetch(url, {signal:AbortSignal.timeout(5000)});
-    if(!res.ok) return null;
-    var json = await res.json();
-    var items = json.body||json.items||json.item||json.list||json.data||[];
-    if(!Array.isArray(items)) items = items.item||[items];
-    if(!items.length) return null;
-    var d = items[0];
-    // 보행자 신호 잔여시간 (센티초 -> 초)
-    var pdK=['ntPdsgRmdrCs','stPdsgRmdrCs','etPdsgRmdrCs','wtPdsgRmdrCs',
-             'nePdsgRmdrCs','sePdsgRmdrCs','swPdsgRmdrCs','nwPdsgRmdrCs'];
-    var maxPd=0; pdK.forEach(function(k){var v=parseInt(d[k])||0; if(v>maxPd)maxPd=v;});
-    // 차량 직진 신호 잔여시간
-    var stK=['ntStsgRmdrCs','stStsgRmdrCs','etStsgRmdrCs','wtStsgRmdrCs'];
-    var maxSt=0; stK.forEach(function(k){var v=parseInt(d[k])||0; if(v>maxSt)maxSt=v;});
-    return {
-      greenSec: maxPd>0 ? Math.round(maxPd/10) : null,
-      redSec:   maxSt>0 ? Math.round(maxSt/10) : null
-    };
-  }catch(e){ return null; }
-}
-
-function startApiPoll(){
-  clearInterval(apiTimer);
-  if(!apiActive) return;
-  // 즉시 1회 실행
-  (async function(){
-    var r = await fetchSignal();
-    processApiResult(r);
-  })();
-  apiTimer = setInterval(async function(){
-    if(!stream||!nearestItstId){ clearInterval(apiTimer); apiActive=false; return; }
-    var r = await fetchSignal();
-    processApiResult(r);
-  }, API_MS);
-}
-
-function processApiResult(r){
-  if(!r) return;
-  var color = 'unknown';
-  if(r.greenSec !== null && r.greenSec > 0) color = 'green';
-  else if(r.redSec !== null && r.redSec > 0) color = 'red';
-  if(color === 'unknown') return;
-
-  setBadge('api');
-  var sec = color==='green' ? r.greenSec : r.redSec;
-  chipEl.textContent = '[T-Data] ' + nearestName + ' — '
-    + (color==='green' ? '초록 잔여 '+sec+'초' : '빨강 차량직진 '+sec+'초');
-  chipEl.className = 'api';
-
-  if(color !== currentSignal){
-    currentSignal = color;
-    // API: 초록은 실제 잔여시간, 빨강은 카운트 없음
-    fireSignal(color, color==='green' ? sec : 0, true);
-  }
-}
-
-// ── Roboflow ─────────────────────────────────────────────
-var RF_KEY   = 'rf_ZZ6HCeqnFQ6vdiBBfSPvfMvLWQF3';
-var RF_MODEL = 'traffic-light-oq7uj';
-var RF_VER   = '2';
-var RF_MS    = 2000;
-var rfTimer=null, rfBusy=false, rfActive=false;
-
-function captureB64(maxW){
-  var c=document.createElement('canvas');
-  var vw=video.videoWidth, vh=video.videoHeight;
-  var sc=Math.min(1,(maxW||480)/Math.max(vw,vh));
-  c.width=Math.floor(vw*sc); c.height=Math.floor(vh*sc);
-  c.getContext('2d').drawImage(video,0,0,c.width,c.height);
-  return c.toDataURL('image/jpeg',0.78).split(',')[1];
-}
-
-async function rfAnalyze(){
-  if(rfBusy||!stream||!opts.rf) return;
-  rfBusy=true; scanRing.classList.add('show');
-  try{
-    var b64=captureB64(480);
-    var res=await fetch(
-      'https://detect.roboflow.com/'+RF_MODEL+'/'+RF_VER+
-      '?api_key='+RF_KEY+'&confidence=30&overlap=30',
-      {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-       body:b64, signal:AbortSignal.timeout(5000)}
-    );
-    if(!res.ok){rfBusy=false;scanRing.classList.remove('show');return;}
-    var data=await res.json();
-    rfActive=true;
-    var preds=(data.predictions||[]).filter(function(p){return p.confidence>=0.28;});
-    preds.sort(function(a,b){return b.confidence-a.confidence;});
-    var color='unknown';
-    if(preds.length>0){
-      var cls=(preds[0].class||'').toLowerCase();
-      if(cls.includes('green')) color='green';
-      else if(cls.includes('red')) color='red';
-    }
-    if(!apiActive && color!=='unknown'){
-      var pct=Math.round(preds[0].confidence*100);
-      setBadge('rf');
-      chipEl.textContent='[Roboflow] '+(color==='green'?'초록불':'빨간불')+' ('+pct+'%)';
-      chipEl.className='rf';
-      if(color!==currentSignal){ currentSignal=color; fireSignal(color,color==='green'?25:0,false); }
-    } else if(!apiActive){
-      chipEl.textContent='Roboflow: 신호등 탐색 중...';
-    }
-  }catch(e){}
-  rfBusy=false; scanRing.classList.remove('show');
-}
-
-function startRFPoll(){
-  clearInterval(rfTimer);
-  if(!opts.rf||!stream) return;
-  rfAnalyze();
-  rfTimer=setInterval(function(){if(!stream){clearInterval(rfTimer);return;}rfAnalyze();},RF_MS);
-}
-
-// ── COCO-SSD ─────────────────────────────────────────────
-async function loadCoco(){
-  showBar('AI 모델 로딩 중...');
-  try{
-    cocoDetector=await cocoSsd.load({base:'lite_mobilenet_v2'});
-    cocoReady=true; showBar('COCO-SSD 준비 완료',2000);
-  }catch(e){showBar('색상 분석 모드로 동작합니다',2000);}
-}
-function showBar(msg,ms){
-  modelBar.textContent=msg; modelBar.classList.add('v');
-  if(ms) setTimeout(function(){modelBar.classList.remove('v');},ms);
-}
-loadCoco();
-
-async function detectWithCoco(){
-  var preds;
-  try{preds=await cocoDetector.detect(video);}catch(e){return;}
-  var lights=preds.filter(function(p){return p.class==='traffic light'&&p.score>0.35;});
-  if(!lights.length){detectWithBlob();return;}
-  var best=lights.sort(function(a,b){return b.score-a.score;})[0];
-  var bx=best.bbox[0],by=best.bbox[1],bw=best.bbox[2],bh=best.bbox[3];
-  var tmp=makeOff();
-  var color=analyzeBoxColor(tmp.getContext('2d'),bx,by,bw,bh);
-  var sx=dcv.width/video.videoWidth, sy=dcv.height/video.videoHeight;
-  dctx.clearRect(0,0,dcv.width,dcv.height);
-  var col=color==='green'?'#22c55e':color==='red'?'#ef4444':'#94a3b8';
-  dctx.strokeStyle=col; dctx.lineWidth=3;
-  dctx.beginPath(); dctx.roundRect(bx*sx,by*sy,bw*sx,bh*sy,8); dctx.stroke();
-  dctx.fillStyle=col; dctx.beginPath(); dctx.roundRect(bx*sx,by*sy-22,150,18,4); dctx.fill();
-  dctx.fillStyle='#fff'; dctx.font='bold 10px system-ui';
-  dctx.fillText('COCO '+(color==='green'?'초록불':color==='red'?'빨간불':'탐색중')+' '+Math.round(best.score*100)+'%', bx*sx+5, by*sy-8);
-  if(!opts.rf||!rfActive){
-    if(color!=='unknown'){
-      setBadge('coco');
-      chipEl.textContent='[COCO] '+(color==='green'?'초록불':'빨간불')+' ('+Math.round(best.score*100)+'%)';
-      chipEl.className='coco';
-      handleDetected(color);
-    } else {
-      chipEl.textContent='COCO: 신호 색상 판단 중...';
-      handleDetected('unknown');
-    }
-  }
-}
-
-function analyzeBoxColor(ctx,bx,by,bw,bh){
-  try{
-    bx=Math.max(0,Math.floor(bx)); by=Math.max(0,Math.floor(by));
-    var w2=Math.min(Math.floor(bw),ctx.canvas.width-bx);
-    var h2=Math.min(Math.floor(bh*0.65),ctx.canvas.height-by);
-    if(w2<=0||h2<=0) return 'unknown';
-    var data=ctx.getImageData(bx,by,w2,h2).data;
-    var red=0,green=0,total=0;
-    for(var i=0;i<data.length;i+=4){
-      var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
-      if(a<100) continue;
-      var rn=r/255,gn=g/255,bn=b/255;
-      var mx=Math.max(rn,gn,bn),mn=Math.min(rn,gn,bn);
-      if(mx<0.40) continue;
-      var sat=mx>0?(mx-mn)/mx:0; if(sat<0.10) continue;
-      total++;
-      var hue=getHue(r,g,b);
-      if((hue<=RED_H_MAX||hue>=RED_H_MIN)&&rn>gn*1.4&&rn>bn*0.85) red++;
-      if(hue>=GRN_H_MIN&&hue<=GRN_H_MAX&&gn>=rn*1.02) green++;
-    }
-    if(total<15) return 'unknown';
-    var rr=red/total, gr=green/total;
-    if(rr>gr*2.0&&rr>0.05) return 'red';
-    if(gr>rr*1.5&&gr>0.05) return 'green';
-    return 'unknown';
-  }catch(e){return 'unknown';}
-}
-
-// ── HSV 원형 불빛 감지 ────────────────────────────────────
-function findLightBlobs(){
-  var vw=video.videoWidth, vh=video.videoHeight;
-  if(!vw||!vh) return [];
-  var scale=Math.min(1.0,320/Math.max(vw,vh));
-  var sw=Math.floor(vw*scale), sh=Math.floor(vh*scale);
-  var tmp=document.createElement('canvas');
-  tmp.width=sw; tmp.height=sh;
-  tmp.getContext('2d').drawImage(video,0,0,sw,sh);
-  var data=tmp.getContext('2d').getImageData(0,0,sw,sh).data;
-  var redMask=new Uint8Array(sw*sh), greenMask=new Uint8Array(sw*sh);
-  for(var i=0;i<sw*sh;i++){
-    var ri=data[i*4],gi=data[i*4+1],bi=data[i*4+2];
-    var rn=ri/255,gn=gi/255,bn=bi/255;
-    var mx=Math.max(rn,gn,bn),mn=Math.min(rn,gn,bn);
-    var sat=mx>0?(mx-mn)/mx:0, val=mx;
-    if(val<BLOB_BRIGHT_TH||sat<BLOB_SAT_TH) continue;
-    var hue=getHue(ri,gi,bi);
-    if(hue>=GRN_H_MIN&&hue<=GRN_H_MAX&&gn>=rn*1.02) greenMask[i]=1;
-    if((hue<=RED_H_MAX||hue>=RED_H_MIN)&&rn>gn*1.4&&rn>bn*0.85) redMask[i]=1;
-  }
-  var BS=10, blobs=[];
-  for(var by=0;by<sh-BS;by+=Math.floor(BS/2)){
-    for(var bx=0;bx<sw-BS;bx+=Math.floor(BS/2)){
-      var rCount=0,gCount=0,total=0;
-      var x2=Math.min(bx+BS,sw-1), y2=Math.min(by+BS,sh-1);
-      for(var py=by;py<y2;py++) for(var px=bx;px<x2;px++){
-        var idx=py*sw+px; total++;
-        if(redMask[idx]) rCount++;
-        if(greenMask[idx]) gCount++;
-      }
-      var density=Math.max(rCount,gCount)/total;
-      if(density<0.3) continue;
-      var color=rCount>gCount?'red':'green', cnt=color==='red'?rCount:gCount;
-      var merged=false;
-      for(var bi2=0;bi2<blobs.length;bi2++){
-        var b=blobs[bi2];
-        if(b.color===color&&Math.abs(b.cx-(bx+BS/2))<BS*3&&Math.abs(b.cy-(by+BS/2))<BS*3){
-          b.x1=Math.min(b.x1,bx);b.y1=Math.min(b.y1,by);
-          b.x2=Math.max(b.x2,x2);b.y2=Math.max(b.y2,y2);
-          b.cx=(b.x1+b.x2)/2;b.cy=(b.y1+b.y2)/2;b.pixCount+=cnt;merged=true;break;
-        }
-      }
-      if(!merged) blobs.push({color:color,x1:bx,y1:by,x2:x2,y2:y2,cx:bx+BS/2,cy:by+BS/2,pixCount:cnt});
-    }
-  }
-  return blobs.filter(function(b){
-    var w=(b.x2-b.x1)/scale, h=(b.y2-b.y1)/scale;
-    var aspect=w/Math.max(h,1);
-    return b.pixCount>=BLOB_MIN_PIX && b.pixCount<=BLOB_MAX_PIX && aspect>=0.25 && aspect<=3.5;
-  }).map(function(b){
-    return {color:b.color,x:b.x1/scale,y:b.y1/scale,w:(b.x2-b.x1)/scale,h:(b.y2-b.y1)/scale,pixCount:b.pixCount};
-  });
-}
-
-function detectWithBlob(){
-  if(apiActive) return;
-  syncCanvas();
-  var vw=video.videoWidth, vh=video.videoHeight;
-  if(!vw||!vh) return;
-  var blobs=findLightBlobs();
-  dctx.clearRect(0,0,dcv.width,dcv.height);
-  if(!blobs.length){
-    if(!opts.rf||!rfActive) chipEl.textContent='신호등 탐색 중...';
-    handleDetected('unknown'); return;
-  }
-  blobs.sort(function(a,b){return b.pixCount-a.pixCount;});
-  var best=blobs[0];
-  var sx=dcv.width/vw, sy=dcv.height/vh;
-  var col=best.color==='green'?'#22c55e':'#ef4444';
-  dctx.strokeStyle=col; dctx.lineWidth=3;
-  dctx.beginPath(); dctx.roundRect(best.x*sx,best.y*sy,best.w*sx,best.h*sy,8); dctx.stroke();
-  dctx.fillStyle=col; dctx.beginPath(); dctx.roundRect(best.x*sx,best.y*sy-22,120,18,4); dctx.fill();
-  dctx.fillStyle='#fff'; dctx.font='bold 10px system-ui';
-  dctx.fillText('HSV '+(best.color==='green'?'초록불':'빨간불'), best.x*sx+5, best.y*sy-8);
-  if(!opts.rf||!rfActive){
-    setBadge('hsv');
-    chipEl.textContent='[HSV] '+(best.color==='green'?'초록불':'빨간불')+' 모양 감지';
-    chipEl.className='hsv';
-    handleDetected(best.color);
-  }
-}
-
-// ── 색상 유틸 ─────────────────────────────────────────────
-function getHue(r,g,b){
-  var nr=r/255,ng=g/255,nb=b/255;
-  var mx=Math.max(nr,ng,nb),delta=mx-Math.min(nr,ng,nb);
-  if(delta===0) return 0;
-  var h;
-  if(mx===nr) h=((ng-nb)/delta)%6;
-  else if(mx===ng) h=(nb-nr)/delta+2;
-  else h=(nr-ng)/delta+4;
-  h*=60; if(h<0)h+=360; return h;
-}
-
-function makeOff(){
-  var c=document.createElement('canvas');
-  c.width=video.videoWidth; c.height=video.videoHeight;
-  c.getContext('2d').drawImage(video,0,0); return c;
-}
-
-// ── 뱃지 ─────────────────────────────────────────────────
-function setBadge(src){
-  badgeAPI.classList.toggle('show',  src==='api');
-  badgeRF.classList.toggle('show',   src==='rf');
-  badgeCoco.classList.toggle('show', src==='coco');
-  badgeHSV.classList.toggle('show',  src==='hsv');
-}
-
-// ── 컨트롤 ───────────────────────────────────────────────
-function toggleCtrl(btn,key){
-  opts[key]=!opts[key];
-  btn.classList.toggle('active',opts[key]);
-  var sub=btn.querySelector('.ctrl-sub');
-  if(sub) sub.textContent=opts[key]?'ON':'OFF';
-  if(key==='rf'){
-    if(opts.rf&&stream) startRFPoll();
-    else{clearInterval(rfTimer);rfBusy=false;scanRing.classList.remove('show');}
-  }
-}
+var stream = null, cocoDetector = null;
+var currentSignal = 'unknown';
+// 연속 감지 카운터 (빠른 반응을 위해 낮게 설정)
+var CONFIRM_RED   = 3;   // 빨강: 3연속 (0.5초*3 = 1.5초)
+var CONFIRM_GREEN = 4;   // 초록: 4연속 (0.5초*4 = 2초, 오인식 방지)
+var MISS_LIMIT    = 8;   // 8연속 미감지 → 리셋 (4초)
+var pendingSignal = 'unknown', pendingFrames = 0, missFrames = 0;
+var countdownVal = 0, countdownTimer = null;
+var cocoReady = false;
+var detectTimer = null;   // 0.5초 타이머
+var cocoLock = false;     // COCO 중복 실행 방지
 
 // ── Android TTS ───────────────────────────────────────────
-var voiceUnlocked=false, audioCtx=null;
-document.addEventListener('touchstart',unlockAll,{once:true,passive:true});
-document.addEventListener('click',     unlockAll,{once:true});
+var voiceUnlocked = false, audioCtx = null;
+document.addEventListener('touchstart', unlockAll, {once:true,passive:true});
+document.addEventListener('click',      unlockAll, {once:true});
 function unlockAll(){
   if(!audioCtx){try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
   if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
@@ -776,157 +297,384 @@ function speak(text){
   speechSynthesis.cancel();
   var doIt=function(){
     var u=new SpeechSynthesisUtterance(text);
-    u.lang='ko-KR';u.rate=0.9;u.volume=1;u.pitch=1;
+    u.lang='ko-KR';u.rate=0.92;u.volume=1;u.pitch=1;
     var ko=speechSynthesis.getVoices().find(function(v){return v.lang==='ko-KR';})
           ||speechSynthesis.getVoices().find(function(v){return v.lang.startsWith('ko');});
     if(ko) u.voice=ko;
     u.onerror=function(e){
       if(e.error==='not-allowed'||e.error==='interrupted')
-        setTimeout(function(){try{speechSynthesis.speak(new SpeechSynthesisUtterance(text));}catch(e2){}},400);
+        setTimeout(function(){try{speechSynthesis.speak(new SpeechSynthesisUtterance(text));}catch(e2){}},350);
     };
     speechSynthesis.speak(u);
   };
   /Android/i.test(navigator.userAgent)?setTimeout(doIt,180):doIt();
 }
 
+// ── COCO 모델 ─────────────────────────────────────────────
+async function loadCoco(){
+  showBar('AI 모델 로딩 중...');
+  try{
+    cocoDetector = await cocoSsd.load({base:'lite_mobilenet_v2'});
+    cocoReady = true;
+    showBar('COCO-SSD 준비 완료', 1800);
+  }catch(e){ showBar('HSV 색상 분석 모드로 동작합니다', 1800); }
+}
+function showBar(msg,ms){
+  modelBar.textContent=msg; modelBar.classList.add('v');
+  if(ms) setTimeout(function(){modelBar.classList.remove('v');},ms);
+}
+loadCoco();
+
+// ── 뱃지 ─────────────────────────────────────────────────
+function setBadge(src){
+  badgeCoco.classList.toggle('show', src==='coco');
+  badgeHSV.classList.toggle('show',  src==='hsv');
+  chipEl.className = src||'';
+}
+
+// ── 컨트롤 ───────────────────────────────────────────────
+function toggleCtrl(btn,key){
+  opts[key]=!opts[key];
+  btn.classList.toggle('active',opts[key]);
+  var sub=btn.querySelector('.ctrl-sub');
+  if(sub) sub.textContent=opts[key]?'ON':'OFF';
+}
+
+// ══════════════════════════════════════════════════════════
+//  핵심 감지 함수
+//  매 0.5초마다 실행:
+//  1. 먼저 HSV 빠른 분석 (즉각 반응)
+//  2. 동시에 COCO 실행 (신호등 박스 정밀 감지)
+//  3. COCO가 신호등을 찾으면 그 결과로 덮어씀
+// ══════════════════════════════════════════════════════════
+async function runDetection(){
+  if(!stream || video.readyState < 2) return;
+  syncCanvas();
+
+  // 1. HSV 빠른 분석 (동기, 즉각)
+  var hsvResult = detectHSV();
+
+  // 2. COCO 분석 (비동기, 병렬)
+  if(cocoReady && cocoDetector && !cocoLock){
+    cocoLock = true;
+    detectCOCO(hsvResult).finally(function(){ cocoLock = false; });
+  } else {
+    // COCO 없으면 HSV 결과로 처리
+    applyDetection(hsvResult.color, 'hsv', hsvResult.box);
+  }
+}
+
+// ── HSV 분석: 전체 프레임에서 신호등 불빛 찾기 ───────────
+// 오프스크린 캔버스를 160px로 다운샘플 → 매우 빠름
+function detectHSV(){
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if(!vw || !vh) return {color:'unknown', box:null, score:0};
+
+  // 160px 다운샘플
+  var SCALE_W = 160, SCALE_H = Math.round(vh * SCALE_W / vw);
+  var tmp = document.createElement('canvas');
+  tmp.width = SCALE_W; tmp.height = SCALE_H;
+  tmp.getContext('2d').drawImage(video, 0, 0, SCALE_W, SCALE_H);
+  var data = tmp.getContext('2d').getImageData(0, 0, SCALE_W, SCALE_H).data;
+
+  var scaleX = vw / SCALE_W, scaleY = vh / SCALE_H;
+
+  // 격자 셀별로 색상 분석 (8x8 격자)
+  var COLS = 8, ROWS = 8;
+  var cellW = Math.floor(SCALE_W / COLS);
+  var cellH = Math.floor(SCALE_H / ROWS);
+
+  var bestRed = {score:0, cx:0, cy:0, w:0, h:0};
+  var bestGrn  = {score:0, cx:0, cy:0, w:0, h:0};
+
+  for(var row = 0; row < ROWS; row++){
+    for(var col = 0; col < COLS; col++){
+      var x0 = col * cellW, y0 = row * cellH;
+      var redPx = 0, grnPx = 0, total = 0;
+
+      for(var py = y0; py < y0+cellH && py < SCALE_H; py++){
+        for(var px = x0; px < x0+cellW && px < SCALE_W; px++){
+          var i = (py * SCALE_W + px) * 4;
+          var r = data[i], g = data[i+1], b = data[i+2];
+          total++;
+          // 빨강: R이 G보다 40 이상 크고, R > 130
+          if(r - g > 40 && r > 130) redPx++;
+          // 초록 신호등: G>R 이고 B도 높음 (청록 특성) B > 90
+          // 버스/나무 구분: 신호등 초록은 B가 높음
+          if(g - r > 8 && g > 120 && b > 90) grnPx++;
+        }
+      }
+
+      var redScore = redPx / total;
+      var grnScore = grnPx / total;
+
+      if(redScore > bestRed.score && redScore > 0.12){
+        bestRed = {score:redScore, cx:(x0+cellW/2)*scaleX, cy:(y0+cellH/2)*scaleY, w:cellW*scaleX, h:cellH*scaleY};
+      }
+      if(grnScore > bestGrn.score && grnScore > 0.12){
+        bestGrn = {score:grnScore, cx:(x0+cellW/2)*scaleX, cy:(y0+cellH/2)*scaleY, w:cellW*scaleX, h:cellH*scaleY};
+      }
+    }
+  }
+
+  // 승자 결정 — 빨강이 초록보다 2배 이상 스코어면 빨강
+  if(bestRed.score > 0.12 || bestGrn.score > 0.12){
+    if(bestRed.score > bestGrn.score * 1.5){
+      return {color:'red',   box:bestRed, score:bestRed.score};
+    } else if(bestGrn.score > bestRed.score * 1.0){
+      return {color:'green', box:bestGrn, score:bestGrn.score};
+    }
+  }
+  return {color:'unknown', box:null, score:0};
+}
+
+// ── COCO 분석: 신호등 박스 찾고 내부만 정밀 분석 ─────────
+async function detectCOCO(hsvResult){
+  var preds;
+  try{ preds = await cocoDetector.detect(video); } catch(e){ return; }
+
+  // traffic light 클래스만
+  var lights = preds.filter(function(p){
+    return p.class === 'traffic light' && p.score > 0.30;
+  });
+
+  if(!lights.length){
+    // COCO 미감지 → HSV 결과 사용
+    applyDetection(hsvResult.color, 'hsv', hsvResult.box);
+    return;
+  }
+
+  // 가장 신뢰도 높은 신호등
+  lights.sort(function(a,b){ return b.score - a.score; });
+  var best = lights[0];
+  var bx = best.bbox[0], by = best.bbox[1], bw = best.bbox[2], bh = best.bbox[3];
+
+  // 신호등 박스 내부만 정밀 색 분석
+  var color = analyzeBoxPrecise(bx, by, bw, bh);
+
+  // COCO가 unknown이면 HSV 결과를 보조로 사용
+  if(color === 'unknown') color = hsvResult.color;
+
+  // 감지 박스 그리기
+  drawDetectBox(bx, by, bw, bh, color, Math.round(best.score*100), 'COCO');
+
+  applyDetection(color, 'coco', null);
+}
+
+// ── 신호등 박스 내부 정밀 색 분석 ────────────────────────
+function analyzeBoxPrecise(bx, by, bw, bh){
+  // 박스 내부를 정밀 캔버스로 캡처
+  var PAD = 4; // 박스 안쪽 여백
+  var x = Math.max(0, Math.floor(bx + PAD));
+  var y = Math.max(0, Math.floor(by + PAD));
+  var w = Math.max(1, Math.floor(bw - PAD*2));
+  var h = Math.max(1, Math.floor(bh - PAD*2));
+
+  // 실제 비디오 크기로 캡처
+  var tmp = document.createElement('canvas');
+  tmp.width  = video.videoWidth;
+  tmp.height = video.videoHeight;
+  tmp.getContext('2d').drawImage(video, 0, 0);
+
+  var ctx2 = tmp.getContext('2d');
+  w = Math.min(w, tmp.width - x);
+  h = Math.min(h, tmp.height - y);
+  if(w <= 0 || h <= 0) return 'unknown';
+
+  var data = ctx2.getImageData(x, y, w, h).data;
+  var redPx = 0, grnPx = 0, total = 0;
+
+  for(var i = 0; i < data.length; i += 4){
+    var r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+    if(a < 100) continue;
+    // 너무 어두운 픽셀 제외 (신호등 하우징)
+    if(Math.max(r,g,b) < 80) continue;
+    total++;
+    if(r - g > 35 && r > 120) redPx++;
+    // 신호등 초록: G>R, B>85 (청록 특성)
+    if(g - r > 5 && g > 110 && b > 85) grnPx++;
+  }
+
+  if(total < 10) return 'unknown';
+  var rr = redPx / total, gr = grnPx / total;
+  if(rr > 0.08 && rr > gr * 1.5) return 'red';
+  if(gr > 0.06 && gr > rr * 1.2) return 'green';
+  return 'unknown';
+}
+
+// ── 감지 결과 처리 (안정화 로직) ─────────────────────────
+function applyDetection(color, src, box){
+  // 박스 그리기 (HSV인 경우)
+  dctx.clearRect(0, 0, dcv.width, dcv.height);
+  if(src === 'hsv' && box && color !== 'unknown'){
+    drawDetectBox(
+      box.cx - box.w/2, box.cy - box.h/2,
+      box.w, box.h,
+      color, Math.round(box.score*100), 'HSV'
+    );
+  }
+
+  if(color === 'unknown'){
+    missFrames++;
+    pendingSignal = 'unknown'; pendingFrames = 0;
+    if(missFrames >= MISS_LIMIT && currentSignal !== 'unknown'){
+      resetSignal(); missFrames = 0;
+    }
+    if(!src || src === 'hsv') chipEl.textContent = '신호등 탐색 중...';
+    return;
+  }
+
+  missFrames = 0;
+
+  // 출처 표시
+  setBadge(src);
+  chipEl.textContent = '[' + src.toUpperCase() + '] '
+    + (color === 'green' ? '초록불' : '빨간불') + ' 감지중';
+
+  // 연속 프레임 카운터
+  if(color === pendingSignal){
+    pendingFrames++;
+  } else {
+    pendingSignal = color; pendingFrames = 1; return;
+  }
+
+  var need = color === 'red' ? CONFIRM_RED : CONFIRM_GREEN;
+  if(pendingFrames >= need){
+    pendingFrames = 0;
+    if(color !== currentSignal){
+      currentSignal = color;
+      fireSignal(color, 25);
+    }
+  }
+}
+
+// ── 감지 박스 시각화 ─────────────────────────────────────
+function drawDetectBox(bx, by, bw, bh, color, pct, label){
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var sx = dcv.width / vw, sy = dcv.height / vh;
+  var col = color === 'green' ? '#22c55e' : color === 'red' ? '#ef4444' : '#94a3b8';
+  dctx.strokeStyle = col; dctx.lineWidth = 3;
+  dctx.beginPath(); dctx.roundRect(bx*sx, by*sy, bw*sx, bh*sy, 8); dctx.stroke();
+  // 라벨 배경
+  var lw = 148;
+  dctx.fillStyle = col;
+  dctx.beginPath(); dctx.roundRect(bx*sx, by*sy - 22, lw, 18, 4); dctx.fill();
+  dctx.fillStyle = '#000'; dctx.font = 'bold 11px system-ui';
+  var txt = (label||'') + ' ' + (color==='green'?'초록불':color==='red'?'빨간불':'?') + ' ' + pct + '%';
+  dctx.fillText(txt, bx*sx + 5, by*sy - 8);
+}
+
 // ── 카메라 시작/정지 ──────────────────────────────────────
 async function startCamera(){
   unlockAll();
   try{
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment', width:{ideal:1280}, height:{ideal:720}},
+      audio:false
     });
-    video.srcObject=stream;
-    await new Promise(function(r){video.onloadedmetadata=r;});
-    startOvl.style.display='none';
-    ctrlBar.style.display='flex';
+    video.srcObject = stream;
+    await new Promise(function(r){ video.onloadedmetadata = r; });
+    startOvl.style.display = 'none';
+    ctrlBar.style.display  = 'flex';
     setUI('idle');
-    chipEl.textContent='신호등 탐색 중...';
+    chipEl.textContent = '신호등 탐색 중...';
 
-    // GPS 시작 + 교차로 목록 미리 로드
-    showBar('교차로 목록 로딩 중...');
-    loadIntersections(); // 비동기로 미리 로드
-    startGPS();
+    // 0.5초마다 감지 실행
+    detectTimer = setInterval(function(){
+      if(!stream) return;
+      runDetection();
+    }, 500);
 
-    // AI 감지 시작
-    if(opts.rf) startRFPoll();
-    requestAnimationFrame(detectLoop);
-  }catch(e){alert('카메라를 사용할 수 없습니다.\n'+e.message);}
+  }catch(e){ alert('카메라를 사용할 수 없습니다.\n' + e.message); }
 }
 
 function stopCamera(){
-  if(stream) stream.getTracks().forEach(function(t){t.stop();});
-  stream=null;
-  if(loopId) cancelAnimationFrame(loopId);
-  clearInterval(apiTimer); clearInterval(rfTimer);
-  if(gpsWatcher!=null) navigator.geolocation.clearWatch(gpsWatcher);
-  apiActive=false; rfActive=false; rfBusy=false;
-  ctrlBar.style.display='none'; startOvl.style.display='flex';
-  gpsChip.className='';
-  resetAll(); chipEl.textContent='카메라를 시작하세요';
-}
-
-// ── 감지 루프 ─────────────────────────────────────────────
-async function detectLoop(){
-  if(!stream) return;
-  if(video.readyState>=2){
-    syncCanvas(); frameCount++;
-    if(!apiActive){
-      if(!opts.rf||!rfActive){
-        if(cocoReady&&cocoDetector&&frameCount%3===0) await detectWithCoco();
-        else if(frameCount%2===0) detectWithBlob();
-      } else {
-        if(!rfBusy&&frameCount%5===0) detectWithBlob();
-      }
-    }
-  }
-  loopId=requestAnimationFrame(detectLoop);
+  if(stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  stream = null;
+  clearInterval(detectTimer);
+  ctrlBar.style.display  = 'none';
+  startOvl.style.display = 'flex';
+  resetAll();
+  chipEl.textContent = '카메라를 시작하세요';
 }
 
 function syncCanvas(){
-  var r=video.getBoundingClientRect();
-  var w=Math.floor(r.width),h=Math.floor(r.height);
-  if(dcv.width!==w||dcv.height!==h){dcv.width=w;dcv.height=h;}
+  var r = video.getBoundingClientRect();
+  var w = Math.floor(r.width), h = Math.floor(r.height);
+  if(dcv.width !== w || dcv.height !== h){ dcv.width = w; dcv.height = h; }
 }
 
-// ── 신호 처리 ─────────────────────────────────────────────
-function handleDetected(color){
-  if(color==='unknown'){
-    missFrames++;pendingSignal='unknown';pendingFrames=0;
-    if(missFrames>=MISS_LIMIT&&currentSignal!=='unknown'){resetSignal();missFrames=0;}
-    return;
-  }
-  missFrames=0;
-  if(color===pendingSignal) pendingFrames++;
-  else{pendingSignal=color;pendingFrames=1;return;}
-  if(pendingFrames>=CONFIRM_FRAMES){
-    pendingFrames=0;
-    if(color!==currentSignal){currentSignal=color;fireSignal(color,color==='green'?25:0,false);}
-  }
-}
-
-function fireSignal(color,seconds,isRealTime){
-  applyUI(color,seconds,isRealTime);
-  speak(color==='green'?'초록불입니다. 건너세요.':'빨간불입니다. 멈추세요.');
+// ── 신호 발동 ─────────────────────────────────────────────
+function fireSignal(color, seconds){
+  applyUI(color, seconds);
+  speak(color === 'green' ? '초록불입니다. 건너세요.' : '빨간불입니다. 멈추세요.');
   vibrate(color);
 }
-function testSignal(color){unlockAll();currentSignal=color;fireSignal(color,color==='green'?25:0,false);}
+function testSignal(color){
+  unlockAll(); currentSignal = color;
+  fireSignal(color, color === 'green' ? 25 : 0);
+}
 
-function applyUI(color,seconds,isRealTime){
+function applyUI(color, seconds){
   clearInterval(countdownTimer);
   setUI(color);
-  if(opts.count&&color==='green'&&seconds>0){
-    countdownVal=seconds; showCount(countdownVal,color);
-    countNotice.classList.toggle('show',!isRealTime);
-    countdownTimer=setInterval(function(){
+  if(opts.count && color === 'green' && seconds > 0){
+    countdownVal = seconds; showCount(countdownVal, color);
+    countNotice.classList.add('show');
+    countdownTimer = setInterval(function(){
       countdownVal--;
-      if(countdownVal<=0){
+      if(countdownVal <= 0){
         clearInterval(countdownTimer);
-        cdEl.textContent='';bigCount.textContent='';bigCount.className='';
-        cdEl.classList.remove('urgent');countNotice.classList.remove('show');
+        cdEl.textContent = ''; bigCount.textContent = ''; bigCount.className = '';
+        cdEl.classList.remove('urgent'); countNotice.classList.remove('show');
       } else {
-        showCount(countdownVal,color);
-        if(countdownVal<=5&&opts.vib) navigator.vibrate&&navigator.vibrate(80);
+        showCount(countdownVal, color);
+        if(countdownVal <= 5 && opts.vib) navigator.vibrate && navigator.vibrate(80);
       }
-    },1000);
+    }, 1000);
   } else {
-    cdEl.textContent=''; countNotice.classList.remove('show');
+    cdEl.textContent = ''; countNotice.classList.remove('show');
   }
 }
 
-function showCount(val,color){
-  cdEl.textContent=val+'초'; cdEl.classList.toggle('urgent',val<=5);
-  bigCount.textContent=val+'초';
-  bigCount.className=(val<=5?'urgent-c':color);
+function showCount(val, color){
+  cdEl.textContent = val + '초'; cdEl.classList.toggle('urgent', val <= 5);
+  bigCount.textContent = val + '초';
+  bigCount.className = (val <= 5 ? 'urgent-c' : color);
 }
 
 function setUI(state){
-  bgOverlay.className=state; borderSignal.className=state; banner.className=state;
-  if(state==='green'){
-    sigText.textContent='건너세요';
-    sigCenterTxt.textContent='건너세요';sigCenterTxt.className='green';sigCenter.classList.add('show');
-  } else if(state==='red'){
-    sigText.textContent='멈추세요';
-    sigCenterTxt.textContent='멈추세요';sigCenterTxt.className='red';sigCenter.classList.add('show');
+  bgOverlay.className    = state;
+  borderSignal.className = state;
+  banner.className       = state;
+  if(state === 'green'){
+    sigText.textContent = '건너세요';
+    sigCenterTxt.textContent = '건너세요'; sigCenterTxt.className = 'green';
+    sigCenter.classList.add('show');
+  } else if(state === 'red'){
+    sigText.textContent = '멈추세요';
+    sigCenterTxt.textContent = '멈추세요'; sigCenterTxt.className = 'red';
+    sigCenter.classList.add('show');
   } else {
-    sigText.textContent='신호등 알리미'; sigCenter.classList.remove('show');
+    sigText.textContent = '신호등 알리미';
+    sigCenter.classList.remove('show');
   }
 }
 
 function resetSignal(){
-  currentSignal='unknown';clearInterval(countdownTimer);setUI('idle');
-  cdEl.textContent='';cdEl.classList.remove('urgent');
-  bigCount.textContent='';bigCount.className='';
+  currentSignal = 'unknown'; clearInterval(countdownTimer); setUI('idle');
+  cdEl.textContent = ''; cdEl.classList.remove('urgent');
+  bigCount.textContent = ''; bigCount.className = '';
   countNotice.classList.remove('show');
-  dctx.clearRect(0,0,dcv.width,dcv.height);
+  dctx.clearRect(0, 0, dcv.width, dcv.height);
 }
 function resetAll(){
-  pendingSignal='unknown';pendingFrames=0;missFrames=0;resetSignal();setBadge('');
+  pendingSignal = 'unknown'; pendingFrames = 0; missFrames = 0; resetSignal(); setBadge('');
 }
 
 function vibrate(color){
-  if(!opts.vib||!navigator.vibrate) return;
-  navigator.vibrate(color==='green'?[200,100,200,100,200]:[600,150,600,150,600]);
+  if(!opts.vib || !navigator.vibrate) return;
+  navigator.vibrate(color === 'green' ? [200,100,200,100,200] : [600,150,600,150,600]);
 }
 </script>
 </body>
