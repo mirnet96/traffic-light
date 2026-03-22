@@ -145,7 +145,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
 }
 .ctrl-btn:active{background:rgba(255,255,255,0.08)}
 .ctrl-btn.active{color:#60a5fa}
-.ctrl-icon{font-size:22px;line-height:1;}
+.ctrl-icon{font-size:11px;font-weight:700;line-height:1;letter-spacing:0.3px;}
 #btn-stop-cam{
   background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
   color:#f87171;font-size:13px;font-weight:600;padding:10px 16px;border-radius:10px;cursor:pointer;
@@ -228,18 +228,18 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
 
   <div id="control-bar">
     <button class="ctrl-btn active" id="ctrl-voice" onclick="toggleCtrl(this,'voice')">
-      <span class="ctrl-icon">������</span><span>음성</span>
+      <span class="ctrl-icon">ON</span><span>음성</span>
     </button>
     <button class="ctrl-btn active" id="ctrl-vib" onclick="toggleCtrl(this,'vib')">
-      <span class="ctrl-icon">������</span><span>진동</span>
+      <span class="ctrl-icon">VIB</span><span>진동</span>
     </button>
     <button class="ctrl-btn active" id="ctrl-count" onclick="toggleCtrl(this,'count')">
-      <span class="ctrl-icon">⏱</span><span>카운트</span>
+      <span class="ctrl-icon">TIME</span><span>카운트</span>
     </button>
     <button class="ctrl-btn active" id="ctrl-rf" onclick="toggleCtrl(this,'rf')">
-      <span class="ctrl-icon">������</span><span>AI감지</span>
+      <span class="ctrl-icon">AI</span><span>AI감지</span>
     </button>
-    <button id="btn-stop-cam" onclick="stopCamera()">■ 중지</button>
+    <button id="btn-stop-cam" onclick="stopCamera()">중지</button>
   </div>
 
   <div id="start-overlay">
@@ -257,17 +257,17 @@ html,body{height:100%;width:100%;overflow:hidden;background:#0f172a;color:#f1f5f
     </p>
 
     <div class="info-card">
-      <h4>������ 감지 우선순위</h4>
+      <h4>감지 우선순위</h4>
       <div class="info-row"><div class="info-dot" style="background:#fbbf24"></div><span><span class="ta">① T-Data API</span> — 서울시 실시간 신호 잔여시간 (최우선)</span></div>
       <div class="info-row"><div class="info-dot" style="background:#818cf8"></div><span><span class="tf">② Roboflow AI</span> — 신호등 전용 학습 AI, 빨강/초록 분류</span></div>
       <div class="info-row"><div class="info-dot" style="background:#2dd4bf"></div><span>③ COCO-SSD — 신호등 위치 감지 + 색상 분석</span></div>
       <div class="info-row"><div class="info-dot" style="background:#64748b"></div><span>④ HSV 색상분석 — 폴백 보조 감지</span></div>
     </div>
 
-    <button id="btn-start" onclick="startCamera()">������ 카메라 시작</button>
+    <button id="btn-start" onclick="startCamera()">카메라 시작</button>
     <div class="test-row">
-      <button class="btn-r" onclick="testSignal('red')">������ 빨간불 테스트</button>
-      <button class="btn-g" onclick="testSignal('green')">������ 초록불 테스트</button>
+      <button class="btn-r" onclick="testSignal('red')">빨간불 테스트</button>
+      <button class="btn-g" onclick="testSignal('green')">초록불 테스트</button>
     </div>
     <p class="hint-btm">테스트로 진동·음성·화면 먼저 확인하세요</p>
   </div>
@@ -441,7 +441,7 @@ async function rfAnalyze(){
       if(color!=='unknown'){
         var pct=Math.round(preds[0].confidence*100);
         setBadge('rf');
-        chipEl.textContent='Roboflow AI: '+(color==='green'?'������ 초록불':'������ 빨간불')+' ('+pct+'%)';
+        chipEl.textContent='Roboflow AI: '+(color==='green'?'초록불':'빨간불')+' ('+pct+'%)';
         if(color!==currentSignal){currentSignal=color;fireSignal(color,color==='green'?25:0);}
       } else {
         chipEl.textContent='Roboflow AI: 신호등 탐색 중...';
@@ -491,7 +491,7 @@ function startApiPoll(){
     else if(r.redSec!==null&&r.redSec>0) color='red';
     if(color!=='unknown'){
       setBadge('api');
-      chipEl.textContent='T-Data: '+(color==='green'?'������ 초록불 잔여 '+r.greenSec+'초':'������ 빨간불 (차량직진 '+r.redSec+'초)');
+      chipEl.textContent='T-Data: '+(color==='green'?'초록불 잔여 '+r.greenSec+'초':'빨간불 (차량직진 '+r.redSec+'초)');
       if(color!==currentSignal){currentSignal=color;fireSignal(color,color==='green'?r.greenSec:0);}
     }
   },API_MS);
@@ -515,7 +515,7 @@ async function startCamera(){
     var r=await fetchTData();
     if(r&&r!=='no_data'){
       apiActive=true; startApiPoll(); setBadge('api');
-      chipEl.textContent='T-Data API 연결됨 ✓ 신호 대기 중...';
+      chipEl.textContent='T-Data API 연결됨 - 신호 대기 중...';
     } else {
       apiActive=false;
       chipEl.textContent='T-Data 연결 안됨 — AI 분석으로 전환';
@@ -573,7 +573,7 @@ async function detectWithCoco(){
   var tmp=makeOff(); var color=analyzePixels(tmp.getContext('2d'),bx,by,bw,bh);
   drawBox(bx,by,bw,bh,color,best.score);
   if(!opts.rf||!rfActive){
-    chipEl.textContent='COCO AI: '+(color==='green'?'������ 초록':'������ 빨강')+' ('+Math.round(best.score*100)+'%)';
+    chipEl.textContent='COCO AI: '+(color==='green'?'초록':'빨강')+' ('+Math.round(best.score*100)+'%)';
     setBadge('coco'); handleDetected(color);
   }
 }
@@ -592,7 +592,7 @@ function detectWithGrid(){
   var det='unknown';
   if(bestR>0||bestG>0){
     det=bestR>=bestG?'red':'green';
-    if(!opts.rf||!rfActive){chipEl.textContent=det==='red'?'������ 빨간불 감지 중...':'������ 초록불 감지 중...';setBadge('none');}
+    if(!opts.rf||!rfActive){chipEl.textContent=det==='red'?'빨간불 감지 중...':'초록불 감지 중...';setBadge('none');}
   }
   if(!opts.rf||!rfActive) handleDetected(det);
 }
@@ -713,10 +713,10 @@ function showCount(val,color){
 function setUI(state){
   bgOverlay.className=state;camWrap.className=state;banner.className=state;
   if(state==='green'){
-    sigText.textContent='������ 건너세요';
+    sigText.textContent='건너세요';
     statusLbl.textContent='▶ 건너세요';statusLbl.className='show green';
   } else if(state==='red'){
-    sigText.textContent='������ 멈추세요';
+    sigText.textContent='멈추세요';
     statusLbl.textContent='◼ 멈추세요';statusLbl.className='show red';
   } else {
     sigText.textContent='신호등 알리미';statusLbl.className='';
