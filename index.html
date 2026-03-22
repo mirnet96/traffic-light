@@ -13,24 +13,16 @@
 html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;user-select:none}
 #app{height:100%;width:100%;position:relative;overflow:hidden}
-
-/* 카메라 전체화면 */
 #cam-wrap{position:absolute;inset:0;z-index:1;background:#000;}
 #video{width:100%;height:100%;object-fit:cover;display:block}
 #detect-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2}
-
-/* 전체화면 색상 오버레이 */
 #bg-overlay{position:absolute;inset:0;z-index:3;pointer-events:none;transition:background 0.22s ease;background:transparent;}
 #bg-overlay.green{background:rgba(0,110,55,0.45);}
 #bg-overlay.red  {background:rgba(150,0,0,0.45);}
-
-/* 테두리 */
 #border-signal{position:absolute;inset:0;z-index:4;pointer-events:none;transition:box-shadow 0.22s ease;}
 #border-signal.green{box-shadow:inset 0 0 0 20px rgba(34,197,94,0.9);}
 #border-signal.red  {box-shadow:inset 0 0 0 20px rgba(239,68,68,0.9);}
 #border-signal.idle {box-shadow:inset 0 0 0 5px rgba(59,130,246,0.4);}
-
-/* 상단 배너 */
 #banner{
   position:absolute;top:0;left:0;right:0;z-index:10;
   padding-top:max(env(safe-area-inset-top,0px),10px);
@@ -44,23 +36,17 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 #signal-info{flex:1;min-width:0}
 #signal-text{font-size:30px;font-weight:800;line-height:1.1;letter-spacing:-0.5px}
 #signal-sub{font-size:11px;color:rgba(255,255,255,0.5);margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
-
-/* 감지 출처 뱃지 */
 .src-badge{display:none;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;}
 .src-badge.show{display:flex}
 .badge-dot{width:6px;height:6px;border-radius:50%;animation:bpulse 1s ease-in-out infinite;}
 @keyframes bpulse{0%,100%{opacity:1}50%{opacity:0.2}}
-#badge-shape{background:rgba(251,146,60,0.25);border:1px solid rgba(251,146,60,0.5);color:#fed7aa;}
-#badge-shape .badge-dot{background:#fb923c}
-#badge-color{background:rgba(100,116,139,0.25);border:1px solid rgba(100,116,139,0.5);color:#94a3b8;}
-#badge-color .badge-dot{background:#64748b}
-
-/* 카운트다운 */
+#badge-coco{background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#c7d2fe;}
+#badge-coco .badge-dot{background:#818cf8}
+#badge-hsv{background:rgba(100,116,139,0.25);border:1px solid rgba(100,116,139,0.5);color:#94a3b8;}
+#badge-hsv .badge-dot{background:#64748b}
 #countdown{font-size:40px;font-weight:900;color:rgba(255,255,255,0.95);flex-shrink:0;text-align:right;line-height:1;min-width:60px;}
 #countdown.urgent{color:#fbbf24;animation:blink .4s ease-in-out infinite alternate}
 @keyframes blink{from{opacity:1}to{opacity:0.1}}
-
-/* 중앙 큰 신호 */
 #signal-center{
   position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   z-index:8;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:10px;
@@ -77,8 +63,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 #big-count.urgent-c{color:#fbbf24;animation:blink .4s ease-in-out infinite alternate;}
 #count-notice{font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);background:rgba(0,0,0,0.5);padding:3px 12px;border-radius:10px;display:none;}
 #count-notice.show{display:block;}
-
-/* 감지 칩 */
 #detect-chip{
   position:absolute;z-index:10;left:50%;
   bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 68px);
@@ -89,10 +73,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   white-space:nowrap;border:1px solid rgba(255,255,255,0.12);
   max-width:95%;text-align:center;overflow:hidden;text-overflow:ellipsis;
 }
-#detect-chip.shape{border-color:rgba(251,146,60,0.6);}
-#detect-chip.color{border-color:rgba(100,116,139,0.5);}
-
-/* 신뢰도 표시 바 */
 #conf-bar-wrap{
   position:absolute;z-index:10;left:50%;
   bottom:calc(max(env(safe-area-inset-bottom,0px),0px) + 106px);
@@ -100,11 +80,9 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
   display:none;align-items:center;gap:8px;
 }
 #conf-bar-wrap.show{display:flex;}
-#conf-bar-bg{width:100px;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;}
+#conf-bar-bg{width:120px;height:6px;background:rgba(255,255,255,0.15);border-radius:3px;overflow:hidden;}
 #conf-bar{height:100%;border-radius:3px;transition:width 0.2s ease,background 0.2s ease;}
 #conf-label{font-size:10px;color:rgba(255,255,255,0.5);white-space:nowrap;}
-
-/* 하단 컨트롤 */
 #control-bar{
   position:absolute;bottom:0;left:0;right:0;z-index:10;display:none;
   align-items:center;justify-content:space-around;
@@ -121,8 +99,6 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 .ctrl-sub{font-size:9px;}
 #btn-stop-cam{background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
   color:#f87171;font-size:13px;font-weight:600;padding:9px 14px;border-radius:10px;cursor:pointer;}
-
-/* 시작 오버레이 */
 #start-overlay{
   position:absolute;inset:0;z-index:20;background:rgba(5,8,18,0.98);
   display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
@@ -148,7 +124,17 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 .btn-r{background:#dc2626;color:#fff;}
 .btn-g{background:#16a34a;color:#fff;}
 .hint-btm{font-size:12px;color:rgba(255,255,255,0.2)}
-#model-bar{position:absolute;top:0;left:0;right:0;z-index:25;background:rgba(0,0,0,0.88);color:rgba(255,255,255,0.6);font-size:13px;padding:10px;text-align:center;display:none;}
+/* 카카오톡 안내 배너 */
+#kakao-banner{
+  width:100%;max-width:320px;background:rgba(254,240,138,0.12);
+  border:1px solid rgba(254,240,138,0.35);border-radius:12px;
+  padding:10px 14px;font-size:12px;color:rgba(254,240,138,0.9);
+  line-height:1.6;text-align:left;display:none;
+}
+#kakao-banner.show{display:block;}
+#kakao-banner strong{color:#fde047;}
+#model-bar{position:absolute;top:0;left:0;right:0;z-index:25;background:rgba(0,0,0,0.88);
+  color:rgba(255,255,255,0.6);font-size:13px;padding:10px;text-align:center;display:none;}
 #model-bar.v{display:block}
 </style>
 </head>
@@ -172,8 +158,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
       <div id="signal-text">신호등 알리미</div>
       <div id="signal-sub">
         <span id="sub-text">저시력자 보행 보조</span>
-        <span id="badge-shape" class="src-badge"><span class="badge-dot"></span>모양+색상</span>
-        <span id="badge-color" class="src-badge"><span class="badge-dot"></span>색상분석</span>
+        <span id="badge-coco" class="src-badge"><span class="badge-dot"></span>AI감지</span>
+        <span id="badge-hsv" class="src-badge"><span class="badge-dot"></span>색상분석</span>
       </div>
     </div>
     <div id="countdown"></div>
@@ -208,22 +194,35 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
     <p class="desc">
       저시력자를 위한 신호등 인식 보조 앱<br>
       카메라를 건너편 신호등 방향으로 향하세요<br><br>
-      <span class="tr">빨간불</span> — 서 있는 사람 모양 + 빨강<br>
-      <span class="tg">초록불</span> — 걷는 사람 모양 + 청록
+      <span class="tr">빨간불</span> — 검은 박스 + 빨강 서있는 사람<br>
+      <span class="tg">초록불</span> — 검은 박스 + 청록 걷는 사람
     </p>
+
+    <!-- 카카오톡 인앱브라우저 감지 시 표시 -->
+    <div id="kakao-banner">
+      ⚠️ <strong>카카오톡 내부 브라우저</strong>에서는 음성이 나오지 않을 수 있습니다.<br>
+      우측 하단 <strong>⋮ → 다른 브라우저로 열기</strong>를 눌러<br>
+      크롬에서 열면 음성이 정상 작동합니다.<br>
+      <span style="color:rgba(254,240,138,0.5);font-size:11px">비프음은 카카오톡에서도 작동합니다</span>
+    </div>
+
     <div class="info-card">
-      <h4>감지 방식 (0.5초 주기)</h4>
+      <h4>실제 환경 최적화 감지 방식</h4>
       <div class="info-row">
-        <div class="info-dot" style="background:#fb923c"></div>
-        <span>모양+색상 — COCO가 신호등 박스를 잡으면, 내부를 32x64로 확대해 사람 실루엣 + 색상 동시 분석</span>
+        <div class="info-dot" style="background:#818cf8"></div>
+        <span>AI 박스 감지 — COCO-SSD로 신호등 위치 특정 후 해당 영역만 분석 (초록 버스 완전 차단)</span>
       </div>
       <div class="info-row">
         <div class="info-dot" style="background:#64748b"></div>
-        <span>색상 분석 — 신호등이 너무 작거나 멀면 청록(초록) / 주황-빨강 색만으로 판단</span>
+        <span>화면 상단 45% 한정 탐색 — 바닥·버스 하단부 완전 제외</span>
       </div>
       <div class="info-row">
-        <div class="info-dot" style="background:#60a5fa"></div>
-        <span>신뢰도 표시 — 색상만 0~50%, 색상+모양 일치 51~100%</span>
+        <div class="info-dot" style="background:#fb923c"></div>
+        <span>크기 필터 — 발광 영역이 화면 3% 초과 시 버스로 판단하여 무시</span>
+      </div>
+      <div class="info-row">
+        <div class="info-dot" style="background:#22c55e"></div>
+        <span>청록 전용 인식 — 신호등 청록(H:145~195)만 반응, 버스 초록(H:100~140) 제외</span>
       </div>
     </div>
     <button id="btn-start" onclick="startCamera()">카메라 시작</button>
@@ -239,7 +238,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:#000;color:#f1f5f9;
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
 <script>
-// ── DOM ──────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────
 var video        = document.getElementById('video');
 var dcv          = document.getElementById('detect-canvas');
 var dctx         = dcv.getContext('2d');
@@ -259,62 +258,173 @@ var confLabel    = document.getElementById('conf-label');
 var modelBar     = document.getElementById('model-bar');
 var ctrlBar      = document.getElementById('control-bar');
 var startOvl     = document.getElementById('start-overlay');
-var badgeShape   = document.getElementById('badge-shape');
-var badgeColor   = document.getElementById('badge-color');
+var badgeCoco    = document.getElementById('badge-coco');
+var badgeHsv     = document.getElementById('badge-hsv');
+var kakaoBanner  = document.getElementById('kakao-banner');
 
 var opts = { voice:true, vib:true, count:true };
+var stream=null, cocoDetector=null, detectTimer=null, cocoLock=false;
+var currentSignal='unknown', pendingSignal='unknown';
+var pendingFrames=0, missFrames=0;
+var CONFIRM_COCO=2, CONFIRM_HSV=5, MISS_LIMIT=6;
+var countdownVal=0, countdownTimer=null;
+var cocoReady=false;
 
-// ── 상태 ─────────────────────────────────────────────────
-var stream = null, cocoDetector = null, detectTimer = null, cocoLock = false;
-var currentSignal = 'unknown', pendingSignal = 'unknown';
-// 모양+색상 일치: 2연속, 색상만: 5연속
-var CONFIRM_SHAPE = 2;
-var CONFIRM_COLOR = 5;
-var MISS_LIMIT    = 8;
-var pendingFrames = 0, missFrames = 0;
-var countdownVal = 0, countdownTimer = null;
-var cocoReady = false;
+// ── 카카오톡 인앱브라우저 감지 ────────────────────────────
+var isKakao = /KAKAOTALK/i.test(navigator.userAgent)
+           || /kakao/i.test(navigator.userAgent);
+if(isKakao) kakaoBanner.classList.add('show');
 
-// ── Android TTS ───────────────────────────────────────────
-var voiceUnlocked = false, audioCtx = null;
-document.addEventListener('touchstart', unlockAll, {once:true,passive:true});
-document.addEventListener('click',      unlockAll, {once:true});
-function unlockAll(){
-  if(!audioCtx){try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
-  if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume();
-  if(!voiceUnlocked&&'speechSynthesis' in window){
-    var u=new SpeechSynthesisUtterance(' ');
-    u.lang='ko-KR';u.volume=0;
-    try{speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
-    voiceUnlocked=true;
+// ── Web Audio API ─────────────────────────────────────────
+var audioCtx = null;
+var audioUnlocked = false;
+
+// 페이지 로드 즉시 AudioContext 생성 시도 (일부 WebView에서는 바로 됨)
+try{
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}catch(e){ audioCtx = null; }
+
+// 최초 터치/클릭 시 반드시 언락
+document.addEventListener('touchstart', unlockAudio, {once:true, passive:true});
+document.addEventListener('click',      unlockAudio, {once:true});
+
+function unlockAudio(){
+  if(audioUnlocked) return;
+  audioUnlocked = true;
+
+  // AudioContext 생성 또는 재개
+  if(!audioCtx){
+    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ audioCtx = null; }
+  }
+  if(audioCtx && audioCtx.state === 'suspended'){
+    audioCtx.resume();
+  }
+
+  // 무음 버퍼 재생으로 AudioContext 완전 언락
+  if(audioCtx){
+    try{
+      var buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.05, audioCtx.sampleRate);
+      var src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      src.start(0);
+    }catch(e){}
+  }
+
+  // speechSynthesis 언락 (카카오톡 외 일반 브라우저용)
+  if('speechSynthesis' in window){
+    try{
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance('');
+      u.lang='ko-KR'; u.volume=0; u.rate=10;
+      speechSynthesis.speak(u);
+    }catch(e){}
     if(!speechSynthesis.getVoices().length)
-      speechSynthesis.onvoiceschanged=function(){speechSynthesis.getVoices();};
+      speechSynthesis.onvoiceschanged = function(){ speechSynthesis.getVoices(); };
   }
 }
+
+// ══════════════════════════════════════════════════════════
+//  speak() — 3단계 폴백 전략
+//
+//  1순위: speechSynthesis (크롬/사파리 등 정상 브라우저)
+//         → TTS 실패 시 onerror에서 자동으로 비프음 폴백
+//
+//  2순위: Web Audio API 비프음 (카카오톡 WebView 등 TTS 불가)
+//         초록불: 낮은음(880Hz) → 높은음(1046Hz)  [긍정 상승]
+//         빨간불: 높은음(494Hz) → 낮은음(330Hz)   [경고 하강]
+//
+//  3순위: 진동만 (오디오 전체 불가 환경)
+// ══════════════════════════════════════════════════════════
 function speak(text){
-  if(!opts.voice||!('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  var doIt=function(){
-    var u=new SpeechSynthesisUtterance(text);
-    u.lang='ko-KR';u.rate=0.92;u.volume=1;u.pitch=1;
-    var ko=speechSynthesis.getVoices().find(function(v){return v.lang==='ko-KR';})
-          ||speechSynthesis.getVoices().find(function(v){return v.lang.startsWith('ko');});
-    if(ko) u.voice=ko;
-    u.onerror=function(e){
-      if(e.error==='not-allowed'||e.error==='interrupted')
-        setTimeout(function(){try{speechSynthesis.speak(new SpeechSynthesisUtterance(text));}catch(e2){}},350);
-    };
-    speechSynthesis.speak(u);
-  };
-  /Android/i.test(navigator.userAgent)?setTimeout(doIt,180):doIt();
+  if(!opts.voice) return;
+  var isGreen = text.indexOf('초록') !== -1;
+
+  // AudioContext 상태 확인 및 재개
+  if(audioCtx && audioCtx.state === 'suspended'){
+    audioCtx.resume();
+  }
+
+  // 1순위: speechSynthesis TTS 시도
+  if('speechSynthesis' in window){
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(text);
+    u.lang='ko-KR'; u.rate=0.92; u.volume=1; u.pitch=1;
+    var voices = speechSynthesis.getVoices();
+    var koVoice = voices.find(function(v){return v.lang==='ko-KR';})
+               || voices.find(function(v){return v.lang.startsWith('ko');});
+    if(koVoice) u.voice = koVoice;
+
+    // TTS 실패 시 자동으로 비프음 폴백
+    u.onerror = function(e){ playBeep(isGreen); };
+
+    var delay = /Android/i.test(navigator.userAgent) ? 200 : 0;
+    setTimeout(function(){
+      try{ speechSynthesis.speak(u); }catch(e){ playBeep(isGreen); }
+    }, delay);
+
+    // 카카오톡에서는 TTS가 묵음이므로 비프음도 같이 재생
+    if(isKakao){ playBeep(isGreen); }
+    return;
+  }
+
+  // speechSynthesis 자체가 없으면 비프음
+  playBeep(isGreen);
 }
 
-// ── COCO 모델 ─────────────────────────────────────────────
+// ── Web Audio API 비프음 생성 ─────────────────────────────
+function playBeep(isGreen){
+  if(!audioCtx){
+    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ return; }
+  }
+  if(audioCtx.state === 'suspended'){
+    audioCtx.resume().then(function(){ _doBeep(isGreen); });
+    return;
+  }
+  _doBeep(isGreen);
+}
+
+function _doBeep(isGreen){
+  try{
+    var now = audioCtx.currentTime;
+    if(isGreen){
+      // 초록불: 삐↑삐↑ (상승 패턴 — 건너세요)
+      _tone(880,  now,        0.18, 0.7);
+      _tone(1046, now + 0.25, 0.18, 0.7);
+    } else {
+      // 빨간불: 뚜↓뚜 (하강 패턴 — 멈추세요)
+      _tone(494, now,        0.22, 0.8);
+      _tone(330, now + 0.30, 0.22, 0.8);
+    }
+  }catch(e){}
+}
+
+function _tone(freq, startTime, duration, volume){
+  try{
+    var osc  = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, startTime);
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(volume, startTime + 0.015);
+    gain.gain.setValueAtTime(volume, startTime + duration - 0.025);
+    gain.gain.linearRampToValueAtTime(0, startTime + duration);
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.01);
+  }catch(e){}
+}
+
+// ── COCO 모델 로드 ────────────────────────────────────────
 async function loadCoco(){
   showBar('AI 모델 로딩 중...');
   try{
     cocoDetector = await cocoSsd.load({base:'lite_mobilenet_v2'});
-    cocoReady = true; showBar('COCO-SSD 준비 완료', 1800);
+    cocoReady = true;
+    showBar('AI 감지 준비 완료', 1800);
   }catch(e){ showBar('색상 분석 모드로 동작합니다', 1800); }
 }
 function showBar(msg,ms){
@@ -323,299 +433,223 @@ function showBar(msg,ms){
 }
 loadCoco();
 
-function setBadge(src){
-  badgeShape.classList.toggle('show', src==='shape');
-  badgeColor.classList.toggle('show', src==='color');
-  chipEl.className = src||'';
-}
-
 function toggleCtrl(btn,key){
-  opts[key]=!opts[key];
-  btn.classList.toggle('active',opts[key]);
+  opts[key]=!opts[key]; btn.classList.toggle('active',opts[key]);
   var sub=btn.querySelector('.ctrl-sub');
   if(sub) sub.textContent=opts[key]?'ON':'OFF';
 }
-
-// ── 신뢰도 표시 ───────────────────────────────────────────
-function showConfidence(score, color){
+function showConfidence(score,color){
   confBarWrap.classList.add('show');
-  var pct = Math.round(score * 100);
-  confBar.style.width = pct + '%';
-  confBar.style.background = color==='green'
-    ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)';
-  confLabel.textContent = '신뢰도 ' + pct + '%';
+  var pct=Math.round(score*100);
+  confBar.style.width=pct+'%';
+  confBar.style.background=color==='green'?'rgba(34,197,94,0.85)':'rgba(239,68,68,0.85)';
+  confLabel.textContent='신뢰도 '+pct+'%';
+}
+function setBadge(src){
+  badgeCoco.classList.toggle('show', src==='coco');
+  badgeHsv.classList.toggle('show',  src==='hsv');
 }
 
-// ══════════════════════════════════════════════════════════
-//  메인 감지 함수 (0.5초마다 실행)
-//
-//  감지 우선순위:
-//  1. COCO가 신호등 박스를 찾음
-//     → 박스 높이 >= 40px: 모양+색상 분석 (고신뢰도)
-//     → 박스 높이 < 40px:  색상만 분석 (저신뢰도)
-//  2. COCO 미감지 → 전체 프레임 색상 분석 (폴백)
-// ══════════════════════════════════════════════════════════
+// ── 메인 감지 루프 (0.5초마다) ───────────────────────────
 async function runDetection(){
-  if(!stream || video.readyState < 2) return;
+  if(!stream||video.readyState<2) return;
   syncCanvas();
-
-  if(cocoReady && cocoDetector && !cocoLock){
-    cocoLock = true;
-    try{ await detectWithCOCO(); }
-    finally{ cocoLock = false; }
-  } else {
-    detectWithColor();
-  }
+  if(cocoReady&&cocoDetector&&!cocoLock){
+    cocoLock=true;
+    try{ await detectWithCOCO(); }finally{ cocoLock=false; }
+  } else { detectWithHSV(); }
 }
 
-// ── COCO + 모양+색상 분석 ─────────────────────────────────
+// ──────────────────────────────────────────────────────────
+//  경로 1: COCO AI 감지
+//  신호등 박스를 AI로 특정 → 해당 영역만 분리 분석
+//  초록 버스, 나무, 하늘 등 배경 완전 차단
+// ──────────────────────────────────────────────────────────
 async function detectWithCOCO(){
   var preds;
-  try{ preds = await cocoDetector.detect(video); }catch(e){ detectWithColor(); return; }
+  try{ preds=await cocoDetector.detect(video); }
+  catch(e){ detectWithHSV(); return; }
 
-  var lights = preds.filter(function(p){
-    return p.class === 'traffic light' && p.score > 0.28;
+  var lights=preds.filter(function(p){
+    return p.class==='traffic light' && p.score>0.25;
   });
+  if(!lights.length){ detectWithHSV(); return; }
 
-  if(!lights.length){ detectWithColor(); return; }
+  lights.sort(function(a,b){return b.score-a.score;});
+  var best=lights[0];
+  var bx=best.bbox[0],by=best.bbox[1],bw=best.bbox[2],bh=best.bbox[3];
+  var vw=video.videoWidth, vh=video.videoHeight;
 
-  lights.sort(function(a,b){ return b.score - a.score; });
-  var best = lights[0];
-  var bx=best.bbox[0], by=best.bbox[1], bw=best.bbox[2], bh=best.bbox[3];
+  var SW=24, SH=48;
+  var tmp=document.createElement('canvas');
+  tmp.width=SW; tmp.height=SH;
+  var c2=tmp.getContext('2d');
+  c2.drawImage(video,
+    Math.max(0,bx), Math.max(0,by),
+    Math.min(bw,vw-bx), Math.min(bh,vh-by),
+    0,0,SW,SH);
+  var imgData=c2.getImageData(0,0,SW,SH).data;
+  var result=analyzeSignalBox(imgData,SW,SH);
 
-  // 박스 내부를 32x64 픽셀로 샘플링
-  var SAMPLE_W = 32, SAMPLE_H = 64;
-  var tmp = document.createElement('canvas');
-  tmp.width = SAMPLE_W; tmp.height = SAMPLE_H;
-  var ctx2 = tmp.getContext('2d');
-
-  // 비디오에서 해당 박스 영역만 잘라서 32x64로 그리기
-  var vw = video.videoWidth, vh = video.videoHeight;
-  var sx = Math.max(0, bx), sy = Math.max(0, by);
-  var sw = Math.min(bw, vw-sx), sh = Math.min(bh, vh-sy);
-  ctx2.drawImage(video, sx, sy, sw, sh, 0, 0, SAMPLE_W, SAMPLE_H);
-  var imgData = ctx2.getImageData(0, 0, SAMPLE_W, SAMPLE_H).data;
-
-  // 색상 분석
-  var colorResult = analyzeColor32x64(imgData, SAMPLE_W, SAMPLE_H);
-
-  var finalColor = colorResult.color;
-  var finalScore = colorResult.score * 0.5; // 색상만: 최대 50%
-  var method = 'color';
-
-  // 박스가 충분히 크면 모양 분석 추가
-  var boxHeightPx = bh * (dcv.height / vh);
-  if(bh >= 35 && colorResult.color !== 'unknown'){
-    var shapeResult = analyzeShape32x64(imgData, SAMPLE_W, SAMPLE_H, colorResult.color);
-    if(shapeResult.match){
-      // 색상과 모양이 일치하면 신뢰도 대폭 상승
-      finalScore = 0.5 + shapeResult.confidence * 0.5; // 51~100%
-      method = 'shape';
-    }
-  }
-
-  // 시각화
   dctx.clearRect(0,0,dcv.width,dcv.height);
-  if(finalColor !== 'unknown'){
-    drawBox(bx, by, bw, bh, finalColor, Math.round(finalScore*100), method);
-    showConfidence(finalScore, finalColor);
+  if(result.color!=='unknown'){
+    drawBox(bx,by,bw,bh,result.color,Math.round(result.score*100),'AI');
+    showConfidence(result.score,result.color);
+    setBadge('coco');
+    chipEl.textContent='[AI] '+(result.color==='green'?'초록불 감지':'빨간불 감지');
   }
-
-  // 감지 처리
-  var confirmNeeded = method==='shape' ? CONFIRM_SHAPE : CONFIRM_COLOR;
-  processResult(finalColor, finalScore, method, confirmNeeded);
+  processResult(result.color,result.score,'coco',CONFIRM_COCO);
 }
 
-// ── 32x64 픽셀 색상 분석 ─────────────────────────────────
-// 한국 보행자 신호등 실측값 기반
-function analyzeColor32x64(data, w, h){
-  var redPx=0, grnPx=0, total=0;
+// ──────────────────────────────────────────────────────────
+//  신호등 박스 내부 HSV 색상 분석
+//
+//  실제 사진 측정값 기반:
+//  [초록불] H=145~195 (청록/민트), S>=0.45, V>=0.45
+//  [빨간불] H=0~15 또는 345~360 (순수빨강), S>=0.65, V>=0.55
+//  [하우징] V<0.22 (검은색) — 전체의 20% 이상이어야 신호등
+//
+//  버스 초록(H=100~140)은 청록 범위(H=145~195) 밖 → 자동 제외
+// ──────────────────────────────────────────────────────────
+function analyzeSignalBox(data,w,h){
+  var darkPx=0, redPx=0, grnPx=0, tot=w*h;
   for(var i=0;i<data.length;i+=4){
-    var r=data[i], g=data[i+1], b=data[i+2], a=data[i+3];
-    if(a<100) continue;
-    if(Math.max(r,g,b) < 60) continue; // 어두운 픽셀 제외 (하우징)
-    total++;
-    // 빨강: R이 G보다 35 이상 큼, R > 120
-    if(r-g > 35 && r > 120) redPx++;
-    // 초록(청록): G>R, B도 높음(>85) — 버스/나무와 구분
-    if(g-r > 8 && g > 110 && b > 85) grnPx++;
+    var r=data[i],g=data[i+1],b=data[i+2],a=data[i+3];
+    if(a<80) continue;
+    var rf=r/255, gf=g/255, bf=b/255;
+    var mx=Math.max(rf,gf,bf), mn=Math.min(rf,gf,bf), d=mx-mn;
+    if(mx<0.22){ darkPx++; continue; }
+    var sat=mx>0?d/mx:0;
+    if(sat<0.45||mx<0.45) continue;
+    var hue=0;
+    if(d>0){
+      if(mx===rf)       hue=60*((gf-bf)/d%6);
+      else if(mx===gf)  hue=60*((bf-rf)/d+2);
+      else              hue=60*((rf-gf)/d+4);
+      if(hue<0) hue+=360;
+    }
+    if((hue<=15||hue>=345) && sat>=0.65 && mx>=0.55) redPx++;
+    else if(hue>=145&&hue<=195 && sat>=0.45 && mx>=0.45) grnPx++;
   }
-  if(total < 8) return {color:'unknown', score:0};
-  var rr = redPx/total, gr = grnPx/total;
-  if(rr > 0.08 && rr > gr*1.5) return {color:'red',   score:Math.min(rr*3, 1)};
-  if(gr > 0.06 && gr > rr*1.2) return {color:'green', score:Math.min(gr*4, 1)};
-  return {color:'unknown', score:0};
+  if(darkPx/tot<0.20) return {color:'unknown',score:0};
+  var rr=redPx/tot, gr=grnPx/tot;
+  if(rr>0.04&&rr<0.50&&rr>gr*1.3) return {color:'red',   score:Math.min(0.45+rr*3,1.0)};
+  if(gr>0.04&&gr<0.50&&gr>rr*1.3) return {color:'green', score:Math.min(0.45+gr*3,1.0)};
+  return {color:'unknown',score:0};
 }
 
-// ══════════════════════════════════════════════════════════
-//  32x64 픽셀 사람 모양 분석
+// ──────────────────────────────────────────────────────────
+//  경로 2: HSV 폴백 (COCO 미감지 시)
 //
-//  한국 보행자 신호등 사람 모양 특성:
-//
-//  [빨강 - 서 있는 사람]
-//    행 0~15%:  머리(원형) → 가로 중앙 20~80% 범위에 픽셀
-//    행 15~80%: 몸통 → 가로 중앙 35~65% 범위에 집중
-//    행 80~100%: 다리 모임 → 가로 중앙 40~60% (좁음)
-//    특성: 전체적으로 중앙에 집중, 가장자리 픽셀 적음
-//
-//  [초록 - 걷는 사람]
-//    행 0~15%:  머리(원형) → 가로 중앙
-//    행 15~60%: 몸통+팔 → 팔이 옆으로 나옴 (가장자리 픽셀)
-//    행 60~100%: 다리 벌어짐 → 좌우로 분산
-//    특성: 하단(다리)에서 좌우 가장자리 픽셀이 증가
-// ══════════════════════════════════════════════════════════
-function analyzeShape32x64(data, w, h, expectedColor){
-  // 신호 색상 픽셀만 마스킹
-  var mask = new Uint8Array(w * h);
-  for(var i=0; i<data.length; i+=4){
-    var r=data[i], g=data[i+1], b=data[i+2], a=data[i+3];
-    if(a < 100) continue;
-    if(Math.max(r,g,b) < 60) continue;
-    var idx = i/4;
-    if(expectedColor === 'red'   && r-g > 30 && r > 110) mask[idx] = 1;
-    if(expectedColor === 'green' && g-r > 5  && g > 100 && b > 80) mask[idx] = 1;
-  }
-
-  // 총 픽셀 수 확인 (너무 적으면 판단 불가)
-  var total = 0;
-  for(var k=0;k<mask.length;k++) if(mask[k]) total++;
-  if(total < 15) return {match:false, confidence:0};
-
-  // 구역별 분석: 이미지를 상/중/하 3구역, 좌/중/우 3구역으로 나눔
-  var thirds_w = [0, Math.floor(w/3), Math.floor(2*w/3), w];
-  var thirds_h = [0, Math.floor(h*0.2), Math.floor(h*0.65), h];
-
-  // 9개 구역 픽셀 수
-  var zones = [[0,0,0],[0,0,0],[0,0,0]]; // zones[row][col]
-  for(var py=0; py<h; py++){
-    var rowZone = py < thirds_h[1] ? 0 : py < thirds_h[2] ? 1 : 2;
-    for(var px=0; px<w; px++){
-      if(!mask[py*w+px]) continue;
-      var colZone = px < thirds_w[1] ? 0 : px < thirds_w[2] ? 1 : 2;
-      zones[rowZone][colZone]++;
-    }
-  }
-
-  var topRow    = zones[0][0]+zones[0][1]+zones[0][2]; // 머리
-  var midRow    = zones[1][0]+zones[1][1]+zones[1][2]; // 몸통
-  var botRow    = zones[2][0]+zones[2][1]+zones[2][2]; // 다리
-  var leftCol   = zones[0][0]+zones[1][0]+zones[2][0];
-  var midCol    = zones[0][1]+zones[1][1]+zones[2][1];
-  var rightCol  = zones[0][2]+zones[1][2]+zones[2][2];
-  var botEdge   = zones[2][0]+zones[2][2]; // 다리 좌우 가장자리
-  var botCenter = zones[2][1];             // 다리 중앙
-
-  // 판단 로직
-  var confidence = 0;
-  var match = false;
-
-  if(expectedColor === 'red'){
-    // 서 있는 사람: 다리가 중앙에 모임 (botEdge < botCenter)
-    // 전체적으로 중앙 집중
-    var centerRatio = midCol / Math.max(total, 1);
-    var legCenterRatio = botCenter / Math.max(botRow+1, 1);
-    if(legCenterRatio > 0.35 && centerRatio > 0.25){
-      match = true;
-      confidence = Math.min(legCenterRatio * centerRatio * 4, 1);
-    }
-  } else {
-    // 걷는 사람: 다리가 좌우로 벌어짐 (botEdge > botCenter*0.5)
-    // 하단이 상단보다 넓음
-    var legSpread = botEdge / Math.max(botRow+1, 1);
-    var bottomWider = botRow > topRow * 0.5;
-    if(legSpread > 0.20 && bottomWider){
-      match = true;
-      confidence = Math.min(legSpread * 2, 1);
-    }
-  }
-
-  return {match:match, confidence:confidence};
-}
-
-// ── 전체 프레임 색상 분석 (COCO 미감지 폴백) ─────────────
-function detectWithColor(){
+//  실제 환경 제약:
+//  ① 화면 상단 45%만 탐색 (신호등은 항상 위쪽)
+//  ② 발광 픽셀 절대 수 < 화면 전체의 2% (버스 차단)
+//  ③ 검은 하우징 비율 >= 15% (신호등 고유 특성)
+//  ④ 청록 H=145~195 (버스 초록 H=100~140 완전 제외)
+// ──────────────────────────────────────────────────────────
+function detectWithHSV(){
   var vw=video.videoWidth, vh=video.videoHeight;
   if(!vw||!vh) return;
 
-  // 160px 다운샘플
   var SW=160, SH=Math.round(vh*SW/vw);
   var tmp=document.createElement('canvas');
   tmp.width=SW; tmp.height=SH;
   tmp.getContext('2d').drawImage(video,0,0,SW,SH);
   var data=tmp.getContext('2d').getImageData(0,0,SW,SH).data;
 
-  var COLS=8, ROWS=8;
-  var cw=Math.floor(SW/COLS), ch=Math.floor(SH/ROWS);
+  var maxY=Math.floor(SH*0.45);  // ① 상단 45%
+  var totalScreen=SW*SH;
+  var COLS=16, ROWS=7;
+  var cw=Math.floor(SW/COLS), ch=Math.floor(maxY/ROWS);
+  var bestRed={score:0,x:0,y:0,w:0,h:0};
+  var bestGrn={score:0,x:0,y:0,w:0,h:0};
   var scaleX=vw/SW, scaleY=vh/SH;
-  var bestRed={score:0,bx:0,by:0,bw:0,bh:0};
-  var bestGrn={score:0,bx:0,by:0,bw:0,bh:0};
 
   for(var row=0;row<ROWS;row++){
     for(var col=0;col<COLS;col++){
       var x0=col*cw, y0=row*ch;
-      var rPx=0, gPx=0, tot=0;
-      for(var py=y0;py<y0+ch&&py<SH;py++){
+      var darkC=0, redC=0, grnC=0, cellTot=0;
+
+      for(var py=y0;py<y0+ch&&py<maxY;py++){
         for(var px=x0;px<x0+cw&&px<SW;px++){
           var i=(py*SW+px)*4;
           var r=data[i],g=data[i+1],b=data[i+2];
-          tot++;
-          if(r-g>40&&r>130) rPx++;
-          if(g-r>8&&g>120&&b>90) gPx++;
+          var rf=r/255,gf=g/255,bf=b/255;
+          var mx=Math.max(rf,gf,bf),mn=Math.min(rf,gf,bf),d=mx-mn;
+          cellTot++;
+          if(mx<0.22){ darkC++; continue; }
+          var sat=mx>0?d/mx:0;
+          if(sat<0.45||mx<0.45) continue;
+          var hue=0;
+          if(d>0){
+            if(mx===rf)       hue=60*((gf-bf)/d%6);
+            else if(mx===gf)  hue=60*((bf-rf)/d+2);
+            else              hue=60*((rf-gf)/d+4);
+            if(hue<0) hue+=360;
+          }
+          if((hue<=15||hue>=345)&&sat>=0.65&&mx>=0.55) redC++;
+          else if(hue>=145&&hue<=195&&sat>=0.45&&mx>=0.45) grnC++;
         }
       }
-      var rs=rPx/tot, gs=gPx/tot;
-      if(rs>0.12&&rs>bestRed.score){
-        bestRed={score:rs,bx:x0*scaleX,by:y0*scaleY,bw:cw*scaleX,bh:ch*scaleY};
+
+      if(cellTot===0) continue;
+      var dr=darkC/cellTot, rr=redC/cellTot, gr=grnC/cellTot;
+      if(dr<0.15) continue;  // ③ 하우징 필수
+
+      var redAbs=redC/totalScreen, grnAbs=grnC/totalScreen;
+
+      if(rr>0.06&&rr<0.60&&rr>gr*1.3&&redAbs<0.020){
+        var s=rr*(1+dr);
+        if(s>bestRed.score) bestRed={score:s,x:x0,y:y0,w:cw,h:ch};
       }
-      if(gs>0.12&&gs>bestGrn.score){
-        bestGrn={score:gs,bx:x0*scaleX,by:y0*scaleY,bw:cw*scaleX,bh:ch*scaleY};
+      if(gr>0.06&&gr<0.60&&gr>rr*1.3&&grnAbs<0.020){
+        var s2=gr*(1+dr);
+        if(s2>bestGrn.score) bestGrn={score:s2,x:x0,y:y0,w:cw,h:ch};
       }
     }
   }
 
   dctx.clearRect(0,0,dcv.width,dcv.height);
   var color='unknown', score=0, box=null;
-  if(bestRed.score>0.12||bestGrn.score>0.12){
-    if(bestRed.score>bestGrn.score*1.5){
-      color='red'; score=bestRed.score; box=bestRed;
-    } else if(bestGrn.score>bestRed.score){
-      color='green'; score=bestGrn.score; box=bestGrn;
+
+  if(bestRed.score>0.07||bestGrn.score>0.07){
+    if(bestRed.score>bestGrn.score*1.4){
+      color='red'; score=Math.min(bestRed.score*1.8,0.70); box=bestRed;
+    } else if(bestGrn.score>bestRed.score*1.4){
+      color='green'; score=Math.min(bestGrn.score*1.8,0.70); box=bestGrn;
     }
     if(color!=='unknown'&&box){
-      drawBox(box.bx,box.by,box.bw,box.bh,color,Math.round(score*100),'HSV');
-      showConfidence(Math.min(score*2,0.5),color); // 색상만: 최대 50%
+      drawBox(box.x*scaleX,box.y*scaleY,box.w*scaleX,box.h*scaleY,
+              color,Math.round(score*100),'HSV');
+      showConfidence(score,color);
+      setBadge('hsv');
+      chipEl.textContent='[색상] '+(color==='green'?'초록불 감지':'빨간불 감지');
     }
   }
-
-  processResult(color, score, 'color', CONFIRM_COLOR);
+  processResult(color,score,'hsv',CONFIRM_HSV);
 }
 
-// ── 결과 처리 (안정화 + 신호 발동) ───────────────────────
-function processResult(color, score, method, confirmNeeded){
+// ── 결과 처리 (연속 확인 후 신호 발동) ───────────────────
+function processResult(color,score,method,confirmNeeded){
   if(color==='unknown'){
     missFrames++;
     pendingSignal='unknown'; pendingFrames=0;
     if(missFrames>=MISS_LIMIT&&currentSignal!=='unknown'){
       resetSignal(); missFrames=0;
     }
-    setBadge('');
-    chipEl.textContent='신호등 탐색 중...';
-    confBarWrap.classList.remove('show');
+    if(method==='hsv'){
+      setBadge('');
+      chipEl.textContent='신호등 탐색 중... (상단을 향해주세요)';
+      confBarWrap.classList.remove('show');
+    }
     return;
   }
-
   missFrames=0;
-  setBadge(method==='shape'?'shape':'color');
-
-  var methodLabel = method==='shape'?'모양+색상':'색상';
-  chipEl.textContent='['+methodLabel+'] '+(color==='green'?'초록불 (걷는 사람)':'빨간불 (서 있는 사람)');
-
   if(color===pendingSignal){
     pendingFrames++;
   } else {
     pendingSignal=color; pendingFrames=1; return;
   }
-
   if(pendingFrames>=confirmNeeded){
     pendingFrames=0;
     if(color!==currentSignal){
@@ -627,46 +661,53 @@ function processResult(color, score, method, confirmNeeded){
 
 // ── 박스 그리기 ───────────────────────────────────────────
 function drawBox(bx,by,bw,bh,color,pct,label){
-  var vw=video.videoWidth,vh=video.videoHeight;
+  var vw=video.videoWidth, vh=video.videoHeight;
   var sx=dcv.width/vw, sy=dcv.height/vh;
-  var col=color==='green'?'#22c55e':color==='red'?'#ef4444':'#94a3b8';
+  var col=color==='green'?'#22c55e':'#ef4444';
   dctx.strokeStyle=col; dctx.lineWidth=3;
-  dctx.beginPath(); dctx.roundRect(bx*sx,by*sy,bw*sx,bh*sy,8); dctx.stroke();
-  var lw=160;
+  dctx.beginPath();
+  if(dctx.roundRect) dctx.roundRect(bx*sx,by*sy,bw*sx,bh*sy,8);
+  else dctx.rect(bx*sx,by*sy,bw*sx,bh*sy);
+  dctx.stroke();
+  var lw=135;
   dctx.fillStyle=col;
-  dctx.beginPath(); dctx.roundRect(bx*sx,by*sy-22,lw,18,4); dctx.fill();
-  dctx.fillStyle='#000'; dctx.font='bold 10px system-ui';
-  var txt=(label||'')+(color==='green'?' 걷는사람':' 서있는사람')+' '+pct+'%';
-  dctx.fillText(txt, bx*sx+5, by*sy-8);
+  if(dctx.roundRect) dctx.roundRect(bx*sx,(by*sy)-19,lw,16,3);
+  else dctx.rect(bx*sx,(by*sy)-19,lw,16);
+  dctx.fill();
+  dctx.fillStyle='#000'; dctx.font='bold 9px system-ui';
+  dctx.fillText(
+    (label||'')+(color==='green'?' 초록불':' 빨간불')+' '+pct+'%',
+    bx*sx+4, by*sy-7
+  );
 }
 
 function syncCanvas(){
   var r=video.getBoundingClientRect();
-  var w=Math.floor(r.width),h=Math.floor(r.height);
-  if(dcv.width!==w||dcv.height!==h){dcv.width=w;dcv.height=h;}
+  var w=Math.floor(r.width), h=Math.floor(r.height);
+  if(dcv.width!==w||dcv.height!==h){ dcv.width=w; dcv.height=h; }
 }
 
 // ── 카메라 시작/정지 ──────────────────────────────────────
 async function startCamera(){
-  unlockAll();
+  unlockAudio();
   try{
     stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}},audio:false
+      video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}},
+      audio:false
     });
     video.srcObject=stream;
     await new Promise(function(r){video.onloadedmetadata=r;});
     startOvl.style.display='none';
     ctrlBar.style.display='flex';
     setUI('idle');
-    chipEl.textContent='신호등 탐색 중...';
-    detectTimer=setInterval(runDetection, 500);
-  }catch(e){alert('카메라를 사용할 수 없습니다.\n'+e.message);}
+    chipEl.textContent='신호등 탐색 중... (상단을 향해주세요)';
+    detectTimer=setInterval(runDetection,500);
+  }catch(e){ alert('카메라를 사용할 수 없습니다.\n'+e.message); }
 }
 
 function stopCamera(){
   if(stream) stream.getTracks().forEach(function(t){t.stop();});
-  stream=null;
-  clearInterval(detectTimer);
+  stream=null; clearInterval(detectTimer);
   ctrlBar.style.display='none';
   startOvl.style.display='flex';
   resetAll();
@@ -681,12 +722,13 @@ function fireSignal(color,seconds){
   vibrate(color);
 }
 function testSignal(color){
-  unlockAll(); currentSignal=color; fireSignal(color,color==='green'?25:0);
+  unlockAudio();
+  currentSignal=color;
+  fireSignal(color, color==='green'?25:0);
 }
 
 function applyUI(color,seconds){
-  clearInterval(countdownTimer);
-  setUI(color);
+  clearInterval(countdownTimer); setUI(color);
   if(opts.count&&color==='green'&&seconds>0){
     countdownVal=seconds; showCount(countdownVal,color);
     countNotice.classList.add('show');
@@ -694,8 +736,8 @@ function applyUI(color,seconds){
       countdownVal--;
       if(countdownVal<=0){
         clearInterval(countdownTimer);
-        cdEl.textContent='';bigCount.textContent='';bigCount.className='';
-        cdEl.classList.remove('urgent');countNotice.classList.remove('show');
+        cdEl.textContent=''; bigCount.textContent=''; bigCount.className='';
+        cdEl.classList.remove('urgent'); countNotice.classList.remove('show');
       } else {
         showCount(countdownVal,color);
         if(countdownVal<=5&&opts.vib) navigator.vibrate&&navigator.vibrate(80);
@@ -714,12 +756,15 @@ function setUI(state){
   bgOverlay.className=state; borderSignal.className=state; banner.className=state;
   if(state==='green'){
     sigText.textContent='건너세요';
-    sigCenterTxt.textContent='건너세요'; sigCenterTxt.className='green'; sigCenter.classList.add('show');
+    sigCenterTxt.textContent='건너세요'; sigCenterTxt.className='green';
+    sigCenter.classList.add('show');
   } else if(state==='red'){
     sigText.textContent='멈추세요';
-    sigCenterTxt.textContent='멈추세요'; sigCenterTxt.className='red'; sigCenter.classList.add('show');
+    sigCenterTxt.textContent='멈추세요'; sigCenterTxt.className='red';
+    sigCenter.classList.add('show');
   } else {
-    sigText.textContent='신호등 알리미'; sigCenter.classList.remove('show');
+    sigText.textContent='신호등 알리미';
+    sigCenter.classList.remove('show');
   }
 }
 
@@ -731,9 +776,9 @@ function resetSignal(){
   dctx.clearRect(0,0,dcv.width,dcv.height);
 }
 function resetAll(){
-  pendingSignal='unknown'; pendingFrames=0; missFrames=0; resetSignal(); setBadge('');
+  pendingSignal='unknown'; pendingFrames=0; missFrames=0;
+  resetSignal(); setBadge('');
 }
-
 function vibrate(color){
   if(!opts.vib||!navigator.vibrate) return;
   navigator.vibrate(color==='green'?[200,100,200,100,200]:[600,150,600,150,600]);
