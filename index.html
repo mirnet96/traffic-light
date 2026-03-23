@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>ULTRA VISION v4.5</title>
+    <title>ULTRA VISION AI - 저시력자용</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
     <style>
-        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 60px #22c55e; } 50% { box-shadow: inset 0 0 160px #22c55e; } }
-        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 60px #ef4444; } 50% { box-shadow: inset 0 0 160px #ef4444; } }
-        .active-g { animation: pulse-green 0.7s infinite; border: 20px solid #22c55e !important; }
-        .active-r { animation: pulse-red 0.7s infinite; border: 20px solid #ef4444 !important; }
+        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 80px #22c55e; } 50% { box-shadow: inset 0 0 180px #22c55e; } }
+        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 80px #ef4444; } 50% { box-shadow: inset 0 0 180px #ef4444; } }
+        .active-g { animation: pulse-green 0.6s infinite; border: 25px solid #22c55e !important; }
+        .active-r { animation: pulse-red 0.6s infinite; border: 25px solid #ef4444 !important; }
         #webcam { width: 100%; height: 100%; object-fit: cover; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
     </style>
@@ -19,11 +19,8 @@
 
 <div id="app" class="relative h-screen flex flex-col">
     <div class="flex bg-slate-900 border-b border-white/10 p-4 justify-between items-center z-50">
-        <div id="status-badge" class="font-black text-xl text-blue-400 italic uppercase">READY</div>
-        <div class="flex gap-2 items-center">
-            <div id="tilt-badge" class="bg-amber-500 px-2 py-1 rounded text-[10px] text-black font-bold hidden">기울기 조정 필요</div>
-            <div id="zoom-badge" class="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">Optimized</div>
-        </div>
+        <div id="status-badge" class="font-black text-2xl text-blue-400 italic">SCANNING...</div>
+        <div id="zoom-indicator" class="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold uppercase">Zoom: 1.0x</div>
     </div>
 
     <div class="relative flex-1 bg-black overflow-hidden">
@@ -32,15 +29,15 @@
         <div id="border-overlay" class="absolute inset-0 z-20 transition-all duration-300 pointer-events-none"></div>
     </div>
 
-    <div id="logs" class="h-16 bg-slate-950 p-2 font-mono text-[10px] text-slate-500 overflow-hidden border-t border-white/5">
-        <div id="log-content">[System] 지능형 노출 및 초점 시스템 대기 중...</div>
+    <div id="logs" class="h-12 bg-slate-950 p-2 font-mono text-[10px] text-slate-500 border-t border-white/5">
+        <div id="log-content">시스템 초기화 중...</div>
     </div>
 
     <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-10 text-center">
-        <h1 class="text-5xl font-black mb-4 italic tracking-tighter text-blue-500">ULTRA <span class="text-white">VISION</span></h1>
-        <p class="text-slate-400 mb-12 text-sm">자동 초점 및 야간 빛 번짐 억제 엔진 v4.5</p>
-        <button id="start-btn" class="w-full py-8 bg-blue-600 text-white rounded-[40px] font-black text-3xl shadow-2xl active:scale-95 transition-all">
-            시스템 가동
+        <h1 class="text-5xl font-black mb-4 text-blue-500">ULTRA VISION</h1>
+        <p class="text-slate-400 mb-12">저시력 보조용 전자동 신호등 안내</p>
+        <button id="start-btn" class="w-full py-10 bg-blue-600 text-white rounded-[40px] font-black text-4xl shadow-2xl active:scale-95 transition-all">
+            화면 터치로 시작
         </button>
     </div>
 </div>
@@ -53,172 +50,175 @@ let video = document.getElementById("webcam");
 const canvasCtx = document.getElementById("output_canvas").getContext("2d", { willReadFrequently: true });
 const statusEl = document.getElementById('status-badge');
 const borderEl = document.getElementById('border-overlay');
-const tiltBadge = document.getElementById('tilt-badge');
 const logEl = document.getElementById('log-content');
+const zoomInd = document.getElementById('zoom-indicator');
 
 let audioCtx = null;
+let videoTrack = null;
 let lastConfirmed = 'unknown';
 let signalHistory = [];
+let currentZoom = 1.0;
 
-// 1. 카메라 하드웨어 최적화 (노출/초점/줌)
-async function applyOptimizedCamera(stream) {
-    const track = stream.getVideoTracks()[0];
-    const capabilities = track.getCapabilities();
+// 1. 카메라 하드웨어 전자동 최적화 (노출 감소 및 초기 줌 설정)
+async function setupCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "environment", width: 1280, height: 720 } 
+    });
+    video.srcObject = stream;
+    videoTrack = stream.getVideoTracks()[0];
+    
+    const capabilities = videoTrack.getCapabilities();
     const settings = {};
 
-    // 연속 자동 초점
-    if (capabilities.focusMode?.includes('continuous')) settings.focusMode = 'continuous';
-    // 노출 모드 (야간 빛 번짐 방지용)
+    // 야간 빛 번짐 방지를 위해 노출을 자동으로 최소화
     if (capabilities.exposureMode?.includes('continuous')) settings.exposureMode = 'continuous';
-    // 디지털 줌 적용 (신호등 확대 인식)
+    if (capabilities.exposureCompensation) settings.exposureCompensation = capabilities.exposureCompensation.min;
+    if (capabilities.focusMode?.includes('continuous')) settings.focusMode = 'continuous';
+
+    await videoTrack.applyConstraints({ advanced: [settings] });
+    logEl.textContent = "[Auto] 광학 노출 최적화 완료";
+}
+
+// 2. 자동 디지털 줌 제어 (멀리 있는 신호등 대응)
+async function updateAutoZoom(targetZoom) {
+    if (!videoTrack || currentZoom === targetZoom) return;
+    const capabilities = videoTrack.getCapabilities();
     if (capabilities.zoom) {
-        const targetZoom = Math.min(2.0, capabilities.zoom.max);
-        settings.zoom = targetZoom;
-    }
-
-    try {
-        await track.applyConstraints({ advanced: [settings] });
-        logEl.textContent = "[System] 하드웨어 가속 및 광학 최적화 완료";
-    } catch (e) {
-        logEl.textContent = "[System] 하드웨어 제어 일부 제한됨";
+        const limitedZoom = Math.max(capabilities.zoom.min, Math.min(targetZoom, capabilities.zoom.max));
+        await videoTrack.applyConstraints({ advanced: [{ zoom: limitedZoom }] });
+        currentZoom = limitedZoom;
+        zoomInd.textContent = `Zoom: ${currentZoom.toFixed(1)}x`;
     }
 }
 
-// 2. 기울기 감지
-function handleOrientation(event) {
-    const pitch = event.beta; 
-    if (pitch < 50 || pitch > 100) {
-        tiltBadge.classList.remove('hidden');
-    } else {
-        tiltBadge.classList.add('hidden');
-    }
-}
-
-// 3. 지능형 비프음
-function playBeep(freq, duration) {
-    if (!audioCtx) return;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-    osc.connect(gain); gain.connect(audioCtx.destination);
-    osc.start(); osc.stop(audioCtx.currentTime + duration);
-}
-
-// 4. 색상 분석 (구조 기반: 위 빨강, 아래 초록)
-function analyzeTrafficLight(imageData) {
+// 3. 지능형 HSV 색상 분석 (빛 번짐/흰색 중심 현상 극복)
+function analyzeHSV(imageData) {
     const data = imageData.data;
-    const height = imageData.height;
-    const width = imageData.width;
-    let topRed = 0, bottomGreen = 0;
+    let rVotes = 0, gVotes = 0;
 
     for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        const pixelIdx = i / 4;
-        const y = Math.floor(pixelIdx / width);
+        let r = data[i], g = data[i+1], b = data[i+2];
 
-        // 상단 40% 영역에서 빨간색 감지
-        if (y < height * 0.4) {
-            if (r > 160 && g < 100 && b < 100) topRed++;
+        // HSV 변환 로직
+        let max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, v = max;
+        let d = max - min;
+        s = max === 0 ? 0 : d / max;
+
+        if (max === min) h = 0;
+        else {
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
         }
-        // 하단 40% 영역에서 초록색 감지
-        else if (y > height * 0.6) {
-            if (g > 160 && r < 120) bottomGreen++;
+
+        // 빛이 너무 밝아 하얗게 보일 경우(v > 230)도 포함하는 관용적 판정
+        if (v > 150) { 
+            // 빨강 영역 (330도 이상, 30도 이하)
+            if (h < 0.08 || h > 0.92) rVotes++;
+            // 초록/청록 영역 (100도 ~ 160도)
+            else if (h > 0.28 && h < 0.45) gVotes++;
         }
     }
-
-    if (topRed > bottomGreen && topRed > 20) return 'red';
-    if (bottomGreen > topRed && bottomGreen > 20) return 'green';
+    if (rVotes > gVotes && rVotes > 5) return 'red';
+    if (gVotes > rVotes && gVotes > 5) return 'green';
     return 'unknown';
 }
 
-// 시작 이벤트
+// 메인 루프
+async function predictLoop() {
+    if (!detector) return;
+    
+    const detections = await detector.detectForVideo(video, performance.now());
+    const trafficLight = detections.detections.find(d => d.categories[0].categoryName === "traffic light");
+
+    if (trafficLight) {
+        const box = trafficLight.boundingBox;
+        const score = trafficLight.categories[0].score;
+
+        // [자동화 전략 1] 신호등이 발견되면 즉시 줌인 (원거리 대응)
+        if (score > 0.3) {
+            await updateAutoZoom(2.5); // 발견 시 2.5배 줌
+        }
+
+        canvasCtx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 100, 100);
+        const color = analyzeHSV(canvasCtx.getImageData(0, 0, 100, 100));
+        updateUI(color);
+    } else {
+        // [자동화 전략 2] 신호등이 안 보이면 다시 넓은 시야로 줌아웃
+        updateUI('unknown');
+        if (currentZoom > 1.0) updateAutoZoom(1.0);
+    }
+    
+    setTimeout(() => { window.requestAnimationFrame(predictLoop); }, 80);
+}
+
+function updateUI(color) {
+    signalHistory.push(color);
+    if (signalHistory.length > 12) signalHistory.shift(); // 안정성을 위해 이력 관리 확장
+
+    const counts = signalHistory.reduce((a, c) => (a[c] = (a[c] || 0) + 1, a), {});
+    // [자동화 전략 3] 12프레임 중 8프레임 이상 일치 시 확정 (오작동 방지)
+    const final = Object.keys(counts).find(k => counts[k] >= 8 && k !== 'unknown') || 'unknown';
+
+    if (final !== lastConfirmed) {
+        lastConfirmed = final;
+        if (final === 'green') {
+            statusEl.textContent = "초록불 (가세요)";
+            borderEl.className = "absolute inset-0 z-20 active-g";
+            speak("초록불입니다. 건너가세요.");
+            playBeep(880, 0.15);
+        } else if (final === 'red') {
+            statusEl.textContent = "빨간불 (정지)";
+            borderEl.className = "absolute inset-0 z-20 active-r";
+            speak("빨간불입니다. 멈추세요.");
+            playBeep(440, 0.5);
+        } else {
+            statusEl.textContent = "인식 중...";
+            borderEl.className = "absolute inset-0 z-20";
+        }
+    }
+}
+
+// 음성 및 비프음 유틸리티
+function speak(t) {
+    window.speechSynthesis.cancel();
+    const s = new SpeechSynthesisUtterance(t);
+    s.lang = 'ko-KR'; s.rate = 1.2;
+    window.speechSynthesis.speak(s);
+}
+
+function playBeep(f, d) {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = f;
+    g.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.01);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + d);
+}
+
 document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('boot-screen').style.display = 'none';
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        await DeviceOrientationEvent.requestPermission();
-    }
-    window.addEventListener('deviceorientation', handleOrientation);
-
+    
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
     detector = await ObjectDetector.createFromOptions(vision, {
         baseOptions: { 
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`, 
             delegate: "GPU" 
         },
-        scoreThreshold: 0.4, // 노이즈 방지를 위해 약간 상향
+        scoreThreshold: 0.35, // 원거리를 위해 문턱값을 낮춤
         runningMode: "VIDEO"
     });
 
-    // 해상도를 640x480으로 낮춰 인식 속도 극대화
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "environment", width: 640, height: 480 } 
-    });
-    
-    video.srcObject = stream;
-    await applyOptimizedCamera(stream);
+    await setupCamera();
     video.addEventListener("loadeddata", predictLoop);
-    
-    announce("시스템이 준비되었습니다.");
+    speak("시스템 가동. 신호등을 비추어 주세요.");
 });
-
-async function predictLoop() {
-    if (!detector) return;
-    
-    const detections = await detector.detectForVideo(video, performance.now());
-    const light = detections.detections.find(d => d.categories[0].categoryName === "traffic light");
-
-    if (light) {
-        const box = light.boundingBox;
-        const canvas = document.getElementById("output_canvas");
-        canvas.width = 100; canvas.height = 100;
-        
-        // 감지된 박스 부분만 크롭하여 분석
-        canvasCtx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 100, 100);
-        const color = analyzeTrafficLight(canvasCtx.getImageData(0, 0, 100, 100));
-        updateStatus(color);
-    } else {
-        updateStatus('unknown');
-    }
-    
-    // 부하를 줄이기 위해 약 100ms 간격으로 실행 (초당 10회)
-    setTimeout(() => { window.requestAnimationFrame(predictLoop); }, 100);
-}
-
-function updateStatus(color) {
-    signalHistory.push(color);
-    if (signalHistory.length > 5) signalHistory.shift();
-    
-    const counts = signalHistory.reduce((a, c) => (a[c] = (a[c] || 0) + 1, a), {});
-    const final = Object.keys(counts).find(k => counts[k] >= 3 && k !== 'unknown') || 'unknown';
-
-    if (final !== lastConfirmed) {
-        lastConfirmed = final;
-        if (final === 'green') {
-            statusEl.textContent = "초록불 (GO)";
-            borderEl.className = "absolute inset-0 z-20 active-g";
-            announce("초록불입니다");
-            playBeep(880, 0.1);
-        } else if (final === 'red') {
-            statusEl.textContent = "빨간불 (STOP)";
-            borderEl.className = "absolute inset-0 z-20 active-r";
-            announce("빨간불입니다");
-            playBeep(440, 0.4);
-        } else {
-            statusEl.textContent = "SCANNING";
-            borderEl.className = "absolute inset-0 z-20";
-        }
-    }
-}
-
-function announce(t) {
-    window.speechSynthesis.cancel();
-    const s = new SpeechSynthesisUtterance(t);
-    s.lang = 'ko-KR'; window.speechSynthesis.speak(s);
-}
 </script>
 </body>
 </html>
