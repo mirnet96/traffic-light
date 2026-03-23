@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>ULTRA VISION AI - 저시력자용</title>
+    <title>ULTRA VISION AI - 통합 보조 모드</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
     <style>
@@ -12,157 +12,134 @@
         .active-g { animation: pulse-green 0.6s infinite; border: 25px solid #22c55e !important; }
         .active-r { animation: pulse-red 0.6s infinite; border: 25px solid #ef4444 !important; }
         #webcam { width: 100%; height: 100%; object-fit: cover; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
+        #guide-overlay { position: absolute; bottom: 10%; left: 50%; transform: translateX(-50%); width: 80%; height: 2px; background: rgba(255,255,255,0.3); z-index: 30; }
     </style>
 </head>
 <body class="bg-black text-white overflow-hidden select-none">
 
 <div id="app" class="relative h-screen flex flex-col">
     <div class="flex bg-slate-900 border-b border-white/10 p-4 justify-between items-center z-50">
-        <div id="status-badge" class="font-black text-2xl text-blue-400 italic">SCANNING...</div>
-        <div id="zoom-indicator" class="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold uppercase">Zoom: 1.0x</div>
+        <div id="status-badge" class="font-black text-xl text-blue-400">환경 분석 중...</div>
+        <div id="ground-status" class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400">바닥 감지 대기</div>
     </div>
 
     <div class="relative flex-1 bg-black overflow-hidden">
         <video id="webcam" autoplay playsinline muted></video>
-        <canvas id="output_canvas"></canvas>
+        <canvas id="output_canvas" style="display:none;"></canvas>
+        <div id="guide-overlay"></div>
         <div id="border-overlay" class="absolute inset-0 z-20 transition-all duration-300 pointer-events-none"></div>
     </div>
 
-    <div id="logs" class="h-12 bg-slate-950 p-2 font-mono text-[10px] text-slate-500 border-t border-white/5">
-        <div id="log-content">시스템 초기화 중...</div>
+    <div id="logs" class="h-14 bg-slate-950 p-2 font-mono text-[10px] text-slate-500 border-t border-white/5 overflow-hidden">
+        <div id="log-content">점자블록 및 횡단보도 패턴 추적 중...</div>
     </div>
 
     <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-10 text-center">
         <h1 class="text-5xl font-black mb-4 text-blue-500">ULTRA VISION</h1>
-        <p class="text-slate-400 mb-12">저시력 보조용 전자동 신호등 안내</p>
-        <button id="start-btn" class="w-full py-10 bg-blue-600 text-white rounded-[40px] font-black text-4xl shadow-2xl active:scale-95 transition-all">
-            화면 터치로 시작
-        </button>
+        <p class="text-slate-400 mb-12">신호등 · 점자블록 · 횡단보도 통합 안내</p>
+        <button id="start-btn" class="w-full py-10 bg-blue-600 text-white rounded-[40px] font-black text-4xl shadow-2xl">가동 시작</button>
     </div>
 </div>
 
 <script type="module">
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 
-let detector;
-let video = document.getElementById("webcam");
-const canvasCtx = document.getElementById("output_canvas").getContext("2d", { willReadFrequently: true });
+let detector, video, videoTrack, audioCtx;
+let lastConfirmed = 'unknown', lastGround = '';
+let signalHistory = [], groundHistory = [];
+
+const canvas = document.getElementById("output_canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
 const statusEl = document.getElementById('status-badge');
+const groundEl = document.getElementById('ground-status');
 const borderEl = document.getElementById('border-overlay');
-const logEl = document.getElementById('log-content');
-const zoomInd = document.getElementById('zoom-indicator');
 
-let audioCtx = null;
-let videoTrack = null;
-let lastConfirmed = 'unknown';
-let signalHistory = [];
-let currentZoom = 1.0;
-
-// 1. 카메라 하드웨어 전자동 최적화 (노출 감소 및 초기 줌 설정)
-async function setupCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "environment", width: 1280, height: 720 } 
-    });
-    video.srcObject = stream;
-    videoTrack = stream.getVideoTracks()[0];
-    
-    const capabilities = videoTrack.getCapabilities();
-    const settings = {};
-
-    // 야간 빛 번짐 방지를 위해 노출을 자동으로 최소화
-    if (capabilities.exposureMode?.includes('continuous')) settings.exposureMode = 'continuous';
-    if (capabilities.exposureCompensation) settings.exposureCompensation = capabilities.exposureCompensation.min;
-    if (capabilities.focusMode?.includes('continuous')) settings.focusMode = 'continuous';
-
-    await videoTrack.applyConstraints({ advanced: [settings] });
-    logEl.textContent = "[Auto] 광학 노출 최적화 완료";
-}
-
-// 2. 자동 디지털 줌 제어 (멀리 있는 신호등 대응)
-async function updateAutoZoom(targetZoom) {
-    if (!videoTrack || currentZoom === targetZoom) return;
-    const capabilities = videoTrack.getCapabilities();
-    if (capabilities.zoom) {
-        const limitedZoom = Math.max(capabilities.zoom.min, Math.min(targetZoom, capabilities.zoom.max));
-        await videoTrack.applyConstraints({ advanced: [{ zoom: limitedZoom }] });
-        currentZoom = limitedZoom;
-        zoomInd.textContent = `Zoom: ${currentZoom.toFixed(1)}x`;
-    }
-}
-
-// 3. 지능형 HSV 색상 분석 (빛 번짐/흰색 중심 현상 극복)
-function analyzeHSV(imageData) {
+// --- [전자동 바닥 분석 로직] ---
+function analyzeGround(imageData) {
     const data = imageData.data;
-    let rVotes = 0, gVotes = 0;
+    let yellowPixels = 0, whitePixels = 0;
+    const total = data.length / 4;
 
     for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        
+        // 1. 점자블록 감지 (노란색: R, G가 높고 B가 낮음)
+        if (r > 150 && g > 130 && b < 100) yellowPixels++;
+        
+        // 2. 횡단보도 흰줄 감지 (고휘도: R, G, B 모두 높음)
+        if (r > 200 && g > 200 && b > 200) whitePixels++;
+    }
+
+    const yellowRate = yellowPixels / total;
+    const whiteRate = whitePixels / total;
+
+    if (yellowRate > 0.15) return "점자블록";
+    if (whiteRate > 0.20) return "횡단보도";
+    return "일반도로";
+}
+
+// --- [신호등 HSV 분석] ---
+function analyzeSignal(imageData) {
+    const data = imageData.data;
+    let rVotes = 0, gVotes = 0;
+    for (let i = 0; i < data.length; i += 4) {
         let r = data[i], g = data[i+1], b = data[i+2];
-
-        // HSV 변환 로직
         let max = Math.max(r, g, b), min = Math.min(r, g, b);
-        let h, s, v = max;
-        let d = max - min;
-        s = max === 0 ? 0 : d / max;
-
-        if (max === min) h = 0;
-        else {
-            switch (max) {
-                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-                case g: h = (b - r) / d + 2; break;
-                case b: h = (r - g) / d + 4; break;
-            }
+        let h = 0, d = max - min;
+        if (max !== min) {
+            if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+            else if (max === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
             h /= 6;
         }
-
-        // 빛이 너무 밝아 하얗게 보일 경우(v > 230)도 포함하는 관용적 판정
-        if (v > 150) { 
-            // 빨강 영역 (330도 이상, 30도 이하)
+        if (max > 160) {
             if (h < 0.08 || h > 0.92) rVotes++;
-            // 초록/청록 영역 (100도 ~ 160도)
             else if (h > 0.28 && h < 0.45) gVotes++;
         }
     }
-    if (rVotes > gVotes && rVotes > 5) return 'red';
-    if (gVotes > rVotes && gVotes > 5) return 'green';
-    return 'unknown';
+    return rVotes > gVotes ? 'red' : (gVotes > rVotes ? 'green' : 'unknown');
 }
 
-// 메인 루프
 async function predictLoop() {
     if (!detector) return;
-    
+
+    // 1. 신호등 객체 탐지
     const detections = await detector.detectForVideo(video, performance.now());
     const trafficLight = detections.detections.find(d => d.categories[0].categoryName === "traffic light");
 
+    // 2. 바닥 영역 분석 (화면 하단 30% 영역 크롭)
+    canvas.width = 160; canvas.height = 120;
+    ctx.drawImage(video, 0, video.videoHeight * 0.7, video.videoWidth, video.videoHeight * 0.3, 0, 0, 160, 120);
+    const groundResult = analyzeGround(ctx.getImageData(0, 0, 160, 120));
+    
+    // 바닥 상태 안내 (변화 시에만)
+    if (groundResult !== lastGround) {
+        lastGround = groundResult;
+        groundEl.textContent = groundResult;
+        if (groundResult !== "일반도로") speak(groundResult + " 감지");
+    }
+
+    // 3. 신호등 색상 분석
     if (trafficLight) {
         const box = trafficLight.boundingBox;
-        const score = trafficLight.categories[0].score;
-
-        // [자동화 전략 1] 신호등이 발견되면 즉시 줌인 (원거리 대응)
-        if (score > 0.3) {
-            await updateAutoZoom(2.5); // 발견 시 2.5배 줌
-        }
-
-        canvasCtx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 100, 100);
-        const color = analyzeHSV(canvasCtx.getImageData(0, 0, 100, 100));
+        ctx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 100, 100);
+        const color = analyzeSignal(ctx.getImageData(0, 0, 100, 100));
         updateUI(color);
+        // 원거리 발견 시 자동 줌
+        if (trafficLight.categories[0].score > 0.3) applyZoom(2.0);
     } else {
-        // [자동화 전략 2] 신호등이 안 보이면 다시 넓은 시야로 줌아웃
         updateUI('unknown');
-        if (currentZoom > 1.0) updateAutoZoom(1.0);
+        applyZoom(1.0);
     }
-    
-    setTimeout(() => { window.requestAnimationFrame(predictLoop); }, 80);
+
+    setTimeout(() => { window.requestAnimationFrame(predictLoop); }, 100);
 }
 
 function updateUI(color) {
     signalHistory.push(color);
-    if (signalHistory.length > 12) signalHistory.shift(); // 안정성을 위해 이력 관리 확장
-
+    if (signalHistory.length > 10) signalHistory.shift();
     const counts = signalHistory.reduce((a, c) => (a[c] = (a[c] || 0) + 1, a), {});
-    // [자동화 전략 3] 12프레임 중 8프레임 이상 일치 시 확정 (오작동 방지)
-    const final = Object.keys(counts).find(k => counts[k] >= 8 && k !== 'unknown') || 'unknown';
+    const final = Object.keys(counts).find(k => counts[k] >= 7 && k !== 'unknown') || 'unknown';
 
     if (final !== lastConfirmed) {
         lastConfirmed = final;
@@ -170,54 +147,51 @@ function updateUI(color) {
             statusEl.textContent = "초록불 (가세요)";
             borderEl.className = "absolute inset-0 z-20 active-g";
             speak("초록불입니다. 건너가세요.");
-            playBeep(880, 0.15);
         } else if (final === 'red') {
             statusEl.textContent = "빨간불 (정지)";
             borderEl.className = "absolute inset-0 z-20 active-r";
-            speak("빨간불입니다. 멈추세요.");
-            playBeep(440, 0.5);
-        } else {
-            statusEl.textContent = "인식 중...";
-            borderEl.className = "absolute inset-0 z-20";
+            speak("빨간불입니다. 잠시 멈추세요.");
         }
     }
 }
 
-// 음성 및 비프음 유틸리티
+async function applyZoom(val) {
+    if (videoTrack) {
+        const caps = videoTrack.getCapabilities();
+        if (caps.zoom) {
+            await videoTrack.applyConstraints({ advanced: [{ zoom: val }] });
+        }
+    }
+}
+
 function speak(t) {
     window.speechSynthesis.cancel();
     const s = new SpeechSynthesisUtterance(t);
-    s.lang = 'ko-KR'; s.rate = 1.2;
+    s.lang = 'ko-KR'; s.rate = 1.1;
     window.speechSynthesis.speak(s);
-}
-
-function playBeep(f, d) {
-    if (!audioCtx) return;
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.frequency.value = f;
-    g.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.01);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + d);
 }
 
 document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('boot-screen').style.display = 'none';
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video = document.getElementById("webcam");
+    video.srcObject = stream;
+    videoTrack = stream.getVideoTracks()[0];
+
     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
     detector = await ObjectDetector.createFromOptions(vision, {
         baseOptions: { 
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`, 
             delegate: "GPU" 
         },
-        scoreThreshold: 0.35, // 원거리를 위해 문턱값을 낮춤
+        scoreThreshold: 0.3,
         runningMode: "VIDEO"
     });
 
-    await setupCamera();
     video.addEventListener("loadeddata", predictLoop);
-    speak("시스템 가동. 신호등을 비추어 주세요.");
+    speak("통합 안내 시스템 시작");
 });
 </script>
 </body>
