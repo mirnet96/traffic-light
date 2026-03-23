@@ -7,21 +7,21 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2"></script>
-    
     <style>
-        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 30px #22c55e; } 50% { box-shadow: inset 0 0 100px #22c55e; } }
-        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 30px #ef4444; } 50% { box-shadow: inset 0 0 100px #ef4444; } }
-        .active-g { animation: pulse-green 1.5s infinite; border: 16px solid #22c55e !important; }
-        .active-r { animation: pulse-red 1.5s infinite; border: 16px solid #ef4444 !important; }
-        #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        /* 저시력자를 위한 고대비 테두리 애니메이션 */
+        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 50px #22c55e; } 50% { box-shadow: inset 0 0 120px #22c55e; } }
+        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 50px #ef4444; } 50% { box-shadow: inset 0 0 120px #ef4444; } }
+        .active-g { animation: pulse-green 1s infinite; border: 20px solid #22c55e !important; }
+        .active-r { animation: pulse-red 1s infinite; border: 20px solid #ef4444 !important; }
+        #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.6; }
     </style>
 </head>
-<body class="bg-black text-white overflow-hidden">
+<body class="bg-black text-white overflow-hidden select-none">
 
 <div id="app" class="relative h-screen flex flex-col">
     <div class="flex bg-slate-900 border-b border-white/10 p-4 justify-between items-center z-50">
-        <div id="status-badge" class="font-bold text-lg text-blue-400">시스템 대기 중</div>
-        <div id="zoom-badge" class="bg-blue-600 px-2 py-1 rounded text-xs font-mono">1.0x</div>
+        <div id="status-badge" class="font-black text-xl text-blue-400">시스템 대기</div>
+        <div id="zoom-badge" class="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold shadow-lg">1.0x</div>
     </div>
 
     <div class="relative flex-1 bg-black overflow-hidden" id="main-view">
@@ -29,49 +29,77 @@
         <canvas id="canvas"></canvas>
         <div id="border-overlay" class="absolute inset-0 pointer-events-none z-20 transition-all"></div>
         
-        <div class="absolute top-[15%] left-1/2 -translate-x-1/2 px-4 py-2 bg-black/50 border border-blue-500/30 rounded-full text-[10px] text-blue-200 z-10">
-            신호등을 화면 위쪽에 맞춰주세요
+        <div class="absolute inset-0 border-[1px] border-white/10 pointer-events-none flex items-center justify-center">
+             <div class="w-full h-[2px] bg-white/5"></div>
         </div>
     </div>
 
-    <div class="h-32 bg-slate-950 border-t border-white/10 p-2 overflow-y-auto font-mono text-[10px] text-slate-500" id="logs">
+    <div class="h-28 bg-slate-950 border-t border-white/10 p-2 overflow-y-auto font-mono text-[10px] text-slate-500" id="logs">
         <div>[System] 초기화 대기...</div>
     </div>
 
-    <div id="boot-layer" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-6 text-center">
-        <h1 class="text-3xl font-black mb-2">TRAFFIC LIGHT <span class="text-blue-500 text-sm">v2.1</span></h1>
-        <p class="text-slate-400 text-xs mb-8">안전을 위해 보도 안쪽에서 사용하세요.</p>
-        <button onclick="startSystem()" class="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xl shadow-lg shadow-blue-900/40 transition-all active:scale-95">
-            시스템 활성화
+    <div id="boot-layer" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-8 text-center">
+        <div class="mb-10">
+            <h1 class="text-4xl font-black mb-2 text-white italic tracking-tighter">TRAFFIC <span class="text-blue-500">PRO</span></h1>
+            <p class="text-slate-400 text-sm">저시력 보행자용 신호 탐색기</p>
+        </div>
+
+        <div class="w-full space-y-3 mb-10 text-left bg-slate-900/50 p-5 rounded-2xl border border-white/5">
+            <div class="flex items-center gap-2">
+                <span class="text-blue-400 font-bold">●</span>
+                <p class="text-xs text-slate-300">초록불 감지 시 <b class="text-green-400">강한 진동</b>과 음성 안내</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-red-400 font-bold">●</span>
+                <p class="text-xs text-slate-300">신호 부재 시 <b class="text-blue-400">자동 줌</b> 탐색 작동</p>
+            </div>
+        </div>
+
+        <button onclick="activateApp()" class="w-full py-6 bg-blue-600 text-white rounded-3xl font-black text-2xl shadow-2xl active:scale-95 transition-all">
+            시스템 활성화 시작
         </button>
     </div>
 </div>
 
 <script>
-let net = null, stream = null, isReady = false;
-let curSignal = 'unknown', zoomVal = 1.0, zoomTimer = null;
+let net = null, stream = null, isLive = false;
+let lastSignal = 'unknown', zoomVal = 1.0, zoomInterval = null;
 
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
-const statusEl = document.getElementById('status-badge');
-const borderEl = document.getElementById('border-overlay');
-const zoomEl = document.getElementById('zoom-badge');
-const logEl = document.getElementById('logs');
+const elVideo = document.getElementById('video');
+const elCanvas = document.getElementById('canvas');
+const ctx = elCanvas.getContext('2d', { willReadFrequently: true });
+const elStatus = document.getElementById('status-badge');
+const elBorder = document.getElementById('border-overlay');
+const elLogs = document.getElementById('logs');
+const elZoom = document.getElementById('zoom-badge');
 
 function addLog(m) {
     const d = new Date().toLocaleTimeString();
-    logEl.innerHTML = `<div>[${d}] ${m}</div>` + logEl.innerHTML;
+    elLogs.innerHTML = `<div class="mb-1 text-slate-400">[${d}] ${m}</div>` + elLogs.innerHTML;
 }
 
-function speak(t) {
+// [필수] 음성 안내 함수
+function announce(text) {
     window.speechSynthesis.cancel();
-    const s = new SpeechSynthesisUtterance(t);
-    s.lang = 'ko-KR';
-    window.speechSynthesis.speak(s);
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.lang = 'ko-KR';
+    msg.rate = 0.95; // 약간 천천히 전달
+    window.speechSynthesis.speak(msg);
 }
 
-// 줌 기능 (삼성 인터넷/안드로이드 크롬 최적화)
+// [필수] 진동 함수
+function vibrate(type) {
+    if (!navigator.vibrate) return;
+    if (type === 'green') {
+        // 초록불: 긴 진동 3번 (매우 강력하게 인지)
+        navigator.vibrate([600, 200, 600, 200, 600]);
+    } else if (type === 'red') {
+        // 빨간불: 짧은 진동 1번
+        navigator.vibrate(300);
+    }
+}
+
+// 줌 제어 로직
 async function setZoom(v) {
     if (!stream) return;
     const track = stream.getVideoTracks()[0];
@@ -80,107 +108,129 @@ async function setZoom(v) {
         const target = Math.max(caps.zoom.min, Math.min(v, caps.zoom.max));
         await track.applyConstraints({ advanced: [{ zoom: target }] });
         zoomVal = target;
-        zoomEl.textContent = `${zoomVal.toFixed(1)}x`;
+        elZoom.textContent = `${zoomVal.toFixed(1)}x`;
     }
 }
 
-async function startSystem() {
+async function activateApp() {
     document.getElementById('boot-layer').style.display = 'none';
-    addLog("카메라 연결 시도...");
+    addLog("카메라 권한 요청 중...");
     
     try {
-        // 카메라 권한 및 스트림 획득
         stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', focusMode: 'continuous' },
-            audio: false
+            video: { facingMode: 'environment', focusMode: 'continuous' }
         });
-        video.srcObject = stream;
+        elVideo.srcObject = stream;
         
-        // 모델 로드 시작
-        statusEl.textContent = "AI 엔진 로드 중...";
-        addLog("AI 모델 다운로드 중 (약 20MB)...");
+        elStatus.textContent = "AI 로딩 중...";
+        addLog("AI 모델 로딩 중... 잠시만 기다리세요.");
+        
         net = await cocoSsd.load();
         
-        isReady = true;
-        statusEl.textContent = "탐색 활성화";
-        addLog("시스템 정상 작동 시작.");
-        speak("탐지를 시작합니다. 기기를 높게 들어주세요.");
+        isLive = true;
+        elStatus.textContent = "탐색 중";
+        addLog("탐지 엔진 활성화 완료.");
+        announce("탐지를 시작합니다. 기기를 정면 높게 들어주세요.");
         
-        detectLoop();
+        requestAnimationFrame(predictLoop);
     } catch (e) {
-        addLog("에러: " + e.message);
-        alert("카메라를 켤 수 없습니다. (HTTPS 연결 및 권한 확인 필요)");
+        addLog("오류 발생: " + e.message);
+        alert("카메라 사용이 거부되었습니다.");
     }
 }
 
-async function detectLoop() {
-    if (!isReady) return;
+async function predictLoop() {
+    if (!isLive) return;
 
-    // 캔버스 크기 맞춤
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    elCanvas.width = elVideo.videoWidth;
+    elCanvas.height = elVideo.videoHeight;
 
-    const preds = await net.detect(video);
-    const light = preds.find(p => p.class === 'traffic light' && p.score > 0.3);
+    const preds = await net.detect(elVideo);
+    const trafficLight = preds.find(p => p.class === 'traffic light' && p.score > 0.3);
 
-    // 자동 줌 로직
-    if (!light && !zoomTimer) {
-        zoomTimer = setInterval(() => {
-            if (zoomVal < 3.0) setZoom(zoomVal + 0.5);
-            else setZoom(1.0);
-        }, 4000);
-    } else if (light && zoomTimer) {
-        clearInterval(zoomTimer);
-        zoomTimer = null;
-    }
-
-    if (light) {
-        const [x, y, w, h] = light.bbox;
-        ctx.drawImage(video, x, y, w, h, 0, 0, 100, 100);
-        const data = ctx.getImageData(0, 0, 100, 100).data;
-        
-        let r=0, g=0;
-        for(let i=0; i<data.length; i+=4) {
-            if (data[i] > 150 && data[i+1] < 100) r++;
-            if (data[i+1] > 150 && data[i] < 150) g++;
+    // 자동 줌 탐색 (신호등이 없을 때 5초마다 확대)
+    if (!trafficLight) {
+        if (!zoomInterval) {
+            zoomInterval = setInterval(() => {
+                if (zoomVal < 3.0) {
+                    setZoom(zoomVal + 0.5);
+                    announce("신호를 찾는 중입니다. 기기를 높게 유지하세요.");
+                } else {
+                    setZoom(1.0);
+                    addLog("재탐색 위해 광각 복귀");
+                }
+            }, 5000);
         }
-        
-        let result = r > g ? 'red' : g > r ? 'green' : 'unknown';
-        updateStatus(result);
     } else {
-        updateStatus('unknown');
+        if (zoomInterval) {
+            clearInterval(zoomInterval);
+            zoomInterval = null;
+            addLog("신호등 포착됨");
+        }
     }
 
-    requestAnimationFrame(detectLoop);
+    if (trafficLight) {
+        const [x, y, w, h] = trafficLight.bbox;
+        ctx.drawImage(elVideo, x, y, w, h, 0, 0, 100, 100);
+        const color = analyzeColor(ctx.getImageData(0, 0, 100, 100).data);
+        updateSignalStatus(color);
+    } else {
+        updateSignalStatus('unknown');
+    }
+
+    requestAnimationFrame(predictLoop);
 }
 
-function updateStatus(c) {
-    if (c === curSignal) return;
-    curSignal = c;
+// 정밀 색상 분석 (HSV 보정 포함)
+function analyzeColor(data) {
+    let rSum=0, gSum=0;
+    const total = data.length / 4;
+    for(let i=0; i<data.length; i+=4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        // 빨간색 조건
+        if (r > 150 && g < 100 && b < 100) rSum++;
+        // 신호등 특유의 청록계열 초록 조건
+        if (g > 150 && r < 130) gSum++;
+    }
+    if (rSum/total > 0.05 && rSum > gSum) return 'red';
+    if (gSum/total > 0.05 && gSum > rSum) return 'green';
+    return 'unknown';
+}
 
-    if (c === 'green') {
-        statusEl.textContent = "초록불";
-        statusEl.className = "font-bold text-lg text-green-500";
-        borderEl.className = "absolute inset-0 z-20 active-g";
-        speak("초록불입니다. 건너가세요.");
-    } else if (c === 'red') {
-        statusEl.textContent = "빨간불";
-        statusEl.className = "font-bold text-lg text-red-500";
-        borderEl.className = "absolute inset-0 z-20 active-r";
-        speak("빨간불입니다. 대기하세요.");
+function updateSignalStatus(color) {
+    if (color === lastSignal) return;
+    lastSignal = color;
+
+    if (color === 'green') {
+        elStatus.textContent = "초록불";
+        elStatus.className = "font-black text-2xl text-green-500";
+        elBorder.className = "absolute inset-0 z-20 active-g";
+        announce("초록불입니다. 좌우를 살핀 후 건너가세요.");
+        vibrate('green');
+        addLog("EVENT: 초록불 감지");
+    } else if (color === 'red') {
+        elStatus.textContent = "빨간불";
+        elStatus.className = "font-black text-2xl text-red-500";
+        elBorder.className = "absolute inset-0 z-20 active-r";
+        announce("빨간불입니다. 보도 안쪽에서 기다리세요.");
+        vibrate('red');
+        addLog("EVENT: 빨간불 감지");
     } else {
-        statusEl.textContent = "탐색 중";
-        statusEl.className = "font-bold text-lg text-blue-400";
-        borderEl.className = "absolute inset-0 z-20";
+        elStatus.textContent = "신호 탐색 중";
+        elStatus.className = "font-black text-xl text-blue-400";
+        elBorder.className = "absolute inset-0 z-20";
     }
 }
 
-// 화면 터치 시 줌 리셋 및 재안내
-document.body.addEventListener('click', () => {
-    if(!isReady) return;
+// 화면 터치 시 피드백
+document.body.addEventListener('click', (e) => {
+    if (e.target.tagName === 'BUTTON') return;
     setZoom(1.0);
-    addLog("줌 초기화");
+    const msg = lastSignal === 'green' ? "현재 초록불입니다." : 
+                lastSignal === 'red' ? "현재 빨간불입니다." : "신호를 찾는 중입니다.";
+    announce(msg);
 });
 </script>
 </body>
 </html>
+
