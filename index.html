@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>신호등 알리미 Pro - MediaPipe</title>
+    <title>신호등 알리미 Pro - 초고도화</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
-    
     <style>
-        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 60px #22c55e; } 50% { box-shadow: inset 0 0 140px #22c55e; } }
-        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 60px #ef4444; } 50% { box-shadow: inset 0 0 140px #ef4444; } }
-        .active-g { animation: pulse-green 0.8s infinite; border: 20px solid #22c55e !important; }
-        .active-r { animation: pulse-red 0.8s infinite; border: 20px solid #ef4444 !important; }
-        video { transform: scaleX(1); object-fit: cover; width: 100%; height: 100%; }
+        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 60px #22c55e; } 50% { box-shadow: inset 0 0 160px #22c55e; } }
+        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 60px #ef4444; } 50% { box-shadow: inset 0 0 160px #ef4444; } }
+        .active-g { animation: pulse-green 0.7s infinite; border: 25px solid #22c55e !important; }
+        .active-r { animation: pulse-red 0.7s infinite; border: 25px solid #ef4444 !important; }
+        #webcam { width: 100%; height: 100%; object-fit: cover; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
     </style>
 </head>
@@ -20,247 +19,162 @@
 
 <div id="app" class="relative h-screen flex flex-col">
     <div class="flex bg-slate-900 border-b border-white/10 p-4 justify-between items-center z-50">
-        <div id="status-badge" class="font-black text-xl text-blue-400 italic tracking-tighter text-shadow">INITIALIZING...</div>
-        <div class="flex gap-2">
-            <div id="zoom-badge" class="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold shadow-lg shadow-blue-900/40">1.0x</div>
+        <div id="status-badge" class="font-black text-xl text-blue-400 italic">READY</div>
+        <div class="flex gap-2 items-center">
+            <div id="tilt-badge" class="bg-red-600 px-2 py-1 rounded text-[10px] hidden">기울기 부적절</div>
+            <div id="zoom-badge" class="bg-blue-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest">1.0x</div>
         </div>
     </div>
 
-    <div class="relative flex-1 bg-black overflow-hidden">
+    <div class="relative flex-1 bg-black">
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="output_canvas"></canvas>
-        <div id="border-overlay" class="absolute inset-0 pointer-events-none z-20 transition-all duration-300"></div>
-        
-        <div class="absolute top-[15%] left-0 w-full h-[45%] border-y border-white/5 pointer-events-none flex items-center justify-center">
-            <div class="text-[9px] text-white/20 tracking-[0.5em] font-mono">PRIMARY SCANNING ZONE</div>
-        </div>
+        <div id="border-overlay" class="absolute inset-0 z-20 transition-all duration-300"></div>
     </div>
 
-    <div class="h-28 bg-slate-950 border-t border-white/10 p-2 overflow-y-auto font-mono text-[9px] text-slate-500" id="logs">
-        <div>[System] 엔진 준비 대기 중...</div>
+    <div id="logs" class="h-24 bg-slate-950 p-2 font-mono text-[9px] text-slate-500 overflow-y-auto border-t border-white/5">
+        <div>[System] 기울기 및 사운드 가이드 활성화 대기</div>
     </div>
 
-    <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-8 text-center">
-        <div class="mb-12">
-            <h1 class="text-5xl font-black italic mb-2 tracking-tighter">MEDIA<span class="text-blue-500 underline">PIPE</span></h1>
-            <p class="text-slate-500 text-sm tracking-widest uppercase">Traffic Assistant Pro v3.5</p>
-        </div>
-        <button id="start-btn" class="w-full py-8 bg-white text-black rounded-[40px] font-black text-3xl shadow-[0_0_60px_rgba(255,255,255,0.2)] active:scale-95 transition-all">
-            시스템 시작
+    <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-10 text-center">
+        <h1 class="text-5xl font-black mb-4 italic tracking-tighter text-blue-500">ULTRA <span class="text-white">VISION</span></h1>
+        <p class="text-slate-400 mb-12 text-sm leading-relaxed">기울기 감지 및 지능형 사운드 엔진 v4.0</p>
+        <button id="start-btn" class="w-full py-8 bg-blue-600 text-white rounded-[40px] font-black text-3xl shadow-2xl active:scale-95 transition-all">
+            시스템 가동
         </button>
-        <div class="mt-10 text-slate-500 text-xs space-y-2 leading-relaxed">
-            <p>● 고성능 MediaPipe 비전 엔진 탑재</p>
-            <p>● 야간 번짐 방지 및 시계열 검증 적용</p>
-        </div>
     </div>
 </div>
 
 <script type="module">
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 
-let objectDetector;
-let runningMode = "VIDEO";
+let detector;
 let video = document.getElementById("webcam");
-const canvasElement = document.getElementById("output_canvas");
-const canvasCtx = canvasElement.getContext("2d", { willReadFrequently: true });
+const canvasCtx = document.getElementById("output_canvas").getContext("2d");
 const statusEl = document.getElementById('status-badge');
 const borderEl = document.getElementById('border-overlay');
-const logEl = document.getElementById('logs');
-const zoomBadge = document.getElementById('zoom-badge');
+const tiltBadge = document.getElementById('tilt-badge');
 
 let stream = null;
-let lastVideoTime = -1;
 let zoomLevel = 1.0;
-let zoomSearchTimer = null;
-let signalHistory = []; // 검증용 히스토리
-let currentConfirmedSignal = 'unknown';
+let signalHistory = [];
+let lastConfirmed = 'unknown';
+let audioCtx = null; // 비프음용 오디오 컨텍스트
 
-/** [유틸리티] 로그 및 안내 **/
-function addLog(m) {
-    const d = new Date().toLocaleTimeString();
-    logEl.innerHTML = `<div class="mb-1 border-b border-white/5 pb-1">[${d}] ${m}</div>` + logEl.innerHTML;
+/** [추가] 지능형 비프음 생성 **/
+function playBeep(freq, duration) {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+/** [추가] 기울기 감지 (Device Orientation) **/
+function handleOrientation(event) {
+    // beta: 앞뒤 기울기 (-180~180), 보통 폰을 세우면 70~90도 사이
+    const pitch = event.beta; 
+    if (pitch < 45) { // 너무 바닥을 보고 있을 때
+        tiltBadge.classList.remove('hidden');
+        tiltBadge.textContent = "폰을 더 세워주세요";
+    } else if (pitch > 110) { // 너무 하늘을 보고 있을 때
+        tiltBadge.classList.remove('hidden');
+        tiltBadge.textContent = "폰을 조금 내려주세요";
+    } else {
+        tiltBadge.classList.add('hidden');
+    }
+}
+
+/** [시작] 시스템 초기화 **/
+document.getElementById('start-btn').addEventListener('click', async () => {
+    document.getElementById('boot-screen').style.display = 'none';
+    
+    // 1. 오디오 활성화 (유저 클릭 시점)
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // 2. 기울기 권한 요청 (iOS 등 대응)
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        await DeviceOrientationEvent.requestPermission();
+    }
+    window.addEventListener('deviceorientation', handleOrientation);
+
+    // 3. AI 및 카메라 로드
+    const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+    detector = await ObjectDetector.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`, delegate: "GPU" },
+        scoreThreshold: 0.35, runningMode: "VIDEO"
+    });
+
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = stream;
+    video.addEventListener("loadeddata", predictLoop);
+    
+    announce("초고도화 시스템이 활성화되었습니다.");
+});
+
+async function predictLoop() {
+    const detections = await detector.detectForVideo(video, performance.now());
+    const light = detections.detections.find(d => d.categories[0].categoryName === "traffic light");
+
+    if (light) {
+        const box = light.boundingBox;
+        document.getElementById("output_canvas").width = video.videoWidth;
+        document.getElementById("output_canvas").height = video.videoHeight;
+        canvasCtx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 100, 100);
+        const color = analyzeColor(canvasCtx.getImageData(0, 0, 100, 100).data);
+        verifyAndAnnounce(color);
+    } else {
+        verifyAndAnnounce('unknown');
+    }
+    window.requestAnimationFrame(predictLoop);
+}
+
+function analyzeColor(data) {
+    let r=0, g=0;
+    for(let i=0; i<data.length; i+=4) {
+        if (data[i] > 180 && data[i+1] < 120) r++;
+        if (data[i+1] > 180 && data[i] < 150) g++;
+    }
+    return r > g ? 'red' : g > r ? 'green' : 'unknown';
+}
+
+function verifyAndAnnounce(color) {
+    signalHistory.push(color);
+    if (signalHistory.length > 6) signalHistory.shift();
+    const counts = signalHistory.reduce((a, c) => (a[c] = (a[c] || 0) + 1, a), {});
+    const final = Object.keys(counts).find(k => counts[k] >= 4 && k !== 'unknown') || 'unknown';
+
+    if (final !== lastConfirmed) {
+        lastConfirmed = final;
+        if (final === 'green') {
+            statusEl.textContent = "초록불";
+            borderEl.className = "absolute inset-0 z-20 active-g";
+            announce("초록불입니다. 건너가세요.");
+            // 초록불: 높은 음 비프음 빠르게
+            playBeep(880, 0.1); setTimeout(() => playBeep(880, 0.1), 200);
+        } else if (final === 'red') {
+            statusEl.textContent = "빨간불";
+            borderEl.className = "absolute inset-0 z-20 active-r";
+            announce("빨간불입니다. 대기하세요.");
+            // 빨간불: 낮은 음 비프음 길게 한번
+            playBeep(440, 0.5);
+        } else {
+            statusEl.textContent = "SCANNING";
+            borderEl.className = "";
+        }
+    }
 }
 
 function announce(t) {
     window.speechSynthesis.cancel();
     const s = new SpeechSynthesisUtterance(t);
-    s.lang = 'ko-KR'; s.rate = 1.0;
-    window.speechSynthesis.speak(s);
+    s.lang = 'ko-KR'; window.speechSynthesis.speak(s);
 }
-
-function triggerVibe(type) {
-    if (!navigator.vibrate) return;
-    if (type === 'green') navigator.vibrate([600, 200, 600, 200, 600]);
-    else if (type === 'red') navigator.vibrate(300);
-}
-
-/** [MediaPipe] 모델 초기화 **/
-async function initializeDetector() {
-    const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-    );
-    objectDetector = await ObjectDetector.createFromOptions(vision, {
-        baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
-            delegate: "GPU"
-        },
-        scoreThreshold: 0.3,
-        runningMode: runningMode
-    });
-    addLog("MediaPipe 엔진 로드 완료 (GPU 가속)");
-}
-
-/** [동작] 시스템 시작 **/
-document.getElementById('start-btn').addEventListener('click', async () => {
-    document.getElementById('boot-screen').style.display = 'none';
-    addLog("카메라 및 AI 초기화 중...");
-    
-    try {
-        await initializeDetector();
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment", focusMode: "continuous" }
-        });
-        video.srcObject = stream;
-        
-        // 야간 모드 적용 (노출 보정)
-        const track = stream.getVideoTracks()[0];
-        const caps = track.getCapabilities();
-        if (caps.exposureCompensation) {
-            await track.applyConstraints({ advanced: [{ exposureCompensation: -1.2 }] });
-            addLog("야간 번짐 억제 모드 활성화");
-        }
-
-        video.addEventListener("loadeddata", predictWebcam);
-        statusEl.textContent = "ACTIVE";
-        announce("탐색을 시작합니다. 기기를 정면으로 들어주세요.");
-    } catch (e) {
-        alert("시작 실패: " + e.message);
-    }
-});
-
-/** [루프] 실시간 예측 **/
-async function predictWebcam() {
-    if (!objectDetector) return;
-
-    if (video.currentTime !== lastVideoTime) {
-        lastVideoTime = video.currentTime;
-        const detections = await objectDetector.detectForVideo(video, performance.now());
-        
-        processDetections(detections.detections);
-    }
-    window.requestAnimationFrame(predictWebcam);
-}
-
-/** [로직] 탐지 결과 처리 **/
-function processDetections(detections) {
-    canvasElement.width = video.videoWidth;
-    canvasElement.height = video.videoHeight;
-
-    // 'traffic light' 클래스 필터링 (MediaPipe EfficientDet 기준 10번 인덱스 부근)
-    const trafficLight = detections.find(d => d.categories[0].categoryName === "traffic light");
-
-    // 1. 자동 줌 탐색 로직
-    handleAutoZoom(!!trafficLight);
-
-    if (trafficLight) {
-        const box = trafficLight.boundingBox;
-        // 크롭하여 색상 분석
-        canvasCtx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 100, 100);
-        const color = analyzeStrictColor(canvasCtx.getImageData(0, 0, 100, 100).data);
-        
-        // 2. 시계열 검증 (5회 중 3회 일치 시 확정)
-        verifySignal(color);
-    } else {
-        verifySignal('unknown');
-    }
-}
-
-/** [정밀] 색상 분석 로직 **/
-function analyzeStrictColor(data) {
-    let r=0, g=0;
-    const total = data.length / 4;
-    for(let i=0; i<data.length; i+=4) {
-        const br=data[i], bg=data[i+1], bb=data[i+2];
-        // 야간 간판 노이즈 제거를 위한 고대비 필터
-        if (br > 170 && br > bg * 2 && br > bb * 2) r++;
-        if (bg > 160 && bg > br * 1.5 && bb > 120) g++;
-    }
-    if (r/total > 0.05) return 'red';
-    if (g/total > 0.05) return 'green';
-    return 'unknown';
-}
-
-/** [검증] 시계열 일치 확인 **/
-function verifySignal(color) {
-    signalHistory.push(color);
-    if (signalHistory.length > 5) signalHistory.shift();
-
-    const counts = signalHistory.reduce((a, c) => (a[c] = (a[c] || 0) + 1, a), {});
-    const final = Object.keys(counts).find(k => counts[k] >= 3 && k !== 'unknown') || 'unknown';
-
-    if (final !== currentConfirmedSignal) {
-        currentConfirmedSignal = final;
-        updateUI(final);
-    }
-}
-
-function updateUI(color) {
-    if (color === 'green') {
-        statusEl.textContent = "초록불";
-        statusEl.className = "font-black text-2xl text-green-500 italic";
-        borderEl.className = "absolute inset-0 z-20 active-g";
-        announce("초록불입니다. 좌우를 살핀 후 건너가세요.");
-        triggerVibe('green');
-    } else if (color === 'red') {
-        statusEl.textContent = "빨간불";
-        statusEl.className = "font-black text-2xl text-red-500 italic";
-        borderEl.className = "absolute inset-0 z-20 active-r";
-        announce("빨간불입니다. 보도 안쪽에서 기다리세요.");
-        triggerVibe('red');
-    } else {
-        statusEl.textContent = "SCANNING";
-        statusEl.className = "font-black text-xl text-blue-400 italic";
-        borderEl.className = "";
-    }
-}
-
-/** [줌] 자동 탐색 기능 **/
-async function handleAutoZoom(found) {
-    if (found) {
-        if (zoomSearchTimer) { clearInterval(zoomSearchTimer); zoomSearchTimer = null; }
-    } else {
-        if (!zoomSearchTimer) {
-            zoomSearchTimer = setInterval(async () => {
-                if (zoomLevel < 3.0) {
-                    zoomLevel += 0.5;
-                    await setCameraZoom(zoomLevel);
-                    announce("신호를 찾는 중입니다. 기기를 높여보세요.");
-                } else {
-                    zoomLevel = 1.0;
-                    await setCameraZoom(1.0);
-                }
-            }, 5000);
-        }
-    }
-}
-
-async function setCameraZoom(v) {
-    if (!stream) return;
-    const track = stream.getVideoTracks()[0];
-    const caps = track.getCapabilities();
-    if (caps.zoom) {
-        await track.applyConstraints({ advanced: [{ zoom: Math.min(v, caps.zoom.max) }] });
-        zoomBadge.textContent = v.toFixed(1) + "x";
-    }
-}
-
-// 터치 시 줌 초기화
-document.body.addEventListener('click', (e) => {
-    if(e.target.tagName === 'BUTTON') return;
-    zoomLevel = 1.0;
-    setCameraZoom(1.0);
-    announce(`현재 상태는 ${currentConfirmedSignal === 'green' ? '초록불' : currentConfirmedSignal === 'red' ? '빨간불' : '신호 탐색 중'}입니다.`);
-});
 </script>
 </body>
 </html>
