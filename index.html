@@ -3,56 +3,277 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>신호등 알리미 - Pro</title>
+    <title>신호등 알리미 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2"></script>
     <style>
-        /* 테두리 애니메이션 등 특수 효과만 별도 유지 */
-        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 30px #22c55e; } 50% { box-shadow: inset 0 0 80px #22c55e; } }
-        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 30px #ef4444; } 50% { box-shadow: inset 0 0 80px #ef4444; } }
-        .green-active { border: 15px solid #22c55e; animation: pulse-green 1.5s infinite; }
-        .red-active { border: 15px solid #ef4444; animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 30px #22c55e; } 50% { box-shadow: inset 0 0 100px #22c55e; } }
+        @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 30px #ef4444; } 50% { box-shadow: inset 0 0 100px #ef4444; } }
+        .active-g { animation: pulse-green 1.5s infinite; border: 16px solid #22c55e; }
+        .active-r { animation: pulse-red 1.5s infinite; border: 16px solid #ef4444; }
+        #canvas { transform: scaleX(1); }
+        .hide { display: none !important; }
     </style>
 </head>
-<body class="bg-black text-slate-100 overflow-hidden select-none">
-    <div id="app" class="relative h-screen w-screen flex flex-col cursor-pointer">
-        <nav class="flex bg-slate-900 border-b border-white/10 z-50">
-            <button onclick="switchTab(1)" id="tab1" class="flex-1 py-4 text-sm font-bold text-blue-400 border-b-2 border-blue-500">분석 뷰</button>
-            <button onclick="switchTab(2)" id="tab2" class="flex-1 py-4 text-sm font-bold text-slate-500">설정/로그</button>
-        </nav>
+<body class="bg-slate-950 text-white overflow-hidden select-none">
 
-        <main class="relative flex-1 bg-black">
-            <video id="video" class="w-full h-full object-cover" autoplay playsinline muted></video>
-            <canvas id="canvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
-            
-            <div id="border-signal" class="absolute inset-0 pointer-events-none z-20 transition-all"></div>
-
-            <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-30">
-                <div id="main-status" class="bg-black/60 backdrop-blur px-4 py-2 rounded-full text-sm font-medium border border-white/20">시스템 대기 중</div>
-                <div id="zoom-badge" class="bg-blue-600 px-3 py-1 rounded-lg text-xs font-bold shadow-lg">1.0x</div>
-            </div>
-
-            <div class="absolute top-[20%] left-1/2 -translate-x-1/2 bg-black/70 px-4 py-2 rounded-2xl border border-blue-500/50 text-xs text-blue-300 z-10">
-                신호등을 화면 상단에 맞춰주세요
-            </div>
-        </main>
-
-        <footer id="log-panel" class="h-32 bg-slate-950 border-t border-white/10 p-3 overflow-y-auto text-[10px] text-slate-500 font-mono">
-            <div>[System] 초기화 대기 중...</div>
-        </footer>
-
-        <section id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-10 text-center">
-            <h1 class="text-3xl font-black mb-4 tracking-tighter">TRAFFIC LIGHT <span class="text-blue-500">PRO</span></h1>
-            <div class="bg-slate-900 p-6 rounded-2xl mb-8 border border-white/5 shadow-2xl">
-                <p class="text-sm text-slate-400 leading-relaxed italic">
-                    "반드시 보행로 안쪽에서 사용하세요.<br>기기를 높게 들어 건너편을 비춰주세요."
-                </p>
-            </div>
-            <button onclick="initApp()" class="w-full max-w-xs py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xl shadow-[0_10px_20px_rgba(37,99,235,0.4)] transition-all active:scale-95">탐지 시작</button>
-        </section>
+<div id="app" class="relative h-screen flex flex-col">
+    <div class="flex bg-slate-900 border-b border-white/10 shrink-0 z-50">
+        <button onclick="switchTab(1)" id="t1" class="flex-1 py-4 text-sm font-bold text-blue-400 border-b-2 border-blue-500">실시간 탐지</button>
+        <button onclick="switchTab(2)" id="t2" class="flex-1 py-4 text-sm font-bold text-slate-500">데이터 로그</button>
     </div>
 
-    <script src="app-logic.js"></script>
+    <div class="relative flex-1 bg-black overflow-hidden" id="main-view">
+        <video id="video" class="w-full h-full object-cover" autoplay playsinline muted></video>
+        <canvas id="canvas" class="absolute inset-0 w-full h-full pointer-events-none opacity-50"></canvas>
+        <div id="border-overlay" class="absolute inset-0 pointer-events-none z-20 transition-all duration-300"></div>
+
+        <div class="absolute top-4 left-4 right-4 flex justify-between items-start z-30 pointer-events-none">
+            <div class="space-y-2">
+                <div id="status-badge" class="bg-black/70 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 text-lg font-bold">대기 중...</div>
+                <div id="zoom-info" class="bg-blue-600/90 px-3 py-1 rounded-lg text-xs font-mono inline-block">ZOOM 1.0x</div>
+            </div>
+            <div class="flex flex-col gap-1 items-end bg-black/40 p-2 rounded-lg">
+                <div class="w-8 h-1 bg-red-500 rounded-full transition-all" id="bar-r" style="width:0%"></div>
+                <div class="w-8 h-1 bg-green-500 rounded-full transition-all" id="bar-g" style="width:0%"></div>
+            </div>
+        </div>
+
+        <div id="guide-msg" class="absolute top-[20%] left-1/2 -translate-x-1/2 px-6 py-2 bg-blue-500/20 border border-blue-400/40 rounded-full text-xs text-blue-300 backdrop-blur-sm z-10">
+            신호등을 화면 위쪽에 위치시켜주세요
+        </div>
+    </div>
+
+    <div id="log-view" class="hide flex-1 bg-slate-900 p-4 font-mono text-[10px] overflow-y-auto text-slate-400">
+        <div class="mb-2 text-blue-400 border-b border-white/10 pb-1 font-bold">SYSTEM LOGS</div>
+        <div id="log-content"></div>
+    </div>
+
+    <div class="p-3 bg-red-950/40 border-t border-red-900/50 flex items-center gap-3">
+        <div class="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+        <span class="text-[10px] text-red-200">주의: 반드시 인도 안쪽에서 사용하세요.</span>
+    </div>
+
+    <div id="boot" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-8">
+        <h1 class="text-4xl font-black italic tracking-tighter mb-2">TRAFFIC <span class="text-blue-500 underline">LIGHT</span></h1>
+        <p class="text-slate-500 text-sm mb-10 tracking-widest uppercase">Safety Assistant v2.0</p>
+        
+        <div class="w-full space-y-4 mb-10">
+            <div class="bg-slate-900 p-4 rounded-2xl border border-white/5 text-left">
+                <p class="text-blue-400 font-bold mb-1 text-xs">● 자동 줌 탑재</p>
+                <p class="text-slate-500 text-[10px]">신호등이 작으면 카메라가 스스로 확대하여 분석합니다.</p>
+            </div>
+            <div class="bg-slate-900 p-4 rounded-2xl border border-white/5 text-left">
+                <p class="text-red-400 font-bold mb-1 text-xs">● 안전 가이드 강화</p>
+                <p class="text-slate-500 text-[10px]">이동 명령 대신 각도 조절 명령을 우선하여 사고를 방지합니다.</p>
+            </div>
+        </div>
+
+        <button onclick="bootApp()" class="group relative w-full py-5 bg-white text-black rounded-2xl font-black text-xl overflow-hidden active:scale-95 transition-transform">
+            <span class="relative z-10">시스템 활성화</span>
+            <div class="absolute inset-0 bg-blue-500 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+        </button>
+    </div>
+</div>
+
+<script>
+/**
+ * [상태 관리 및 환경 설정]
+ */
+let net = null, stream = null, isCocoReady = false, isProcessing = false;
+let currentSignalState = 'unknown';
+let zoomLevel = 1.0;
+let autoZoomTimer = null;
+const MAX_AUTO_ZOOM = 3.0;
+
+const elVideo = document.getElementById('video');
+const elCanvas = document.getElementById('canvas');
+const ctx = elCanvas.getCo
+ntext('2d', { willReadFrequently: true });
+const elStatus = document.getElementById('status-badge');
+const elBorder = document.getElementById('border-overlay');
+const elLogs = document.getElementById('log-content');
+const elZoomBadge = document.getElementById('zoom-info');
+
+/**
+ * [1. 유틸리티 함수]
+ */
+function addLog(msg) {
+    const t = new Date().toLocaleTimeString();
+    elLogs.innerHTML = `<div class="mb-1"><span class="text-slate-600">[${t}]</span> ${msg}</div>` + elLogs.innerHTML;
+}
+
+function speak(text) {
+    window.speechSynthesis.cancel();
+    const m = new SpeechSynthesisUtterance(text);
+    m.lang = 'ko-KR';
+    m.rate = 1.0;
+    window.speechSynthesis.speak(m);
+}
+
+function switchTab(n) {
+    document.getElementById('main-view').classList.toggle('hide', n === 2);
+    document.getElementById('log-view').classList.toggle('hide', n === 1);
+    document.getElementById('t1').className = n === 1 ? 'flex-1 py-4 text-sm font-bold text-blue-400 border-b-2 border-blue-500' : 'flex-1 py-4 text-sm font-bold text-slate-500';
+    document.getElementById('t2').className = n === 2 ? 'flex-1 py-4 text-sm font-bold text-blue-400 border-b-2 border-blue-500' : 'flex-1 py-4 text-sm font-bold text-slate-500';
+}
+
+/**
+ * [2. 카메라 및 줌 제어]
+ */
+async function applyZoom(val) {
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities();
+    if (caps.zoom) {
+        try {
+            const level = Math.max(caps.zoom.min, Math.min(val, caps.zoom.max));
+            await track.applyConstraints({ advanced: [{ zoom: level }] });
+            zoomLevel = level;
+            elZoomBadge.textContent = `ZOOM ${zoomLevel.toFixed(1)}x`;
+        } catch (e) { addLog("줌 제어 불가"); }
+    }
+}
+
+function handleAutoZoomLogic(found) {
+    if (found) {
+        if (autoZoomTimer) { clearInterval(autoZoomTimer); autoZoomTimer = null; addLog("신호 포착: 줌 고정"); }
+    } else {
+        if (!autoZoomTimer) {
+            autoZoomTimer = setInterval(() => {
+                if (zoomLevel < MAX_AUTO_ZOOM) {
+                    applyZoom(zoomLevel + 0.5);
+                    speak("신호를 찾는 중입니다. 기기를 높게 유지하세요.");
+                    addLog("자동 확대 탐색 중...");
+                } else {
+                    applyZoom(1.0);
+                    addLog("확대 실패: 광각 복귀");
+                }
+            }, 5000);
+        }
+    }
+}
+
+/**
+ * [3. 색상 정밀 분석 로직]
+ */
+function getSignalColor(imgData) {
+    const d = imgData.data;
+    let rCount = 0, gCount = 0;
+    const total = d.length / 4;
+
+    for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i+1], b = d[i+2];
+        const max = Math.max(r, g, b), min = Math.min(r, g, b), diff = max - min;
+        let h = 0;
+        if (diff !== 0) {
+            if (max === r) h = (g - b) / diff % 6;
+            else if (max === g) h = (b - r) / diff + 2;
+            else h = (r - g) / diff + 4;
+            h *= 60; if (h < 0) h += 360;
+        }
+        const s = max === 0 ? 0 : diff / max;
+
+        // 보행 신호등 (빨간색 & 청록계열 초록)
+        if ((h < 12 || h > 348) && s > 0.5 && r > 110) rCount++;
+        else if (h > 145 && h < 195 && s > 0.4 && g > 110) gCount++;
+    }
+    
+    document.getElementById('bar-r').style.width = Math.min(100, (rCount/total)*500) + '%';
+    document.getElementById('bar-g').style.width = Math.min(100, (gCount/total)*500) + '%';
+
+    if (rCount / total > 0.04 && rCount > gCount) return 'red';
+    if (gCount / total > 0.04 && gCount > rCount) return 'green';
+    return 'unknown';
+}
+
+/**
+ * [4. 실행 제어]
+ */
+async function bootApp() {
+    document.getElementById('boot').classList.add('hide');
+    addLog("카메라 초기화...");
+    
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', focusMode: 'continuous' }
+        });
+        elVideo.srcObject = stream;
+        
+        elStatus.textContent = "AI 엔진 로드 중...";
+        net = await cocoSsd.load();
+        isCocoReady = true;
+        elStatus.textContent = "탐색 활성화";
+        addLog("시스템 준비 완료.");
+        speak("탐지를 시작합니다. 기기를 정면으로 높게 들어주세요.");
+        
+        requestAnimationFrame(predictLoop);
+    } catch (e) {
+        alert("카메라 권한 오류: " + e.message);
+        location.reload();
+    }
+}
+
+async function predictLoop() {
+    if (!isCocoReady || isProcessing) { requestAnimationFrame(predictLoop); return; }
+    
+    elCanvas.width = elVideo.videoWidth;
+    elCanvas.height = elVideo.videoHeight;
+    
+    isProcessing = true;
+    const preds = await net.detect(elVideo);
+    const light = preds.find(p => p.class === 'traffic light' && p.score > 0.3);
+
+    handleAutoZoomLogic(!!light);
+
+    if (light) {
+        const [x, y, w, h] = light.bbox;
+        ctx.drawImage(elVideo, x, y, w, h, 0, 0, 100, 100);
+        const color = getSignalColor(ctx.getImageData(0, 0, 100, 100));
+        applyResult(color);
+    } else {
+        applyResult('unknown');
+    }
+
+    isProcessing = false;
+    requestAnimationFrame(predictLoop);
+}
+
+function applyResult(color) {
+    if (color === currentSignalState) return;
+    currentSignalState = color;
+
+    if (color === 'green') {
+        elStatus.textContent = "초록불 (건너세요)";
+        elStatus.className = "bg-green-600 px-4 py-2 rounded-xl text-white font-black shadow-lg shadow-green-900/40";
+        elBorder.className = "absolute inset-0 z-20 active-g";
+        speak("초록불입니다. 좌우를 살핀 후 건너가세요.");
+        if(navigator.vibrate) navigator.vibrate([500, 200, 500]);
+    } else if (color === 'red') {
+        elStatus.textContent = "빨간불 (대기)";
+        elStatus.className = "bg-red-600 px-4 py-2 rounded-xl text-white font-black shadow-lg shadow-red-900/40";
+        elBorder.className = "absolute inset-0 z-20 active-r";
+        speak("빨간불입니다. 보도 안쪽에서 기다려주세요.");
+        if(navigator.vibrate) navigator.vibrate(300);
+    } else {
+        elStatus.textContent = "탐색 중...";
+        elStatus.className = "bg-black/70 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 text-lg font-bold";
+        elBorder.className = "absolute inset-0 z-20 pointer-events-none";
+    }
+}
+
+// 접근성: 화면 터치 시 상태 재안내 및 줌 리셋
+document.getElementById('app').addEventListener('click', (e) => {
+    if(e.target.tagName === 'BUTTON') return;
+    applyZoom(1.0);
+    const msg = currentSignalState === 'green' ? "현재 초록불입니다. 건너셔도 좋습니다." : 
+                currentSignalState === 'red' ? "현재 빨간불입니다. 보도에서 기다리세요." : 
+                "신호를 찾는 중입니다. 기기를 높게 들어주세요.";
+    speak(msg);
+    addLog("사용자 확인 요청: " + currentSignalState);
+});
+
+</script>
 </body>
 </html>
