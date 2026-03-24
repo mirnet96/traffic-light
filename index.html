@@ -2,8 +2,8 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <title>ULTRA VISION AI - 프로토타입</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>ULTRA VISION AI - 통합 모드</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
     <style>
@@ -12,16 +12,18 @@
         .active-g { animation: pulse-green 0.6s infinite; border: 30px solid #22c55e !important; }
         .active-r { animation: pulse-red 0.6s infinite; border: 30px solid #ef4444 !important; }
         #webcam { width: 100%; height: 100%; object-fit: cover; }
+        /* 삼성 인터넷 등 모바일 브라우저 주소창 대응 */
+        .h-safe { height: 100dvh; } 
     </style>
 </head>
 <body class="bg-black text-white overflow-hidden select-none">
 
-<div id="app" class="relative h-screen flex flex-col">
-    <div class="flex bg-slate-900 border-b border-white/10 p-4 justify-between items-center z-50">
-        <div id="status-badge" class="font-black text-2xl text-slate-400">환경 분석 중...</div>
+<div id="app" class="relative h-safe flex flex-col">
+    <div class="flex bg-slate-900 border-b border-white/10 p-4 pt-12 justify-between items-center z-50">
+        <div id="status-badge" class="font-black text-xl text-slate-400">환경 분석 대기</div>
         <div class="flex items-center gap-3">
-            <div id="ground-status" class="text-[11px] bg-slate-800 px-3 py-1.5 rounded-full text-slate-500 font-bold">바닥 감지 대기</div>
-            <button id="close-app-btn" class="bg-red-600 hover:bg-red-700 text-white w-10 h-10 rounded-full font-black flex items-center justify-center shadow-lg active:scale-90 transition">X</button>
+            <div id="ground-status" class="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-500 font-bold uppercase">Ready</div>
+            <button id="close-app-btn-top" class="bg-red-600/20 border border-red-600/50 text-red-500 w-8 h-8 rounded-full font-black flex items-center justify-center active:scale-90 transition">X</button>
         </div>
     </div>
 
@@ -31,23 +33,28 @@
         <div id="border-overlay" class="absolute inset-0 z-20 transition-all duration-300 pointer-events-none"></div>
     </div>
 
-    <div id="logs" class="h-10 bg-slate-950 p-2 font-mono text-[10px] text-slate-600 border-t border-white/5 overflow-hidden">
-        <div id="log-content">시스템 가동 대기 중...</div>
+    <div id="logs" class="h-8 bg-slate-950 px-4 flex items-center font-mono text-[9px] text-slate-600 border-t border-white/5">
+        <div id="log-content">System Standby...</div>
     </div>
 
-    <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-8 text-center backdrop-blur-sm">
-        <div class="bg-slate-900 p-8 rounded-3xl border border-red-900 shadow-2xl flex flex-col items-center">
-            <div class="w-20 h-20 rounded-full bg-red-950/50 flex items-center justify-center border-4 border-red-700 mb-8">
-                <span class="text-6xl text-red-500 font-black">!</span>
+    <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-6 text-center">
+        <div class="bg-slate-900 w-full max-w-sm p-8 rounded-[40px] border border-white/10 shadow-2xl flex flex-col items-center">
+            <div class="w-16 h-16 rounded-full bg-red-950/30 flex items-center justify-center border-2 border-red-600 mb-6">
+                <span class="text-4xl text-red-500 font-black">!</span>
             </div>
-            <h1 class="text-3xl font-black mb-6 text-red-500">주의: 개발 중인 서비스</h1>
-            <div class="text-slate-300 text-base mb-10 space-y-3 font-medium leading-relaxed">
-                <p>본 시스템은 시각장애인 보행 보조를 위한 <strong class="text-white">연구용 프로토타입</strong>입니다.</p>
-                <p class="text-yellow-400">오작동 및 오탐지의 가능성이 높습니다.</p>
-                <p>절대로 이 시스템에만 의존하여 <strong class="text-white">단독 보행하지 마십시오.</strong></p>
-                <p class="text-slate-500 text-sm">실제 환경에서는 주변 상황을 직접 확인하며 이용하세요.</p>
+            
+            <h1 class="text-2xl font-black mb-4 text-white">개발 중인 프로토타입</h1>
+            
+            <div class="text-slate-400 text-sm mb-10 space-y-2 font-medium leading-snug">
+                <p>본 앱은 <span class="text-red-400 underline">연구용 모드</span>입니다.</p>
+                <p>신호등 인식 오류가 발생할 수 있으니</p>
+                <p class="text-white font-bold bg-red-900/40 px-2 py-1 rounded mt-2 inline-block">절대로 단독 보행하지 마세요.</p>
             </div>
-            <button id="start-btn" class="w-full py-10 bg-red-700 hover:bg-red-800 text-white rounded-3xl font-black text-4xl shadow-2xl transition active:scale-95">확인 및 시작</button>
+            
+            <div class="w-full space-y-4">
+                <button id="start-btn" class="w-full py-8 bg-blue-600 hover:bg-blue-500 text-white rounded-3xl font-black text-3xl shadow-xl transition active:scale-95">확인 및 가동</button>
+                <button id="close-app-btn-bottom" class="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-2xl font-bold text-lg transition active:scale-95">시스템 종료</button>
+            </div>
         </div>
     </div>
 </div>
@@ -68,6 +75,7 @@ const borderEl = document.getElementById('border-overlay');
 const logEl = document.getElementById('log-content');
 const bootScreen = document.getElementById('boot-screen');
 
+// HSV 변환 (초록불 인식 강화용)
 function rgbToHsv(r, g, b) {
     r /= 255; g /= 255; b /= 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -85,6 +93,7 @@ function rgbToHsv(r, g, b) {
     return [h, s, v];
 }
 
+// 바닥 분석 (초경량 샘플링)
 function analyzeGround(imageData) {
     const data = imageData.data;
     let yellow = 0, white = 0, total = 0;
@@ -101,6 +110,7 @@ function analyzeGround(imageData) {
     return "일반도로";
 }
 
+// 신호등 색상 정밀 분석
 function analyzeSignalHSV(imageData) {
     const data = imageData.data;
     let rVotes = 0, gVotes = 0;
@@ -108,11 +118,11 @@ function analyzeSignalHSV(imageData) {
         const [h, s, v] = rgbToHsv(data[i], data[i+1], data[i+2]);
         if (s > 0.4 && v > 0.4) {
             if (h < 0.03 || h > 0.97) rVotes++;
-            else if (h > 0.38 && h < 0.48) gVotes++; 
+            else if (h > 0.38 && h < 0.48) gVotes++; // 초록/청록 범위
         }
     }
-    if (rVotes > gVotes && rVotes > 10) return 'red';
-    if (gVotes > rVotes && gVotes > 10) return 'green';
+    if (rVotes > gVotes && rVotes > 8) return 'red';
+    if (gVotes > rVotes && gVotes > 8) return 'green';
     return 'unknown';
 }
 
@@ -123,6 +133,7 @@ async function predictLoop() {
     const detections = await detector.detectForVideo(video, performance.now());
     let trafficLight = detections.detections.find(d => d.categories[0].categoryName === "traffic light");
 
+    // 5프레임마다 1번 바닥 체크 (부하 감소)
     if (frameCount % 5 === 0) {
         canvas.width = 100; canvas.height = 80;
         ctx.drawImage(video, 0, video.videoHeight * 0.75, video.videoWidth, video.videoHeight * 0.25, 0, 0, 100, 80);
@@ -131,11 +142,11 @@ async function predictLoop() {
             lastGround = currentGround;
             groundEl.textContent = currentGround;
             if (currentGround !== "일반도로") {
-                groundEl.className = "text-[11px] bg-blue-900 px-3 py-1.5 rounded-full text-blue-200 font-bold";
-                applyZoom(1.5);
-                speak(currentGround + " 감지.");
+                groundEl.className = "text-[10px] bg-blue-900 px-2 py-1 rounded-full text-blue-200 font-bold uppercase";
+                applyZoom(1.5); // 바닥 감지 시 자동 줌
+                speak(currentGround + " 감지");
             } else {
-                groundEl.className = "text-[11px] bg-slate-800 px-3 py-1.5 rounded-full text-slate-500 font-bold";
+                groundEl.className = "text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-500 font-bold uppercase";
                 applyZoom(1.0);
             }
         }
@@ -148,12 +159,7 @@ async function predictLoop() {
         const color = analyzeSignalHSV(ctx.getImageData(0, 0, 50, 50));
         updateUI(color);
     } else {
-        if (lastGround !== "일반도로" && lastConfirmed === 'unknown') {
-            statusEl.textContent = "신호등 확인 중 (폰을 들어주세요)";
-            statusEl.className = "font-black text-xl text-yellow-400";
-        } else {
-            updateUI('unknown');
-        }
+        updateUI('unknown');
     }
     window.requestAnimationFrame(predictLoop);
 }
@@ -167,15 +173,15 @@ function updateUI(color) {
     if (final !== lastConfirmed) {
         lastConfirmed = final;
         if (final === 'green') {
-            statusEl.textContent = "초록불 (가세요)";
+            statusEl.textContent = "초록불 가세요";
             statusEl.className = "font-black text-2xl text-green-400";
             borderEl.className = "absolute inset-0 z-20 active-g";
-            speak("초록불입니다.");
+            speak("초록불입니다");
         } else if (final === 'red') {
-            statusEl.textContent = "빨간불 (정지)";
+            statusEl.textContent = "빨간불 정지";
             statusEl.className = "font-black text-2xl text-red-400";
             borderEl.className = "absolute inset-0 z-20 active-r";
-            speak("빨간불입니다.");
+            speak("빨간불입니다");
         } else {
             statusEl.textContent = "신호 대기 중";
             statusEl.className = "font-black text-2xl text-slate-400";
@@ -200,13 +206,18 @@ function speak(t, rate = 1.3) {
     window.speechSynthesis.speak(s);
 }
 
-function speakWarning() {
-    speak("주의하세요. 본 시스템은 개발 중인 프로토타입으로 시각장애인의 단독 보행을 지원하지 않습니다.", 0.9);
+// 시스템 완전 종료 및 초기화
+function terminateSystem() {
+    isRunning = false;
+    if (videoTrack) videoTrack.stop();
+    bootScreen.style.display = 'flex';
+    statusEl.textContent = "환경 분석 대기";
+    statusEl.className = "font-black text-xl text-slate-400";
+    borderEl.className = "absolute inset-0 z-20 pointer-events-none";
+    speak("시스템을 종료합니다", 1.1);
 }
 
-window.addEventListener('load', speakWarning);
-
-// [시작 버튼]
+// 이벤트 리스너: 시작
 document.getElementById('start-btn').addEventListener('click', async () => {
     window.speechSynthesis.cancel();
     bootScreen.style.display = 'none';
@@ -220,7 +231,7 @@ document.getElementById('start-btn').addEventListener('click', async () => {
         video.srcObject = stream;
         videoTrack = stream.getVideoTracks()[0];
     } catch (e) {
-        alert("카메라 권한이 필요합니다.");
+        alert("카메라 권한을 허용해주세요.");
         return;
     }
 
@@ -236,20 +247,17 @@ document.getElementById('start-btn').addEventListener('click', async () => {
             runningMode: "VIDEO"
         });
     }
-
     video.addEventListener("loadeddata", predictLoop);
-    speak("가동");
+    speak("안내를 시작합니다");
 });
 
-// [신규: 닫기 버튼 로직]
-document.getElementById('close-app-btn').addEventListener('click', () => {
-    isRunning = false;
-    if (videoTrack) videoTrack.stop(); // 카메라 끄기
-    bootScreen.style.display = 'flex'; // 초기 화면으로 복귀
-    statusEl.textContent = "환경 분석 중...";
-    statusEl.className = "font-black text-2xl text-slate-400";
-    borderEl.className = "absolute inset-0 z-20 pointer-events-none";
-    speak("시스템을 종료합니다.", 1.1);
+// 이벤트 리스너: 종료
+document.getElementById('close-app-btn-top').addEventListener('click', terminateSystem);
+document.getElementById('close-app-btn-bottom').addEventListener('click', terminateSystem);
+
+// 초기 경고 음성
+window.addEventListener('load', () => {
+    speak("주의하세요. 개발 중인 프로토타입입니다. 절대로 단독 보행하지 마십시오.", 0.9);
 });
 </script>
 </body>
