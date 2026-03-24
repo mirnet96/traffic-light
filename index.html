@@ -3,27 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <title>ULTRA VISION AI - 통합 모드</title>
+    <title>ULTRA VISION AI - 고정밀 모드</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
     <style>
         @keyframes pulse-green { 0%, 100% { box-shadow: inset 0 0 100px #22c55e; } 50% { box-shadow: inset 0 0 200px #22c55e; } }
         @keyframes pulse-red { 0%, 100% { box-shadow: inset 0 0 100px #ef4444; } 50% { box-shadow: inset 0 0 200px #ef4444; } }
-        .active-g { animation: pulse-green 0.6s infinite; border: 30px solid #22c55e !important; }
-        .active-r { animation: pulse-red 0.6s infinite; border: 30px solid #ef4444 !important; }
+        .active-g { animation: pulse-green 0.6s infinite; border: 35px solid #22c55e !important; }
+        .active-r { animation: pulse-red 0.6s infinite; border: 35px solid #ef4444 !important; }
         #webcam { width: 100%; height: 100%; object-fit: cover; }
-        /* 삼성 인터넷 등 모바일 브라우저 주소창 대응 */
         .h-safe { height: 100dvh; } 
     </style>
 </head>
 <body class="bg-black text-white overflow-hidden select-none">
 
 <div id="app" class="relative h-safe flex flex-col">
-    <div class="flex bg-slate-900 border-b border-white/10 p-4 pt-12 justify-between items-center z-50">
+    <div class="flex bg-slate-900 border-b border-white/10 p-4 pt-16 justify-between items-center z-50">
         <div id="status-badge" class="font-black text-xl text-slate-400">환경 분석 대기</div>
         <div class="flex items-center gap-3">
-            <div id="ground-status" class="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-500 font-bold uppercase">Ready</div>
-            <button id="close-app-btn-top" class="bg-red-600/20 border border-red-600/50 text-red-500 w-8 h-8 rounded-full font-black flex items-center justify-center active:scale-90 transition">X</button>
+            <div id="ground-status" class="text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-400 font-bold uppercase tracking-tighter">Ready</div>
+            <button id="close-app-btn-top" class="bg-red-600/30 border border-red-500/50 text-red-500 w-9 h-9 rounded-full font-black flex items-center justify-center active:scale-90 transition">X</button>
         </div>
     </div>
 
@@ -33,27 +32,27 @@
         <div id="border-overlay" class="absolute inset-0 z-20 transition-all duration-300 pointer-events-none"></div>
     </div>
 
-    <div id="logs" class="h-8 bg-slate-950 px-4 flex items-center font-mono text-[9px] text-slate-600 border-t border-white/5">
-        <div id="log-content">System Standby...</div>
+    <div id="logs" class="h-10 bg-black px-4 flex items-center font-mono text-[9px] text-slate-700 border-t border-white/5">
+        <div id="log-content">Initializing High-Precision Engine...</div>
     </div>
 
     <div id="boot-screen" class="absolute inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center p-6 text-center">
-        <div class="bg-slate-900 w-full max-w-sm p-8 rounded-[40px] border border-white/10 shadow-2xl flex flex-col items-center">
-            <div class="w-16 h-16 rounded-full bg-red-950/30 flex items-center justify-center border-2 border-red-600 mb-6">
-                <span class="text-4xl text-red-500 font-black">!</span>
+        <div class="bg-slate-900 w-full max-w-sm p-8 rounded-[45px] border border-white/5 shadow-2xl flex flex-col items-center">
+            <div class="w-20 h-20 rounded-full bg-red-600/10 flex items-center justify-center border-2 border-red-600/50 mb-6">
+                <span class="text-5xl text-red-600 font-black">!</span>
             </div>
+            <h1 class="text-2xl font-black mb-2 text-white italic">HIGH-PRECISION</h1>
+            <p class="text-slate-500 text-xs mb-8 uppercase tracking-widest font-bold">Prototype V2.1 (Lite2)</p>
             
-            <h1 class="text-2xl font-black mb-4 text-white">개발 중인 프로토타입</h1>
-            
-            <div class="text-slate-400 text-sm mb-10 space-y-2 font-medium leading-snug">
-                <p>본 앱은 <span class="text-red-400 underline">연구용 모드</span>입니다.</p>
-                <p>신호등 인식 오류가 발생할 수 있으니</p>
-                <p class="text-white font-bold bg-red-900/40 px-2 py-1 rounded mt-2 inline-block">절대로 단독 보행하지 마세요.</p>
+            <div class="text-slate-300 text-sm mb-10 space-y-3 font-medium leading-relaxed px-2 text-left bg-black/30 p-4 rounded-2xl border border-white/5">
+                <p>⚠️ 본 앱은 <strong class="text-white font-bold text-base underline">연구 전용</strong>입니다.</p>
+                <p>⚠️ 신호등 검출 실패 시 위험할 수 있으니</p>
+                <p>⚠️ <strong class="text-red-500">지팡이와 주변 확인</strong>을 우선하세요.</p>
             </div>
             
             <div class="w-full space-y-4">
-                <button id="start-btn" class="w-full py-8 bg-blue-600 hover:bg-blue-500 text-white rounded-3xl font-black text-3xl shadow-xl transition active:scale-95">확인 및 가동</button>
-                <button id="close-app-btn-bottom" class="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-2xl font-bold text-lg transition active:scale-95">시스템 종료</button>
+                <button id="start-btn" class="w-full py-8 bg-blue-600 hover:bg-blue-500 text-white rounded-[32px] font-black text-3xl shadow-xl transition active:scale-95">확인 및 가동</button>
+                <button id="close-app-btn-bottom" class="w-full py-4 bg-transparent text-slate-500 font-bold text-sm">시스템 종료</button>
             </div>
         </div>
     </div>
@@ -75,7 +74,6 @@ const borderEl = document.getElementById('border-overlay');
 const logEl = document.getElementById('log-content');
 const bootScreen = document.getElementById('boot-screen');
 
-// HSV 변환 (초록불 인식 강화용)
 function rgbToHsv(r, g, b) {
     r /= 255; g /= 255; b /= 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -93,7 +91,6 @@ function rgbToHsv(r, g, b) {
     return [h, s, v];
 }
 
-// 바닥 분석 (초경량 샘플링)
 function analyzeGround(imageData) {
     const data = imageData.data;
     let yellow = 0, white = 0, total = 0;
@@ -101,28 +98,29 @@ function analyzeGround(imageData) {
         const r = data[i], g = data[i+1], b = data[i+2];
         const brightness = (r + g + b) / 3;
         total++;
-        if (r > 150 && g > 130 && b < 100) yellow++;
-        else if (brightness > 190 && Math.abs(r-g) < 15 && Math.abs(g-b) < 15) white++;
+        if (r > 140 && g > 120 && b < 100) yellow++; // 노란색 범위 소폭 완화
+        else if (brightness > 185 && Math.abs(r-g) < 20 && Math.abs(g-b) < 20) white++;
     }
     const ratio = (n) => n / total;
-    if (ratio(yellow) > 0.12) return "점자블록";
-    if (ratio(white) > 0.18) return "횡단보도";
+    if (ratio(yellow) > 0.10) return "점자블록";
+    if (ratio(white) > 0.15) return "횡단보도";
     return "일반도로";
 }
 
-// 신호등 색상 정밀 분석
 function analyzeSignalHSV(imageData) {
     const data = imageData.data;
     let rVotes = 0, gVotes = 0;
     for (let i = 0; i < data.length; i += 4) {
         const [h, s, v] = rgbToHsv(data[i], data[i+1], data[i+2]);
-        if (s > 0.4 && v > 0.4) {
-            if (h < 0.03 || h > 0.97) rVotes++;
-            else if (h > 0.38 && h < 0.48) gVotes++; // 초록/청록 범위
+        // 채도(S) 조건을 소폭 완화하여 흐린 날 인식률 향상
+        if (s > 0.35 && v > 0.35) {
+            if (h < 0.04 || h > 0.96) rVotes++;
+            else if (h > 0.35 && h < 0.52) gVotes++; // 초록색 범위 확장
         }
     }
-    if (rVotes > gVotes && rVotes > 8) return 'red';
-    if (gVotes > rVotes && gVotes > 8) return 'green';
+    logEl.textContent = `Votes - Red: ${rVotes}, Green: ${gVotes}`;
+    if (rVotes > gVotes && rVotes > 5) return 'red';
+    if (gVotes > rVotes && gVotes > 5) return 'green';
     return 'unknown';
 }
 
@@ -130,33 +128,37 @@ async function predictLoop() {
     if (!detector || !isRunning) return;
     frameCount++;
 
+    // 1. 신호등 객체 탐지
     const detections = await detector.detectForVideo(video, performance.now());
     let trafficLight = detections.detections.find(d => d.categories[0].categoryName === "traffic light");
 
-    // 5프레임마다 1번 바닥 체크 (부하 감소)
+    // 2. 바닥 및 영역 집중 분석 (5프레임당 1회)
     if (frameCount % 5 === 0) {
-        canvas.width = 100; canvas.height = 80;
-        ctx.drawImage(video, 0, video.videoHeight * 0.75, video.videoWidth, video.videoHeight * 0.25, 0, 0, 100, 80);
-        let currentGround = analyzeGround(ctx.getImageData(0, 0, 100, 80));
+        canvas.width = 120; canvas.height = 90;
+        // 바닥 탐지 (하단 25%)
+        ctx.drawImage(video, 0, video.videoHeight * 0.75, video.videoWidth, video.videoHeight * 0.25, 0, 0, 120, 90);
+        let currentGround = analyzeGround(ctx.getImageData(0, 0, 120, 90));
+        
         if (currentGround !== lastGround) {
             lastGround = currentGround;
             groundEl.textContent = currentGround;
             if (currentGround !== "일반도로") {
-                groundEl.className = "text-[10px] bg-blue-900 px-2 py-1 rounded-full text-blue-200 font-bold uppercase";
-                applyZoom(1.5); // 바닥 감지 시 자동 줌
-                speak(currentGround + " 감지");
+                groundEl.className = "text-[10px] bg-blue-600 px-2 py-1 rounded-full text-white font-bold uppercase";
+                applyZoom(1.8); // 줌을 더 강력하게
+                speak(currentGround + " 확인");
             } else {
-                groundEl.className = "text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-500 font-bold uppercase";
+                groundEl.className = "text-[10px] bg-slate-800 px-2 py-1 rounded-full text-slate-400 font-bold uppercase";
                 applyZoom(1.0);
             }
         }
     }
 
+    // 3. 신호 판별
     if (trafficLight) {
         const box = trafficLight.boundingBox;
-        canvas.width = 50; canvas.height = 50;
-        ctx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 50, 50);
-        const color = analyzeSignalHSV(ctx.getImageData(0, 0, 50, 50));
+        canvas.width = 60; canvas.height = 60;
+        ctx.drawImage(video, box.originX, box.originY, box.width, box.height, 0, 0, 60, 60);
+        const color = analyzeSignalHSV(ctx.getImageData(0, 0, 60, 60));
         updateUI(color);
     } else {
         updateUI('unknown');
@@ -183,8 +185,8 @@ function updateUI(color) {
             borderEl.className = "absolute inset-0 z-20 active-r";
             speak("빨간불입니다");
         } else {
-            statusEl.textContent = "신호 대기 중";
-            statusEl.className = "font-black text-2xl text-slate-400";
+            statusEl.textContent = "신호 탐색 중";
+            statusEl.className = "font-black text-2xl text-slate-500";
             borderEl.className = "absolute inset-0 z-20 pointer-events-none";
         }
     }
@@ -206,18 +208,15 @@ function speak(t, rate = 1.3) {
     window.speechSynthesis.speak(s);
 }
 
-// 시스템 완전 종료 및 초기화
 function terminateSystem() {
     isRunning = false;
     if (videoTrack) videoTrack.stop();
     bootScreen.style.display = 'flex';
     statusEl.textContent = "환경 분석 대기";
-    statusEl.className = "font-black text-xl text-slate-400";
     borderEl.className = "absolute inset-0 z-20 pointer-events-none";
-    speak("시스템을 종료합니다", 1.1);
+    speak("종료합니다", 1.1);
 }
 
-// 이벤트 리스너: 시작
 document.getElementById('start-btn').addEventListener('click', async () => {
     window.speechSynthesis.cancel();
     bootScreen.style.display = 'none';
@@ -231,16 +230,17 @@ document.getElementById('start-btn').addEventListener('click', async () => {
         video.srcObject = stream;
         videoTrack = stream.getVideoTracks()[0];
     } catch (e) {
-        alert("카메라 권한을 허용해주세요.");
+        alert("카메라를 시작할 수 없습니다.");
         return;
     }
 
     if (!detector) {
-        statusEl.textContent = "모델 로드 중...";
+        statusEl.textContent = "LITE2 모델 로드 중...";
         const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
         detector = await ObjectDetector.createFromOptions(vision, {
             baseOptions: {
-                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
+                // 고정밀 Lite2 모델 적용
+                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float16/1/efficientdet_lite2.tflite`,
                 delegate: "GPU"
             },
             scoreThreshold: 0.35,
@@ -248,16 +248,14 @@ document.getElementById('start-btn').addEventListener('click', async () => {
         });
     }
     video.addEventListener("loadeddata", predictLoop);
-    speak("안내를 시작합니다");
+    speak("정밀 탐지 시작");
 });
 
-// 이벤트 리스너: 종료
 document.getElementById('close-app-btn-top').addEventListener('click', terminateSystem);
 document.getElementById('close-app-btn-bottom').addEventListener('click', terminateSystem);
 
-// 초기 경고 음성
 window.addEventListener('load', () => {
-    speak("주의하세요. 개발 중인 프로토타입입니다. 절대로 단독 보행하지 마십시오.", 0.9);
+    speak("주의하세요. 고정밀 모델을 사용하는 개발용 버전입니다. 지팡이와 함께 사용하세요.", 0.95);
 });
 </script>
 </body>
