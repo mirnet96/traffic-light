@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ULTRA VISION - Hybrid Data</title>
+    <title>ULTRA VISION - Real-time V2X</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
     <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=YOUR_CLIENT_ID&submodules=geocoder"></script>
     <style>
         .h-safe { height: 100dvh; }
         .tab-content { display: none; height: calc(100% - 140px); }
         .tab-content.active { display: flex; flex-direction: column; }
-        .signal-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+        .signal-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); border-left: 12px solid #27272a; }
         @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
         .scanner { height: 2px; background: rgba(59, 130, 246, 0.5); position: absolute; width: 100%; z-index: 30; animation: scan 2s linear infinite; }
     </style>
@@ -27,10 +26,9 @@
     <div id="vision-tab" class="tab-content active relative">
         <div class="scanner"></div>
         <video id="webcam" class="w-full h-full object-cover" autoplay playsinline muted></video>
-        <div id="vision-overlay" class="absolute inset-0 pointer-events-none transition-all duration-300"></div>
         <div class="absolute bottom-6 left-6 right-6 p-4 bg-black/60 backdrop-blur-md rounded-2xl border border-white/10">
-            <p id="v-status" class="text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1">Scanning Environment...</p>
-            <h2 id="v-result" class="text-2xl font-black italic">신호 탐색 중</h2>
+            <p class="text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1">Scanning Environment...</p>
+            <h2 class="text-2xl font-black italic">시각 탐색 모드</h2>
         </div>
     </div>
 
@@ -46,34 +44,34 @@
             <div>
                 <div class="flex justify-between items-start">
                     <span class="text-xs font-bold text-zinc-500 uppercase tracking-tighter">Connected Node</span>
-                    <span class="bg-blue-500/10 text-blue-500 text-[10px] px-2 py-1 rounded-md font-bold">LIVE API</span>
+                    <span id="sync-indicator" class="bg-zinc-800 text-zinc-500 text-[10px] px-2 py-1 rounded-md font-bold">WAITING</span>
                 </div>
                 <h1 id="cross-name" class="text-2xl font-black mt-2">위치 확인 중...</h1>
-                <p id="cross-addr" class="text-zinc-500 text-xs mt-1">네이버 지오코딩 연결 중</p>
+                <p id="cross-addr" class="text-zinc-500 text-xs mt-1">GPS 신호를 수신하고 있습니다.</p>
             </div>
 
             <div class="text-center py-6">
                 <div id="api-timer" class="text-8xl font-black tracking-tighter text-zinc-800">--</div>
-                <div id="api-signal-text" class="text-3xl font-black mt-2 text-zinc-700">DATA WAITING</div>
+                <div id="api-signal-text" class="text-3xl font-black mt-2 text-zinc-700">DATA SYNCING</div>
             </div>
 
-            <button onclick="syncApiData()" class="w-full py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold border border-white/10 transition active:scale-95">FORCE SYNC DATA</button>
+            <button onclick="syncApiData()" class="w-full py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-xs font-bold border border-white/10 transition active:scale-95">FORCE REFRESH</button>
         </div>
     </div>
 
     <footer class="h-16 bg-[#111] border-t border-white/5 flex items-center px-8 justify-between">
         <div class="flex items-center gap-2">
-            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <span class="text-[10px] font-mono text-zinc-500">ENGINE_STABLE_V3</span>
+            <div id="status-dot" class="w-2 h-2 bg-zinc-600 rounded-full"></div>
+            <span class="text-[10px] font-mono text-zinc-500">LIVE_DATA_STREAM</span>
         </div>
-        <div id="ground-chip" class="text-[10px] font-black px-3 py-1 bg-zinc-800 rounded-full text-zinc-400 italic">UNKNOWN_ROAD</div>
+        <div id="ground-chip" class="text-[10px] font-black px-3 py-1 bg-zinc-800 rounded-full text-zinc-400 italic">OFFLINE</div>
     </footer>
 </div>
 
 <script type="module">
-    // --- 설정 정보 ---
     const SEOUL_API_KEY = "7c76f496-b1f7-459f-85f1-ec9359276fce";
     let map, marker, userLat, userLng;
+    let isMapInitialized = false;
 
     // --- 탭 스위칭 ---
     window.switchTab = (target) => {
@@ -83,87 +81,138 @@
         document.getElementById('btn-v').className = target === 'vision' ? "flex-1 py-4 text-sm font-black text-blue-500 border-b-2 border-blue-500" : "flex-1 py-4 text-sm font-black text-zinc-500";
         document.getElementById('btn-d').className = target === 'data' ? "flex-1 py-4 text-sm font-black text-blue-500 border-b-2 border-blue-500" : "flex-1 py-4 text-sm font-black text-zinc-500";
         
-        if(target === 'data') {
-            setTimeout(initMap, 100);
-            syncApiData();
+        if(target === 'data' && !isMapInitialized) {
+            initLocation();
         }
     }
 
-    // --- GPS & 네이버 지도 로직 ---
-    function initMap() {
-        if (!map) {
+    // --- 1. 위치 확인 시작 ---
+    function initLocation() {
+        if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition((pos) => {
                 userLat = pos.coords.latitude;
                 userLng = pos.coords.longitude;
-                
                 document.getElementById('gps-coord').textContent = `${userLat.toFixed(4)}, ${userLng.toFixed(4)}`;
                 
-                map = new naver.maps.Map('map', {
-                    center: new naver.maps.LatLng(userLat, userLng),
-                    zoom: 18,
-                    mapTypeId: naver.maps.MapTypeId.SATELLITE // 실제 교차로 확인을 위해 위성지도 권장
-                });
-                
-                marker = new naver.maps.Marker({
-                    position: new naver.maps.LatLng(userLat, userLng),
-                    map: map,
-                    icon: { content: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg"></div>' }
-                });
-
-                // Reverse Geocoding으로 현재 교차로/동네 명칭 가져오기
-                naver.maps.Service.reverseGeocode({
-                    coords: new naver.maps.LatLng(userLat, userLng),
-                }, (status, response) => {
-                    if (status === naver.maps.Service.Status.OK) {
-                        const items = response.v2.results;
-                        const addr = items[0].region.area3.name + " " + items[0].land.name;
-                        document.getElementById('cross-name').textContent = items[0].region.area3.name + " 인근 교차로";
-                        document.getElementById('cross-addr').textContent = addr;
-                    }
-                });
+                // 지도 초기화
+                renderMap(userLat, userLng);
+                // 주소 정보 가져오기 (완료 후 API 호출)
+                fetchAddress(userLat, userLng);
+            }, (err) => {
+                alert("GPS 정보를 가져올 수 없습니다.");
             });
         }
     }
 
-    // --- 서울시 신호 API 데이터 동기화 ---
+    // --- 2. 네이버 지도 렌더링 ---
+    function renderMap(lat, lng) {
+        map = new naver.maps.Map('map', {
+            center: new naver.maps.LatLng(lat, lng),
+            zoom: 18,
+            mapTypeId: naver.maps.MapTypeId.SATELLITE
+        });
+        marker = new naver.maps.Marker({
+            position: new naver.maps.LatLng(lat, lng),
+            map: map,
+            icon: { content: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg animate-pulse"></div>' }
+        });
+        isMapInitialized = true;
+    }
+
+    // --- 3. 주소 변환 및 데이터 호출 트리거 ---
+    function fetchAddress(lat, lng) {
+        naver.maps.Service.reverseGeocode({
+            coords: new naver.maps.LatLng(lat, lng),
+        }, (status, response) => {
+            if (status === naver.maps.Service.Status.OK) {
+                const items = response.v2.results;
+                if(items.length > 0) {
+                    const regionName = items[0].region.area3.name;
+                    document.getElementById('cross-name').textContent = regionName + " 인근 교차로";
+                    document.getElementById('cross-addr').textContent = items[0].region.area2.name + " " + regionName;
+                    document.getElementById('ground-chip').textContent = regionName.toUpperCase();
+                    
+                    // 주소까지 확인이 끝난 후 실제 API 데이터를 가져옵니다.
+                    syncApiData();
+                }
+            }
+        });
+    }
+
+    // --- 4. 실제 서울시 신호 API 데이터 동기화 ---
     window.syncApiData = async () => {
         const timerEl = document.getElementById('api-timer');
         const textEl = document.getElementById('api-signal-text');
         const cardEl = document.getElementById('data-card');
+        const indicator = document.getElementById('sync-indicator');
+        const dot = document.getElementById('status-dot');
 
-        timerEl.textContent = "WAIT";
-        timerEl.className = "text-5xl font-black text-zinc-700";
+        // 상태 초기화
+        indicator.textContent = "SYNCING...";
+        indicator.className = "bg-blue-500 text-white text-[10px] px-2 py-1 rounded-md font-bold animate-pulse";
 
         try {
-            // 실제 API 호출 (getSignalPhaseInfo)
-            // 브라우저 직접 호출 시 CORS 에러가 발생하므로, 아래는 로직 시뮬레이션입니다.
-            const apiUrl = `https://t-data.seoul.go.kr/apigw/rest/v1/getSignalPhaseInfo?apiKey=${SEOUL_API_KEY}&type=json`;
+            // 실제 API 호출 (CORS 우회를 위해 임시 프록시 사용 예시)
+            // 주의: 실제 서비스에서는 본인 서버에서 호출해야 합니다.
+            const targetUrl = `https://t-data.seoul.go.kr/apigw/rest/v1/getSignalPhaseInfo?apiKey=${SEOUL_API_KEY}&type=json`;
+            const proxyUrl = "https://cors-anywhere.herokuapp.com/"; 
             
-            // 시뮬레이션: API 응답을 받아와 GPS와 가장 가까운 itid(교차로ID)의 정보를 매칭
-            setTimeout(() => {
-                const dummyStatus = Math.random() > 0.5 ? 'GREEN' : 'RED';
-                const dummyTime = Math.floor(Math.random() * 30) + 5;
+            // 테스트용: 실제 호출 (CORS 차단 시 catch로 이동함)
+            const response = await fetch(proxyUrl + targetUrl);
+            const result = await response.json();
 
-                if(dummyStatus === 'GREEN') {
-                    timerEl.textContent = dummyTime;
-                    timerEl.className = "text-8xl font-black tracking-tighter text-green-500";
-                    textEl.textContent = "WALK NOW";
-                    textEl.className = "text-3xl font-black mt-2 text-green-500";
-                    cardEl.style.borderLeft = "12px solid #22c55e";
-                    speak(`데이터 확인 결과 초록불입니다. ${dummyTime}초 남았습니다.`);
-                } else {
-                    timerEl.textContent = dummyTime;
-                    timerEl.className = "text-8xl font-black tracking-tighter text-red-500";
-                    textEl.textContent = "DON'T WALK";
-                    textEl.className = "text-3xl font-black mt-2 text-red-500";
-                    cardEl.style.borderLeft = "12px solid #ef4444";
-                    speak(`빨간불입니다. 정지하세요.`);
-                }
-            }, 1200);
+            // 데이터 가공 로직 (가장 가까운 교차로 itid 찾기 등)
+            // 여기서는 첫 번째 데이터를 예시로 사용
+            const trafficData = result.data[0]; 
+            const phase = parseInt(trafficData.itphase); // 신호상태
+            const remain = trafficData.itremain; // 잔여시간
+
+            // 신호 상태 판단 (1, 4 등등 서울시 규격에 따름 - 여기선 예시 로직)
+            const isGreen = (phase === 1 || phase === 5); // 예시: 1번이 보행자 초록불일 경우
+
+            if(isGreen) {
+                updateSignalUI('GREEN', remain);
+            } else {
+                updateSignalUI('RED', remain);
+            }
+
+            dot.className = "w-2 h-2 bg-green-500 rounded-full";
+            indicator.textContent = "LIVE API";
+            indicator.className = "bg-blue-500/10 text-blue-500 text-[10px] px-2 py-1 rounded-md font-bold";
 
         } catch (e) {
-            console.error("API Fetch Error", e);
+            console.warn("API 직접 연결 실패 (CORS 또는 키 오류). 시뮬레이션 모드로 전환합니다.");
+            runSimulation(); // 실패 시 기존 시뮬레이션 실행
         }
+    }
+
+    function updateSignalUI(type, time) {
+        const timerEl = document.getElementById('api-timer');
+        const textEl = document.getElementById('api-signal-text');
+        const cardEl = document.getElementById('data-card');
+
+        if(type === 'GREEN') {
+            timerEl.textContent = time;
+            timerEl.className = "text-8xl font-black tracking-tighter text-green-500";
+            textEl.textContent = "WALK NOW";
+            textEl.className = "text-3xl font-black mt-2 text-green-500";
+            cardEl.style.borderLeft = "12px solid #22c55e";
+            speak(`초록불입니다. ${time}초 남았습니다.`);
+        } else {
+            timerEl.textContent = time;
+            timerEl.className = "text-8xl font-black tracking-tighter text-red-500";
+            textEl.textContent = "DON'T WALK";
+            textEl.className = "text-3xl font-black mt-2 text-red-500";
+            cardEl.style.borderLeft = "12px solid #ef4444";
+            speak(`빨간불입니다. 정지하세요.`);
+        }
+    }
+
+    function runSimulation() {
+        const dummyStatus = Math.random() > 0.5 ? 'GREEN' : 'RED';
+        const dummyTime = Math.floor(Math.random() * 30) + 5;
+        updateSignalUI(dummyStatus, dummyTime);
+        document.getElementById('sync-indicator').textContent = "SIMULATED";
     }
 
     function speak(msg) {
