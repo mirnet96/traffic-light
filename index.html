@@ -17,6 +17,10 @@
         .active-r { border: 15px solid #ef4444 !important; box-shadow: inset 0 0 50px rgba(239, 68, 68, 0.5); }
         .scanner-line { position: absolute; width: 100%; height: 2px; background: rgba(59, 130, 246, 0.5); z-index: 15; animation: scan 3s linear infinite; }
         @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
+#roi-canvas {
+    image-rendering: -moz-crisp-edges;
+    image-rendering: pixelated;
+}
     </style>
 </head>
 <body class="bg-[#050505] text-white overflow-hidden select-none">
@@ -31,8 +35,32 @@
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="webcam-canvas"></canvas>
         <div id="border-overlay" class="absolute inset-0 z-[12] pointer-events-none transition-all duration-300"></div>
+        
         <div class="absolute top-4 left-4 z-20 bg-black/70 p-3 rounded-xl border border-white/10">
             <span id="status-badge" class="text-sm font-black italic uppercase">System Ready</span>
+        </div>
+
+        <div id="debug-panel" class="absolute bottom-6 right-4 z-30 bg-[#111]/90 p-4 rounded-3xl border border-white/10 w-44 shadow-2xl space-y-3 opacity-0 transition-opacity duration-300">
+            <h3 class="text-[10px] font-bold text-zinc-500 text-center uppercase tracking-tighter">AI ROI ANALYSIS</h3>
+            <div class="aspect-[1/2] bg-black rounded-xl overflow-hidden border border-white/20 relative">
+                <canvas id="roi-canvas" class="w-full h-full object-cover"></canvas>
+            </div>
+            <div class="space-y-2">
+                <div class="flex justify-between text-[10px] font-bold text-red-500">
+                    <span>UPPER (R)</span>
+                    <span id="red-val">0%</span>
+                </div>
+                <div class="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                    <div id="red-bar" class="h-full bg-red-600 w-0 transition-all duration-200"></div>
+                </div>
+                <div class="flex justify-between text-[10px] font-bold text-green-500">
+                    <span>LOWER (G)</span>
+                    <span id="green-val">0%</span>
+                </div>
+                <div class="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                    <div id="green-bar" class="h-full bg-green-600 w-0 transition-all duration-200"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -51,9 +79,9 @@
     </div>
 
     <div id="boot-screen" class="absolute inset-0 bg-[#050505] z-[100] flex items-center justify-center p-6">
-        <div class="bg-zinc-900 w-full max-w-sm p-10 rounded-[50px] text-center">
-            <h1 class="text-3xl font-black mb-10 italic">ULTRA VISION</h1>
-            <button id="start-btn" class="w-full py-6 bg-blue-600 rounded-[30px] font-black text-xl">SYSTEM START</button>
+        <div class="bg-zinc-900 w-full max-w-sm p-10 rounded-[50px] text-center shadow-2xl">
+            <h1 class="text-3xl font-black mb-10 italic tracking-tighter">ULTRA VISION</h1>
+            <button id="start-btn" class="w-full py-6 bg-blue-600 rounded-[30px] font-black text-xl active:scale-95 transition-transform">SYSTEM START</button>
         </div>
     </div>
 </div>
