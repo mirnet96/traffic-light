@@ -1,6 +1,6 @@
 /**
  * [ULTRA VISION AI] - vision.js
- * 원거리 신호등 깜빡임 방지 및 상태 유지 로직 적용
+ * 흔들림 방지(Smoothing) 및 원거리 색상 인식 최적화
  */
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 import { speak } from './app.js';
@@ -9,10 +9,11 @@ let objectDetector;
 let lastColor = "UNKNOWN";
 let videoTrack = null;
 
-// --- [깜빡임 방지 및 상태 유지 변수] ---
-let lastDetection = null;      // 마지막으로 유효하게 감지된 신호등의 좌표
-let detectionCounter = 0;      // 감지가 끊겨도 유지할 프레임 수
-const PERSIST_LIMIT = 15;      // 약 0.5초(15프레임) 동안 객체 정보 유지
+// --- [보정 및 상태 유지 변수] ---
+let lastDetection = null;      // 보존 및 보정된 좌표
+let detectionCounter = 0;      // 상태 유지 프레임 카운트
+const PERSIST_LIMIT = 20;      // 감지 중단 시 약 0.7초간 유지
+const SMOOTHING = 0.7;         // 0~1 사이값 (높을수록 현재 위치 즉시 반영, 낮을수록 부드러움)
 
 // DOM 요소 참조
 const video = document.getElementById('webcam');
@@ -39,26 +40,24 @@ export async function initVision() {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
             delegate: "GPU"
         },
-        scoreThreshold: 0.3, // 원거리 탐지를 위해 임계값 하향 조정
+        scoreThreshold: 0.35,
         runningMode: "VIDEO"
     });
 }
 
 /**
- * 2. 카메라 시작 및 디지털 줌 적용
+ * 2. 카메라 시작 및 줌 고정
  */
 export async function startVision() {
     try {
-        const constraints = { 
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
-        };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment", width: 1280, height: 720 } 
+        });
         video.srcObject = stream;
-        
         videoTrack = stream.getVideoTracks()[0];
+        
         const capabilities = videoTrack.getCapabilities();
         if (capabilities.zoom) {
-            // 원거리 신호등을 위해 2.5배 줌 고정 (기기 사양에 따라 조절 가능)
             videoTrack.applyConstraints({ advanced: [{ zoom: 2.5 }] });
         }
 
@@ -66,14 +65,9 @@ export async function startVision() {
             video.play();
             predictWebcam();
         };
-    } catch (err) {
-        console.error("카메라 시작 오류:", err);
-    }
+    } catch (err) { console.error(err); }
 }
 
-/**
- * 3. 메인 분석 루프
- */
 async function predictWebcam() {
     if (objectDetector && video.readyState >= 2) {
         canvasElement.width = video.videoWidth;
@@ -86,40 +80,45 @@ async function predictWebcam() {
 }
 
 /**
- * 4. 객체 필터링 및 '상태 유지' 로직
+ * 3. 좌표 보간(Smoothing) 및 필터링
  */
 function processDetections(result) {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
-    // 이번 프레임에서 신호등 찾기 (한국형 세로 비율 필터 적용)
-    const currentSignal = result.detections.find(d => {
-        const cat = d.categories[0].categoryName;
-        const box = d.boundingBox;
-        return cat === "traffic light" && box.height > box.width * 1.1;
-    });
+    // 신호등 찾기 (비율 필터 약간 완화)
+    const currentSignal = result.detections.find(d => 
+        d.categories[0].categoryName === "traffic light" && 
+        d.boundingBox.height > d.boundingBox.width * 1.05
+    );
 
     if (currentSignal) {
-        // 새로운 감지가 있으면 정보 갱신 및 카운터 초기화
-        lastDetection = currentSignal.boundingBox;
+        const newBox = currentSignal.boundingBox;
+        if (!lastDetection) {
+            lastDetection = newBox;
+        } else {
+            // [Smoothing 적용] 현재값과 이전값을 섞어 떨림 방지
+            lastDetection = {
+                originX: lastDetection.originX * (1 - SMOOTHING) + newBox.originX * SMOOTHING,
+                originY: lastDetection.originY * (1 - SMOOTHING) + newBox.originY * SMOOTHING,
+                width: lastDetection.width * (1 - SMOOTHING) + newBox.width * SMOOTHING,
+                height: lastDetection.height * (1 - SMOOTHING) + newBox.height * SMOOTHING
+            };
+        }
         detectionCounter = PERSIST_LIMIT;
     } else {
-        // 감지가 없으면 카운터 감소
         detectionCounter--;
     }
 
-    // 카운터가 유효할 때만 분석 및 UI 표시 진행
     if (detectionCounter > 0 && lastDetection) {
         const { originX, originY, width, height } = lastDetection;
 
-        // ROI 분석 및 그리기
         drawROI(originX, originY, width, height);
         const colorStatus = analyzeKoreanSignal(originX, originY, width, height);
         updateUI(colorStatus);
         drawBox(originX, originY, width, height, colorStatus);
-
+        
         debugPanel.style.opacity = "1";
     } else {
-        // 완전히 사라졌다고 판단될 때
         debugPanel.style.opacity = "0";
         updateUI("UNKNOWN");
         lastDetection = null;
@@ -127,15 +126,16 @@ function processDetections(result) {
 }
 
 /**
- * 5. 대한민국 보행자 신호등 분석 (상/하단 밝기 비교)
+ * 4. 핵심 분석: 밝기 기반 색상 판정
+ * (이미지에서 보인 '흰색에 가까운 빨강/초록'을 잡기 위함)
  */
 function analyzeKoreanSignal(x, y, w, h) {
     const startX = Math.max(0, Math.floor(x));
     const startY = Math.max(0, Math.floor(y));
-    const safeW = Math.min(w, video.videoWidth - startX);
-    const safeH = Math.min(h, video.videoHeight - startY);
+    const safeW = Math.min(Math.floor(w), video.videoWidth - startX);
+    const safeH = Math.min(Math.floor(h), video.videoHeight - startY);
 
-    if (safeW <= 0 || safeH <= 0) return "UNKNOWN";
+    if (safeW < 5 || safeH < 10) return "UNKNOWN";
 
     const data = canvasCtx.getImageData(startX, startY, safeW, safeH).data;
     
@@ -147,14 +147,19 @@ function analyzeKoreanSignal(x, y, w, h) {
         for (let col = 0; col < safeW; col += 2) {
             const i = (row * safeW + col) * 4;
             const r = data[i], g = data[i+1], b = data[i+2];
+
+            // 단순히 r, g 값만 비교하면 빛 번짐(흰색)을 못 잡으므로 밝기 합산 사용
             const brightness = Math.max(r, g, b);
+            if (brightness < 100) continue; // 너무 어두운 픽셀 제외
 
             if (row < mid) {
-                // 상단: 빨간색 강조
-                if (r > g + 35 && r > b + 35) upperScore += brightness;
+                // 상단: 빨간색 성분이 조금이라도 우세하면 밝기 점수 가산
+                if (r > g && r > b) upperScore += brightness;
+                else if (r > 200 && g > 150) upperScore += (brightness * 0.5); // 아주 밝은 주황빛 대응
             } else {
-                // 하단: 초록색 강조
-                if (g > r + 25 && g > b + 10) lowerScore += brightness;
+                // 하단: 초록색(또는 청록색) 성분이 우세하면 밝기 점수 가산
+                if (g > r) lowerScore += brightness;
+                else if (g > 200 && r > 150) lowerScore += (brightness * 0.5); // 아주 밝은 연두빛 대응
             }
         }
     }
@@ -168,8 +173,9 @@ function analyzeKoreanSignal(x, y, w, h) {
     greenBar.style.width = `${gPct}%`;
     greenValText.innerText = `${gPct}%`;
 
-    if (upperScore > lowerScore && upperScore > 300) return "RED";
-    if (lowerScore > upperScore && lowerScore > 300) return "GREEN";
+    // 판정 로직: 한쪽 점수가 확연히 높고 일정 강도 이상일 때
+    if (rPct > 65 && upperScore > 500) return "RED";
+    if (gPct > 65 && lowerScore > 500) return "GREEN";
     return "UNKNOWN";
 }
 
@@ -186,23 +192,16 @@ function updateUI(color) {
 
     if (color === "RED") {
         overlay.classList.add('active-r');
-        speak("빨간불입니다. 정지하세요.");
+        speak("빨간불입니다.");
     } else if (color === "GREEN") {
         overlay.classList.add('active-g');
-        speak("초록불입니다. 건너셔도 좋습니다.");
+        speak("초록불입니다.");
     }
     lastColor = color;
 }
 
 function drawBox(x, y, w, h, color) {
     canvasCtx.strokeStyle = color === "RED" ? "#ef4444" : (color === "GREEN" ? "#22c55e" : "#3b82f6");
-    canvasCtx.lineWidth = 4;
+    canvasCtx.lineWidth = 5;
     canvasCtx.strokeRect(x, y, w, h);
-    
-    canvasCtx.setLineDash([5, 5]);
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(x, y + h/2);
-    canvasCtx.lineTo(x + w, y + h/2);
-    canvasCtx.stroke();
-    canvasCtx.setLineDash([]);
 }
