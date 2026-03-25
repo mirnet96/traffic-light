@@ -1,6 +1,6 @@
 /**
  * [ULTRA VISION AI] - vision.js
- * 대한민국 보행자 신호등(세로형) 최적화 분석 모듈
+ * 원거리 신호등 깜빡임 방지 및 상태 유지 로직 적용
  */
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 import { speak } from './app.js';
@@ -9,12 +9,16 @@ let objectDetector;
 let lastColor = "UNKNOWN";
 let videoTrack = null;
 
+// --- [깜빡임 방지 및 상태 유지 변수] ---
+let lastDetection = null;      // 마지막으로 유효하게 감지된 신호등의 좌표
+let detectionCounter = 0;      // 감지가 끊겨도 유지할 프레임 수
+const PERSIST_LIMIT = 15;      // 약 0.5초(15프레임) 동안 객체 정보 유지
+
 // DOM 요소 참조
 const video = document.getElementById('webcam');
 const canvasElement = document.getElementById("webcam-canvas");
-const canvasCtx = canvasElement.getContext("2d", {监测Frequently: true });
+const canvasCtx = canvasElement.getContext("2d");
 
-// [ROI 분석용] 객체 확대 및 데이터 표시용 요소
 const debugPanel = document.getElementById('debug-panel');
 const roiCanvas = document.getElementById('roi-canvas');
 const roiCtx = roiCanvas.getContext('2d');
@@ -25,7 +29,6 @@ const greenValText = document.getElementById('green-val');
 
 /**
  * 1. AI 모델 초기화
- * MediaPipe의 ObjectDetector를 로드합니다.
  */
 export async function initVision() {
     const vision = await FilesetResolver.forVisionTasks(
@@ -36,26 +39,26 @@ export async function initVision() {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
             delegate: "GPU"
         },
-        scoreThreshold: 0.35, // 멀리 있는 작은 객체도 잡기 위해 임계값 하향
+        scoreThreshold: 0.3, // 원거리 탐지를 위해 임계값 하향 조정
         runningMode: "VIDEO"
     });
 }
 
 /**
- * 2. 카메라 시작 및 줌 제어
+ * 2. 카메라 시작 및 디지털 줌 적용
  */
 export async function startVision() {
     try {
         const constraints = { 
-            video: { facingMode: "environment", width: 1280, height: 720 } 
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         };
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
         
-        // 원거리 신호등 대응을 위한 디지털 줌 적용 (지원 기기 한정)
         videoTrack = stream.getVideoTracks()[0];
         const capabilities = videoTrack.getCapabilities();
         if (capabilities.zoom) {
+            // 원거리 신호등을 위해 2.5배 줌 고정 (기기 사양에 따라 조절 가능)
             videoTrack.applyConstraints({ advanced: [{ zoom: 2.5 }] });
         }
 
@@ -64,7 +67,7 @@ export async function startVision() {
             predictWebcam();
         };
     } catch (err) {
-        console.error("카메라 권한 오류:", err);
+        console.error("카메라 시작 오류:", err);
     }
 }
 
@@ -72,10 +75,10 @@ export async function startVision() {
  * 3. 메인 분석 루프
  */
 async function predictWebcam() {
-    canvasElement.width = video.videoWidth;
-    canvasElement.height = video.videoHeight;
-    
     if (objectDetector && video.readyState >= 2) {
+        canvasElement.width = video.videoWidth;
+        canvasElement.height = video.videoHeight;
+        
         const detections = await objectDetector.detectForVideo(video, performance.now());
         processDetections(detections);
     }
@@ -83,102 +86,101 @@ async function predictWebcam() {
 }
 
 /**
- * 4. 객체 필터링 및 분석 실행
+ * 4. 객체 필터링 및 '상태 유지' 로직
  */
 function processDetections(result) {
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-    let signalFound = false;
-
-    result.detections.forEach(detection => {
-        const category = detection.categories[0].categoryName;
-        
-        if (category === "traffic light") {
-            const { originX, originY, width, height } = detection.boundingBox;
-
-            // [규격 필터] 한국 보행자 신호등은 세로가 가로보다 긴 직사각형입니다.
-            if (height > width * 1.2) {
-                signalFound = true;
-                
-                // [ROI 업데이트] 감지된 신호등만 잘라서 디버깅 패널에 표시
-                drawROI(originX, originY, width, height);
-
-                // [색상 분석] 위치 기반(상/하) 분석 수행
-                const colorStatus = analyzeKoreanSignal(originX, originY, width, height);
-                updateUI(colorStatus);
-                drawBox(originX, originY, width, height, colorStatus);
-            }
-        }
+    
+    // 이번 프레임에서 신호등 찾기 (한국형 세로 비율 필터 적용)
+    const currentSignal = result.detections.find(d => {
+        const cat = d.categories[0].categoryName;
+        const box = d.boundingBox;
+        return cat === "traffic light" && box.height > box.width * 1.1;
     });
 
-    // 신호등이 감지될 때만 분석 패널 노출
-    debugPanel.style.opacity = signalFound ? "1" : "0";
-    if (!signalFound) updateUI("UNKNOWN");
+    if (currentSignal) {
+        // 새로운 감지가 있으면 정보 갱신 및 카운터 초기화
+        lastDetection = currentSignal.boundingBox;
+        detectionCounter = PERSIST_LIMIT;
+    } else {
+        // 감지가 없으면 카운터 감소
+        detectionCounter--;
+    }
+
+    // 카운터가 유효할 때만 분석 및 UI 표시 진행
+    if (detectionCounter > 0 && lastDetection) {
+        const { originX, originY, width, height } = lastDetection;
+
+        // ROI 분석 및 그리기
+        drawROI(originX, originY, width, height);
+        const colorStatus = analyzeKoreanSignal(originX, originY, width, height);
+        updateUI(colorStatus);
+        drawBox(originX, originY, width, height, colorStatus);
+
+        debugPanel.style.opacity = "1";
+    } else {
+        // 완전히 사라졌다고 판단될 때
+        debugPanel.style.opacity = "0";
+        updateUI("UNKNOWN");
+        lastDetection = null;
+    }
 }
 
 /**
- * 5. 대한민국 보행자 신호등 핵심 분석 로직 (위치 우선 원칙)
- * "상단(50%) 영역이 밝으면 빨강, 하단(50%) 영역이 밝으면 초록"
+ * 5. 대한민국 보행자 신호등 분석 (상/하단 밝기 비교)
  */
 function analyzeKoreanSignal(x, y, w, h) {
-    // 픽셀 데이터 가져오기 (성능을 위해 정수화)
     const startX = Math.max(0, Math.floor(x));
     const startY = Math.max(0, Math.floor(y));
-    const data = canvasCtx.getImageData(startX, startY, w, h).data;
+    const safeW = Math.min(w, video.videoWidth - startX);
+    const safeH = Math.min(h, video.videoHeight - startY);
+
+    if (safeW <= 0 || safeH <= 0) return "UNKNOWN";
+
+    const data = canvasCtx.getImageData(startX, startY, safeW, safeH).data;
     
-    let upperScore = 0; // 상단 영역 점수
-    let lowerScore = 0; // 하단 영역 점수
-    const mid = Math.floor(h / 2); // 박스의 정중앙
+    let upperScore = 0;
+    let lowerScore = 0;
+    const mid = Math.floor(safeH / 2);
 
-    // 픽셀 전체를 조사하되 성능을 위해 간격(step)을 둠
-    for (let row = 0; row < h; row += 2) {
-        for (let col = 0; col < w; col += 2) {
-            const i = (row * w + col) * 4;
+    for (let row = 0; row < safeH; row += 2) {
+        for (let col = 0; col < safeW; col += 2) {
+            const i = (row * safeW + col) * 4;
             const r = data[i], g = data[i+1], b = data[i+2];
-
-            // 단순히 밝기(Luminance)가 높은 픽셀을 찾습니다.
             const brightness = Math.max(r, g, b);
 
             if (row < mid) {
-                // 상단 영역: 빨간색 성분이 강할 때만 점수 가산
-                if (r > g + 40 && r > b + 40) upperScore += brightness;
+                // 상단: 빨간색 강조
+                if (r > g + 35 && r > b + 35) upperScore += brightness;
             } else {
-                // 하단 영역: 초록색 성분이 강할 때만 점수 가산
-                if (g > r + 30) lowerScore += brightness;
+                // 하단: 초록색 강조
+                if (g > r + 25 && g > b + 10) lowerScore += brightness;
             }
         }
     }
 
-    // 디버깅 패널 그래프 수치 업데이트
-    const totalScore = (upperScore + lowerScore) || 1;
-    const rPct = Math.round((upperScore / totalScore) * 100);
-    const gPct = Math.round((lowerScore / totalScore) * 100);
+    const total = (upperScore + lowerScore) || 1;
+    const rPct = Math.round((upperScore / total) * 100);
+    const gPct = Math.round((lowerScore / total) * 100);
     
     redBar.style.width = `${rPct}%`;
     redValText.innerText = `${rPct}%`;
     greenBar.style.width = `${gPct}%`;
     greenValText.innerText = `${gPct}%`;
 
-    // 최종 판정 (상대적 점수 비교)
-    if (upperScore > lowerScore && upperScore > 500) return "RED";
-    if (lowerScore > upperScore && lowerScore > 500) return "GREEN";
+    if (upperScore > lowerScore && upperScore > 300) return "RED";
+    if (lowerScore > upperScore && lowerScore > 300) return "GREEN";
     return "UNKNOWN";
 }
 
-/**
- * 6. 잘라낸 이미지(ROI)를 디버깅 패널에 그리기
- */
 function drawROI(x, y, w, h) {
     roiCanvas.width = w;
     roiCanvas.height = h;
     roiCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
 }
 
-/**
- * 7. UI 및 음성 안내 업데이트
- */
 function updateUI(color) {
-    if (color === lastColor) return; // 상태 변화가 없을 시 중복 실행 방지
-    
+    if (color === lastColor) return;
     const overlay = document.getElementById('border-overlay');
     overlay.className = "absolute inset-0 z-[12] pointer-events-none transition-all duration-300";
 
@@ -192,15 +194,11 @@ function updateUI(color) {
     lastColor = color;
 }
 
-/**
- * 8. 메인 화면 박스 그리기
- */
 function drawBox(x, y, w, h, color) {
     canvasCtx.strokeStyle = color === "RED" ? "#ef4444" : (color === "GREEN" ? "#22c55e" : "#3b82f6");
-    canvasCtx.lineWidth = 5;
+    canvasCtx.lineWidth = 4;
     canvasCtx.strokeRect(x, y, w, h);
     
-    // 분석 기준선(중앙선) 표시
     canvasCtx.setLineDash([5, 5]);
     canvasCtx.beginPath();
     canvasCtx.moveTo(x, y + h/2);
