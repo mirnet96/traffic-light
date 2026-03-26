@@ -1,150 +1,150 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { speak } from './app.js';
 
-// Supabase 설정
+// 1. Supabase 설정
 const supabase = createClient(
-    'https://olktyhzffothlpxeddtx.supabase.co', 
+    'https://olktyhzffothlpxeddtx.supabase.co',
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sa3R5aHpmZm90aGxweGVkZHR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDIwNzUsImV4cCI6MjA4OTk3ODA3NX0.XuFgDFo0FC6BomZrwjD0cMdtQTXzVcEABDNo-VoIm2g'
 );
 
-let lastLat = null;
-let lastLng = null;
+let lastLat = null, lastLng = null, lastHeading = 0;
 let lastIntersectionName = "";
+let countdownInterval = null;
+let currentRemainCentis = 0; // 0.1초 단위 잔여시간
 
 /**
- * [1] 데이터 탭 초기화 및 GPS 추적 시작
+ * [1] 데이터 탭 초기화 및 보행자 GPS 추적 시작
  */
 export function initDataTab() {
     const locationText = document.getElementById('location-text');
-    const apiStatusText = document.getElementById('api-status-text');
+    if (!navigator.geolocation) return;
 
-    if (!navigator.geolocation) {
-        locationText.innerText = "❌ 기기에서 GPS를 지원하지 않습니다.";
-        return;
-    }
-
-    locationText.innerText = "������ GPS 신호를 찾는 중...";
-    apiStatusText.innerText = "READY";
-
-    // 위치 정보 가져오기
-    navigator.geolocation.getCurrentPosition(
+    // 보행자 특성상 고정밀도 유지 및 watchPosition 사용
+    navigator.geolocation.watchPosition(
         async (pos) => {
             lastLat = pos.coords.latitude;
             lastLng = pos.coords.longitude;
+            lastHeading = pos.coords.heading || 0;
 
-            // 화면상단에 실시간 좌표 출력 (디버그용)
             locationText.innerHTML = `
-                <div class="flex flex-col text-xs font-mono opacity-80">
-                    <span>LAT: ${lastLat.toFixed(6)}</span>
-                    <span>LNG: ${lastLng.toFixed(6)}</span>
-                    <span class="text-[10px] text-blue-300">정확도: ±${Math.round(pos.coords.accuracy)}m</span>
+                <div class="flex flex-col text-[10px] font-mono opacity-70">
+                    <span>GPS: ${lastLat.toFixed(5)}, ${lastLng.toFixed(5)}</span>
+                    <span class="text-blue-400">보행 방향: ${Math.round(lastHeading)}° | 오차: ±${Math.round(pos.coords.accuracy)}m</span>
                 </div>
             `;
 
-            // 지도 그리기
             renderMap(lastLat, lastLng);
-            
-            // 근처 교차로 데이터 서버 요청
-            await fetchSignalData();
+            // 처음 위치를 잡으면 즉시 데이터 호출
+            if (!lastIntersectionName) fetchSignalData();
         },
-        (err) => {
-            locationText.innerText = `❌ GPS 오류: ${err.message}`;
-            apiStatusText.innerText = "OFFLINE (GPS)";
-            apiStatusText.style.color = "#ef4444";
-        },
-        { enableHighAccuracy: true, timeout: 15000 }
+        (err) => console.error("GPS Error:", err),
+        { enableHighAccuracy: true }
     );
+
+    // 10초마다 서버 데이터 동기화 (네트워크 부하 절감)
+    setInterval(fetchSignalData, 10000);
 }
 
 /**
- * [2] 네이버 지도 렌더링
- */
-function renderMap(lat, lng) {
-    const mapContainer = document.getElementById('map');
-    
-    // 네이버 맵 라이브러리 로드 체크
-    if (typeof naver === 'undefined' || !naver.maps) {
-        mapContainer.innerHTML = `
-            <div class="h-full flex items-center justify-center bg-zinc-800 text-[10px] text-red-400 p-4 text-center">
-                NAVER MAP API 로드 실패<br>Client ID 및 도메인 설정을 확인하세요.
-            </div>
-        `;
-        return;
-    }
-
-    try {
-        const map = new naver.maps.Map('map', {
-            center: new naver.maps.LatLng(lat, lng),
-            zoom: 18,
-            zoomControl: false,
-            mapDataControl: false
-        });
-
-        // 현재 위치 마커 표시
-        new naver.maps.Marker({
-            position: new naver.maps.LatLng(lat, lng),
-            map: map,
-            icon: {
-                content: '<div class="w-4 h-4 bg-blue-500 border-2 border-white rounded-full shadow-lg"></div>',
-                anchor: new naver.maps.Point(8, 8)
-            }
-        });
-    } catch (e) {
-        console.error("Map Error:", e);
-    }
-}
-
-/**
- * [3] Supabase RPC를 통한 교차로 정보 수신
+ * [2] 서버로부터 실시간 신호 데이터 수신
  */
 export async function fetchSignalData() {
+    if (!lastLat || !lastLng) return;
+
     const crossNameEl = document.getElementById('cross-name');
-    const apiStatusText = document.getElementById('api-status-text');
+    const statusTextEl = document.getElementById('api-status-text');
     const apiCard = document.getElementById('api-card');
 
-    if (!lastLat || !lastLng) {
-        apiStatusText.innerText = "GPS 좌표 없음";
-        return;
-    }
-
-    apiStatusText.innerText = "������ 데이터 수신 중...";
-    apiStatusText.style.color = "#60a5fa"; // 파란색
-
     try {
-        // Supabase의 데이터베이스 함수(RPC) 호출
-        const { data, error } = await supabase.rpc('get_nearest_intersection', { 
-            user_lat: lastLat, 
-            user_lng: lastLng 
+        const { data, error } = await supabase.functions.invoke('get-traffic-signal', {
+            body: { lat: lastLat, lng: lastLng, heading: lastHeading }
         });
 
         if (error) throw error;
 
-        if (data && data.length > 0) {
-            const target = data[0]; // 데이터 형식 예: { name: "강남대로 교차로", dist_meters: 25.4 }
+        if (data && data.signal) {
+            crossNameEl.innerText = `🚶 ${data.intersectionName}`;
+            
+            // 보행자용 접두어 결정 (nt, et, st, wt)
+            const prefix = getDirectionPrefix(lastHeading);
+            // 보행 신호 잔여시간(PdsgRmdrCs) 우선 추출
+            const serverCentis = data.signal[`${prefix}PdsgRmdrCs`] || data.signal[`${prefix}StsgRmdrCs`];
 
-            // 화면에 정보 업데이트
-            crossNameEl.innerText = target.name;
-            apiStatusText.innerText = `V2X ACTIVE (${Math.round(target.dist_meters)}m)`;
-            apiStatusText.style.color = "#22c55e"; // 초록색
-            apiCard.style.borderColor = "#22c55e";
+            if (serverCentis > 0) {
+                currentRemainCentis = serverCentis;
+                startVisualTimer(); // 클라이언트 타이머 가동
 
-            // 새로운 교차로 접근 시 음성 안내
-            if (target.name !== lastIntersectionName) {
-                speak(`${target.name} 교차로가 약 ${Math.round(target.dist_meters)}미터 근처에 있습니다.`);
-                lastIntersectionName = target.name;
+                if (data.intersectionName !== lastIntersectionName) {
+                    speak(`${data.intersectionName} 교차로 보행 신호 연동을 시작합니다.`);
+                    lastIntersectionName = data.intersectionName;
+                }
+            } else {
+                stopVisualTimer("신호 대기 중");
             }
-        } else {
-            // 반경 내에 데이터가 없는 경우
-            crossNameEl.innerText = "주변 탐색 실패";
-            apiStatusText.innerText = "근처에 교차로 데이터가 없습니다.";
-            apiStatusText.style.color = "#71717a";
-            apiCard.style.borderColor = "#3f3f46";
         }
     } catch (err) {
         console.error("V2X Data Error:", err);
-        crossNameEl.innerText = "서버 연결 오류";
-        apiStatusText.innerText = "V2X OFFLINE";
-        apiStatusText.style.color = "#ef4444"; // 빨간색
-        apiCard.style.borderColor = "#ef4444";
+        statusTextEl.innerText = "V2X 연동 지연";
     }
+}
+
+/**
+ * [3] 클라이언트 사이드 고정밀 타이머 (0.1초 단위 갱신)
+ */
+function startVisualTimer() {
+    const statusTextEl = document.getElementById('api-status-text');
+    const apiCard = document.getElementById('api-card');
+
+    if (countdownInterval) clearInterval(countdownInterval);
+
+    countdownInterval = setInterval(() => {
+        if (currentRemainCentis > 0) {
+            currentRemainCentis -= 10; // 0.1초(10센티초)씩 차감
+            const displaySec = (currentRemainCentis / 100).toFixed(1);
+            
+            statusTextEl.innerText = `${displaySec}s`;
+            statusTextEl.className = "text-7xl font-black text-blue-500 italic";
+            apiCard.style.borderLeftColor = "#3b82f6";
+
+            // 5초 남았을 때 음성 경고
+            if (displaySec == "5.0") speak("신호 변경 5초 전입니다. 주의하세요.");
+        } else {
+            stopVisualTimer("신호 변경");
+        }
+    }, 100); // 0.1초마다 실행
+}
+
+function stopVisualTimer(msg) {
+    clearInterval(countdownInterval);
+    document.getElementById('api-status-text').innerText = msg;
+    document.getElementById('api-status-text').className = "text-3xl font-black text-zinc-500";
+}
+
+/**
+ * [4] 네이버 지도 렌더링
+ */
+function renderMap(lat, lng) {
+    if (typeof naver === 'undefined') return;
+    const map = new naver.maps.Map('map', {
+        center: new naver.maps.LatLng(lat, lng),
+        zoom: 19, // 보행자용이므로 더 확대
+        zoomControl: false,
+        mapDataControl: false
+    });
+    new naver.maps.Marker({
+        position: new naver.maps.LatLng(lat, lng),
+        map: map,
+        icon: {
+            content: '<div class="w-4 h-4 bg-blue-500 border-2 border-white rounded-full shadow-xl"></div>',
+            anchor: new naver.maps.Point(8, 8)
+        }
+    });
+}
+
+function getDirectionPrefix(heading) {
+    if (heading >= 315 || heading < 45) return "nt";
+    if (heading >= 45 && heading < 135) return "et";
+    if (heading >= 135 && heading < 225) return "st";
+    if (heading >= 225 && heading < 315) return "wt";
+    return "nt";
 }
