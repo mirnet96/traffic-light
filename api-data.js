@@ -127,16 +127,23 @@ function stopVisualTimer(msg) {
     }
 }
 
-function renderMap(lat, lng) {
-    if (typeof naver === 'undefined' || !naver.maps) return;
+export function renderMap(lat, lng) {
+    if (typeof naver === 'undefined' || !naver.maps) {
+        console.error("Naver Maps 라이브러리가 로드되지 않았습니다.");
+        const mapContainer = document.getElementById('map');
+        if (mapContainer) mapContainer.innerHTML = '<div class="p-10 text-center text-xs text-red-500 font-bold">인증 실패 또는 로드 대기 중</div>';
+        return;
+    }
+    
     const position = new naver.maps.LatLng(lat, lng);
     
     if (!naverMap) {
         naverMap = new naver.maps.Map('map', {
             center: position,
-            zoom: 19,
+            zoom: 18,
             logoControl: false,
-            mapDataControl: false
+            mapDataControl: false,
+            scaleControl: false
         });
         new naver.maps.Marker({ position, map: naverMap });
     } else {
