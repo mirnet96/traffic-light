@@ -3,7 +3,7 @@
  * 부하 감소를 위한 호출 최적화 및 에러 핸들링 포함
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-speak } from './utils.js'; // 경로 변경
+import { speak } from './utils.js'; // 경로 변경
 
 
 const supabase = createClient(
@@ -17,8 +17,14 @@ let countdownInterval = null;
 let currentRemainCentis = 0;
 let naverMap = null;
 let isFetching = false; // 중복 호출 방지 플래그
+let isDataTabInitialized = false;
 
 export function initDataTab() {
+
+    if (isDataTabInitialized) return; // 중복 방지
+    isDataTabInitialized = true;
+
+
     const locationText = document.getElementById('location-text');
     if (!navigator.geolocation) return;
 

@@ -1,9 +1,13 @@
 /**
  * [ULTRA VISION AI] - vision.js
  * 흔들림 방지(Smoothing) 및 원거리 색상 인식 최적화 로직 포함
+ * 
+ * [수정 사항]
+ * - BUG FIX: analyzeSignalColor()에서 getImageData 호출 전 drawImage로 video 프레임 복사
+ * - BUG FIX: detectionCounter가 0 아래로 내려가지 않도록 수정
  */
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
-import { speak } from './utils.js'; // 경로 변경
+import { speak } from './utils.js';
 
 let objectDetector;
 let lastColor = "UNKNOWN";
@@ -59,8 +63,8 @@ export async function startVision() {
             video.play();
             predictWebcam();
         };
-    } catch (err) { 
-        console.error("Camera Error:", err); 
+    } catch (err) {
+        console.error("Camera Error:", err);
         alert("카메라를 시작할 수 없습니다.");
     }
 }
@@ -101,13 +105,14 @@ function processDetections(result) {
             lastDetection = {
                 originX: lastDetection.originX * (1 - SMOOTHING) + newBox.originX * SMOOTHING,
                 originY: lastDetection.originY * (1 - SMOOTHING) + newBox.originY * SMOOTHING,
-                width: lastDetection.width * (1 - SMOOTHING) + newBox.width * SMOOTHING,
-                height: lastDetection.height * (1 - SMOOTHING) + newBox.height * SMOOTHING
+                width:   lastDetection.width   * (1 - SMOOTHING) + newBox.width   * SMOOTHING,
+                height:  lastDetection.height  * (1 - SMOOTHING) + newBox.height  * SMOOTHING
             };
         }
         detectionCounter = PERSIST_LIMIT;
     } else {
-        detectionCounter--;
+        // [BUG FIX] 0 이하로 내려가지 않게 처리
+        if (detectionCounter > 0) detectionCounter--;
     }
 
     // 감지 유지 상태일 때만 분석 실행
@@ -131,10 +136,14 @@ function processDetections(result) {
  * 5. 핵심 분석: 밝기 기반 색상 판정 (한국형 신호등 최적화)
  */
 function analyzeSignalColor(x, y, w, h, canvasCtx) {
+    // [BUG FIX] getImageData 전에 반드시 video 프레임을 캔버스에 복사해야 함
+    // 복사하지 않으면 캔버스가 비어 있어 항상 UNKNOWN을 반환함
+    canvasCtx.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+
     const startX = Math.max(0, Math.floor(x));
     const startY = Math.max(0, Math.floor(y));
-    const safeW = Math.min(Math.floor(w), video.videoWidth - startX);
-    const safeH = Math.min(Math.floor(h), video.videoHeight - startY);
+    const safeW  = Math.min(Math.floor(w), video.videoWidth  - startX);
+    const safeH  = Math.min(Math.floor(h), video.videoHeight - startY);
 
     if (safeW < 5 || safeH < 10) return "UNKNOWN";
 
@@ -146,37 +155,37 @@ function analyzeSignalColor(x, y, w, h, canvasCtx) {
     for (let row = 0; row < safeH; row += 2) {
         for (let col = 0; col < safeW; col += 2) {
             const i = (row * safeW + col) * 4;
-            const r = data[i], g = data[i+1], b = data[i+2];
+            const r = data[i], g = data[i + 1], b = data[i + 2];
 
             const brightness = Math.max(r, g, b);
-            if (brightness < 100) continue; 
+            if (brightness < 100) continue;
 
             if (row < mid) {
-                if (r > g && r > b) upperScore += brightness;
-                else if (r > 200 && g > 150) upperScore += (brightness * 0.5); 
+                if (r > g && r > b)          upperScore += brightness;
+                else if (r > 200 && g > 150) upperScore += (brightness * 0.5);
             } else {
-                if (g > r) lowerScore += brightness;
-                else if (g > 200 && r > 150) lowerScore += (brightness * 0.5); 
+                if (g > r)                   lowerScore += brightness;
+                else if (g > 200 && r > 150) lowerScore += (brightness * 0.5);
             }
         }
     }
 
-    // UI 게이지 업데이트 (요소가 있는 경우에만)
-    const redBar = document.getElementById('red-bar');
+    // UI 게이지 업데이트
+    const redBar   = document.getElementById('red-bar');
     const greenBar = document.getElementById('green-bar');
     if (redBar && greenBar) {
         const total = (upperScore + lowerScore) || 1;
-        const rPct = Math.round((upperScore / total) * 100);
-        const gPct = Math.round((lowerScore / total) * 100);
-        redBar.style.width = `${rPct}%`;
+        const rPct  = Math.round((upperScore / total) * 100);
+        const gPct  = Math.round((lowerScore / total) * 100);
+        redBar.style.width   = `${rPct}%`;
         greenBar.style.width = `${gPct}%`;
-        if (document.getElementById('red-val')) document.getElementById('red-val').innerText = `${rPct}%`;
+        if (document.getElementById('red-val'))   document.getElementById('red-val').innerText   = `${rPct}%`;
         if (document.getElementById('green-val')) document.getElementById('green-val').innerText = `${gPct}%`;
 
         if (rPct > 65 && upperScore > 500) return "RED";
         if (gPct > 65 && lowerScore > 500) return "GREEN";
     }
-    
+
     return "UNKNOWN";
 }
 
@@ -186,7 +195,7 @@ function analyzeSignalColor(x, y, w, h, canvasCtx) {
 function drawROI(x, y, w, h) {
     if (!roiCanvas) return;
     const roiCtx = roiCanvas.getContext('2d');
-    roiCanvas.width = w;
+    roiCanvas.width  = w;
     roiCanvas.height = h;
     roiCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
 }
@@ -196,10 +205,9 @@ function drawROI(x, y, w, h) {
  */
 function updateUI(color) {
     if (color === lastColor) return;
-    
-    // index.html에 border-overlay 요소가 있어야 함
+
     const overlay = document.getElementById('border-overlay');
-    
+
     if (color === "RED") {
         if (overlay) overlay.className = "absolute inset-0 z-[12] pointer-events-none active-r";
         speak("빨간불입니다. 정지하세요.");
@@ -217,6 +225,6 @@ function updateUI(color) {
  */
 function drawBox(x, y, w, h, color, canvasCtx) {
     canvasCtx.strokeStyle = color === "RED" ? "#ef4444" : (color === "GREEN" ? "#22c55e" : "#3b82f6");
-    canvasCtx.lineWidth = 6;
+    canvasCtx.lineWidth   = 6;
     canvasCtx.strokeRect(x, y, w, h);
 }

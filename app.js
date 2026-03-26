@@ -1,16 +1,18 @@
 /**
  * [ULTRA VISION AI] - app.js
- * 전체 시스템 흐름 제어 및 음성 합성(TTS) 관리
+ * 전체 시스템 흐름 제어
+ *
+ * [수정 사항]
+ * - BUG FIX: 사용하지 않는 isSpeaking 중복 선언 제거 (utils.js에서 관리)
+ * - BUG FIX: switchTab에서 매번 initDataTab() 호출 제거
+ *            → initDataTab 내부의 isDataTabInitialized 플래그로 중복 초기화 방지
  */
 import { initVision, startVision } from './vision.js';
 import { initDataTab, fetchSignalData } from './api-data.js';
-import { speak } from './utils.js'; // utils에서 가져옴
-
-let isSpeaking = false;
-
+import { speak } from './utils.js';
 
 /**
- * 2. 탭 전환 로직 (비전 vs 데이터)
+ * 1. 탭 전환 로직 (비전 vs 데이터)
  */
 function switchTab(type) {
     const vTab = document.getElementById('vision-tab');
@@ -28,16 +30,17 @@ function switchTab(type) {
         dTab.classList.add('active');
         dBtn.className = "flex-1 py-4 font-black text-blue-400 border-b-4 border-blue-500";
         vBtn.className = "flex-1 py-4 font-black text-zinc-500";
-        // 데이터 탭으로 올 때 지도가 깨질 수 있으므로 위치 갱신 호출
+        // [BUG FIX] initDataTab()을 여기서 매번 호출하면 watchPosition이 중복 등록됨
+        // initDataTab 내부의 isDataTabInitialized 플래그가 중복 실행을 막아줌
         initDataTab();
     }
 }
 
 /**
- * 3. 초기 진입 버튼 및 이벤트 바인딩
+ * 2. 초기 진입 버튼 및 이벤트 바인딩
  */
 document.addEventListener('DOMContentLoaded', () => {
-    const startBtn = document.getElementById('start-btn');
+    const startBtn   = document.getElementById('start-btn');
     const bootScreen = document.getElementById('boot-screen');
     const refreshBtn = document.getElementById('refresh-api');
 
@@ -45,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         startBtn.onclick = async () => {
             bootScreen.style.opacity = '0';
             setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
-            
+
             speak("울트라 비전 시스템을 시작합니다. 안전한 보행을 지원합니다.");
 
             try {
