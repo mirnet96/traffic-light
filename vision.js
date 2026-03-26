@@ -2,6 +2,13 @@
  * [ULTRA VISION AI] - vision.js
  * 대한민국 보행자 신호등 전용 인식 로직
  *
+ * [버그 수정]
+ * - BUG FIX: reduce 콜백 내 변수 섀도잉 ('b' → 'd') 으로 인한 런타임 에러 수정
+ * - BUG FIX: MIN_HEIGHT_PX 단위 불일치 수정 — MediaPipe boundingBox는 픽셀이 아닌
+ *            정규화 좌표(0~1)이므로 video.videoHeight를 곱해 실제 픽셀로 변환
+ * - BUG FIX: getImageData 전 drawImage 누락 가능성 수정
+ *            — detectionCounter > 0 블록 진입 전에 항상 canvas를 최신 프레임으로 갱신
+ *
  * 핵심 전략:
  * 1. MediaPipe "traffic light" 후보에서 세로 직사각형 종횡비만 통과
  * 2. ROI를 상(42%) / 중간 제외 / 하(42%)로 분리
@@ -27,7 +34,7 @@ const IOU_THRESHOLD   = 0.25; // IOU 이 이하면 새 박스로 교체
 // 한국 보행자 신호등 종횡비 (width/height)
 const ASPECT_MIN      = 0.28;
 const ASPECT_MAX      = 0.65;
-const MIN_HEIGHT_PX   = 40;   // 너무 작은 원거리 제외
+const MIN_HEIGHT_PX   = 40;   // 너무 작은 원거리 제외 (실제 픽셀 기준)
 
 // 색상 판정 임계값
 const SCORE_THRESHOLD = 180;  // 존 누적 점수 최솟값
@@ -99,17 +106,26 @@ function processDetections(result) {
     const canvasCtx = canvasElement.getContext("2d");
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
+    // [FIX] getImageData 전 항상 현재 프레임을 canvas에 그려야 최신 픽셀 데이터를 얻을 수 있음
+    // 이전 코드에서는 detectionCounter > 0 블록 안에서만 drawImage를 호출했기 때문에,
+    // detectionCounter가 막 0이 되는 프레임에서 오래된 픽셀로 색상 분석될 수 있었음
+    canvasCtx.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+
     // 후보 필터: traffic light + 세로 직사각형 종횡비 + 최소 높이
+    // [FIX] MediaPipe boundingBox는 정규화 좌표(0~1)이므로 실제 픽셀 높이로 변환
     const candidates = result.detections.filter(d => {
         if (d.categories[0].categoryName !== "traffic light") return false;
-        const b      = d.boundingBox;
-        const aspect = b.width / b.height;
-        return aspect >= ASPECT_MIN && aspect <= ASPECT_MAX && b.height >= MIN_HEIGHT_PX;
+        const b        = d.boundingBox;
+        const aspect   = b.width / b.height;
+        const heightPx = b.height * video.videoHeight; // [FIX] 픽셀 단위로 변환
+        return aspect >= ASPECT_MIN && aspect <= ASPECT_MAX && heightPx >= MIN_HEIGHT_PX;
     });
 
     // 여러 후보 중 가장 큰 것 선택
+    // [FIX] reduce 콜백 내부 area 함수의 파라미터명을 'd'로 변경
+    //       기존 'b'는 상위 스코프의 변수명과 충돌해 런타임 에러를 유발
     const best = candidates.reduce((prev, cur) => {
-        const area = b => b.boundingBox.width * b.boundingBox.height;
+        const area = d => d.boundingBox.width * d.boundingBox.height;
         return !prev || area(cur) > area(prev) ? cur : prev;
     }, null);
 
@@ -139,9 +155,6 @@ function processDetections(result) {
 
     if (detectionCounter > 0 && lastDetection) {
         const { originX: x, originY: y, width: w, height: h } = lastDetection;
-
-        // video 프레임을 캔버스에 복사 (getImageData 전 필수)
-        canvasCtx.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
 
         const colorStatus = analyzeKoreanSignal(x, y, w, h, canvasCtx);
         updateUI(colorStatus);

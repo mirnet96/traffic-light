@@ -19,7 +19,6 @@ function switchTab(type) {
     const dTab = document.getElementById('data-tab');
     const vBtn = document.getElementById('tab-v-btn');
     const dBtn = document.getElementById('tab-d-btn');
-
     if (type === 'vision') {
         vTab.classList.add('active');
         dTab.classList.remove('active');
@@ -47,9 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         startBtn.onclick = async () => {
             bootScreen.style.opacity = '0';
             setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
-
             speak("울트라 비전 시스템을 시작합니다. 안전한 보행을 지원합니다.");
-
             try {
                 await Promise.all([
                     initVision().then(() => startVision()),
