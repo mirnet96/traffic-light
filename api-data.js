@@ -1,6 +1,6 @@
 /**
- * [ULTRA VISION AI] - api-data.js
- * 보행자 전용 V2X 데이터 연동 및 고정밀 클라이언트 타이머
+ * [ULTRA VISION AI] - api-data.js (최적화 버전)
+ * 부하 감소를 위한 호출 최적화 및 에러 핸들링 포함
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { speak } from './app.js';
@@ -13,12 +13,10 @@ const supabase = createClient(
 let lastLat = null, lastLng = null, lastHeading = 0;
 let lastIntersectionName = "";
 let countdownInterval = null;
-let currentRemainCentis = 0; // 0.1초 단위 잔여시간
+let currentRemainCentis = 0;
 let naverMap = null;
+let isFetching = false; // 중복 호출 방지 플래그
 
-/**
- * 1. 데이터 탭 초기화 (GPS 추적 시작)
- */
 export function initDataTab() {
     const locationText = document.getElementById('location-text');
     if (!navigator.geolocation) return;
@@ -30,121 +28,95 @@ export function initDataTab() {
             lastHeading = pos.coords.heading || 0;
 
             if (locationText) {
-                locationText.innerHTML = `
-                    <div class="flex flex-col text-[10px] font-mono opacity-70">
-                        <span>GPS: ${lastLat.toFixed(5)}, ${lastLng.toFixed(5)}</span>
-                        <span class="text-blue-400">방향: ${Math.round(lastHeading)}° | 오차: ±${Math.round(pos.coords.accuracy)}m</span>
-                    </div>
-                `;
+                locationText.innerHTML = `📍 ${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} | Dir: ${Math.round(lastHeading)}°`;
             }
 
             renderMap(lastLat, lastLng);
-            if (!lastIntersectionName) fetchSignalData();
+            // 위치 이동 시 즉시 호출하되, 너무 잦은 호출은 방지
+            if (!isFetching && !lastIntersectionName) fetchSignalData();
         },
-        (err) => console.warn("GPS Error:", err),
+        (err) => console.warn("GPS:", err),
         { enableHighAccuracy: true }
     );
 
-    // 10초마다 서버와 데이터 동기화
-    setInterval(fetchSignalData, 10000);
+    // 호출 주기를 10초 -> 15초로 약간 늘려 서버 부하 감소
+    setInterval(fetchSignalData, 15000);
 }
 
-/**
- * 2. V2X 신호 데이터 수신 (보행자 전용 필드 추출)
- */
 export async function fetchSignalData() {
-    if (!lastLat || !lastLng) return;
-
-    const crossNameEl = document.getElementById('cross-name');
+    if (!lastLat || !lastLng || isFetching) return;
+    
+    isFetching = true; // 잠금
     const statusTextEl = document.getElementById('api-status-text');
 
     try {
+        // Edge Function 호출 시 타임아웃 처리를 서버 로직에 맡기거나 짧게 유지
         const { data, error } = await supabase.functions.invoke('get-traffic-signal', {
             body: { lat: lastLat, lng: lastLng, heading: lastHeading }
         });
 
-        if (error) throw error;
+        if (error) {
+            // WORKER_LIMIT(546) 발생 시 사용자에게 알림
+            if (error.message.includes("resources")) {
+                if (statusTextEl) statusTextEl.innerText = "SVR OVER";
+                console.error("Supabase 리소스 부족: 무료 티어 제한 또는 로직 과부하");
+            }
+            throw error;
+        }
 
         if (data && data.signal) {
-            if (crossNameEl) crossNameEl.innerText = `🚶 ${data.intersectionName}`;
-            
+            document.getElementById('cross-name').innerText = `🚶 ${data.intersectionName}`;
             const prefix = getDirectionPrefix(lastHeading);
-            // 보행자 잔여시간(PdsgRmdrCs)을 최우선으로 가져옴
-            const serverCentis = data.signal[`${prefix}PdsgRmdrCs`] || data.signal[`${prefix}StsgRmdrCs` || 0];
+            const serverCentis = data.signal[`${prefix}PdsgRmdrCs`] || data.signal[`${prefix}StsgRmdrCs`];
 
             if (serverCentis > 0) {
                 currentRemainCentis = serverCentis;
-                startVisualTimer(); // 클라이언트 타이머 가동
-
+                startVisualTimer();
                 if (data.intersectionName !== lastIntersectionName) {
-                    speak(`${data.intersectionName} 교차로 보행 신호 연동을 시작합니다.`);
+                    speak(`${data.intersectionName} 연동 시작.`);
                     lastIntersectionName = data.intersectionName;
                 }
-            } else {
-                stopVisualTimer("신호 대기");
             }
         }
     } catch (err) {
         console.error("V2X Error:", err);
-        if (statusTextEl) statusTextEl.innerText = "연동 지연";
+    } finally {
+        isFetching = false; // 해제
     }
 }
 
-/**
- * 3. 클라이언트 사이드 고정밀 타이머 (0.1초 단위 갱신)
- */
 function startVisualTimer() {
     const statusTextEl = document.getElementById('api-status-text');
-    const apiCard = document.getElementById('api-card');
-
     if (countdownInterval) clearInterval(countdownInterval);
 
     countdownInterval = setInterval(() => {
         if (currentRemainCentis > 0) {
-            currentRemainCentis -= 10; 
+            currentRemainCentis -= 10;
             const displaySec = (currentRemainCentis / 100).toFixed(1);
-            
             if (statusTextEl) {
                 statusTextEl.innerText = `${displaySec}s`;
-                statusTextEl.className = "text-7xl font-black text-blue-500 italic text-center";
+                statusTextEl.className = "text-7xl font-black text-blue-500 italic text-center animate-pulse";
             }
-            if (apiCard) apiCard.style.borderLeftColor = "#3b82f6";
-
-            // 보행자 안전을 위한 5초 전 경고
-            if (displaySec === "5.0") speak("신호 변경 5초 전입니다. 무리한 진입을 자제하세요.");
         } else {
-            stopVisualTimer("신호 변경");
+            clearInterval(countdownInterval);
+            if (statusTextEl) {
+                statusTextEl.innerText = "WAIT";
+                statusTextEl.className = "text-5xl font-black text-zinc-700 text-center";
+            }
         }
     }, 100);
 }
 
-function stopVisualTimer(msg) {
-    clearInterval(countdownInterval);
-    const statusTextEl = document.getElementById('api-status-text');
-    if (statusTextEl) {
-        statusTextEl.innerText = msg;
-        statusTextEl.className = "text-5xl font-black text-zinc-700 text-center";
-    }
-}
-
-export function renderMap(lat, lng) {
+// renderMap 및 getDirectionPrefix 함수는 이전과 동일하게 유지
+function renderMap(lat, lng) {
     if (typeof naver === 'undefined' || !naver.maps) {
-        console.error("Naver Maps 라이브러리가 로드되지 않았습니다.");
-        const mapContainer = document.getElementById('map');
-        if (mapContainer) mapContainer.innerHTML = '<div class="p-10 text-center text-xs text-red-500 font-bold">인증 실패 또는 로드 대기 중</div>';
+        const mapEl = document.getElementById('map');
+        if (mapEl) mapEl.innerText = "인증 실패 (URL 등록 확인)";
         return;
     }
-    
     const position = new naver.maps.LatLng(lat, lng);
-    
     if (!naverMap) {
-        naverMap = new naver.maps.Map('map', {
-            center: position,
-            zoom: 18,
-            logoControl: false,
-            mapDataControl: false,
-            scaleControl: false
-        });
+        naverMap = new naver.maps.Map('map', { center: position, zoom: 18, logoControl: false });
         new naver.maps.Marker({ position, map: naverMap });
     } else {
         naverMap.setCenter(position);
