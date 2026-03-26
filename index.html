@@ -6,21 +6,44 @@
     <title>ULTRA VISION AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"></script>
-    <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=xa51z84fnk&submodules=geocoder"></script>
+
+<script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=xa51z84fnk&submodules=geocoder"></script>
+<script>
+    // 네이버 지도 로드 에러 감지
+    window.addEventListener('error', function(e) {
+        if (e.target.src && e.target.src.indexOf('naver.com') !== -1) {
+            alert('네이버 지도 인증 실패! Client ID나 서비스 URL을 확인하세요.');
+        }
+    }, true);
+</script>
+
     <style>
         .h-safe { height: 100dvh; }
-        .tab-content { display: none; height: calc(100% - 140px); position: relative; overflow: hidden; }
-        .tab-content.active { display: flex; flex-direction: column; }
+        /* 탭 컨텐츠: 스크롤 가능하게 수정 */
+        .tab-content { 
+            display: none; 
+            height: calc(100% - 140px); 
+            position: relative; 
+            overflow-y: auto; 
+            -webkit-overflow-scrolling: touch;
+        }
+        .tab-content.active { display: block; } /* Flex 해제하여 세로 스크롤 허용 */
+        
         #webcam { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 5; }
         #webcam-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
-        .active-g { border: 15px solid #22c55e !important; box-shadow: inset 0 0 50px rgba(34, 197, 94, 0.5); }
-        .active-r { border: 15px solid #ef4444 !important; box-shadow: inset 0 0 50px rgba(239, 68, 68, 0.5); }
+        
+        /* 지도 높이 명시적 설정 (매우 중요) */
+        #map {
+            width: 100%;
+            height: 280px; 
+            background-color: #111;
+            border-radius: 1.5rem;
+            margin-top: 1rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
         .scanner-line { position: absolute; width: 100%; height: 2px; background: rgba(59, 130, 246, 0.5); z-index: 15; animation: scan 3s linear infinite; }
         @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
-#roi-canvas {
-    image-rendering: -moz-crisp-edges;
-    image-rendering: pixelated;
-}
     </style>
 </head>
 <body class="bg-[#050505] text-white overflow-hidden select-none">
@@ -30,58 +53,32 @@
         <button id="tab-d-btn" class="flex-1 py-4 font-black text-zinc-500">V2X DATA</button>
     </nav>
 
-    <div id="vision-tab" class="tab-content active">
+    <div id="vision-tab" class="tab-content active" style="position:relative; height:100%;">
         <div class="scanner-line"></div>
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="webcam-canvas"></canvas>
-        <div id="border-overlay" class="absolute inset-0 z-[12] pointer-events-none transition-all duration-300"></div>
-        
-        <div class="absolute top-4 left-4 z-20 bg-black/70 p-3 rounded-xl border border-white/10">
-            <span id="status-badge" class="text-sm font-black italic uppercase">System Ready</span>
-        </div>
-
-        <div id="debug-panel" class="absolute bottom-6 right-4 z-30 bg-[#111]/90 p-4 rounded-3xl border border-white/10 w-44 shadow-2xl space-y-3 opacity-0 transition-opacity duration-300">
-            <h3 class="text-[10px] font-bold text-zinc-500 text-center uppercase tracking-tighter">AI ROI ANALYSIS</h3>
-            <div class="aspect-[1/2] bg-black rounded-xl overflow-hidden border border-white/20 relative">
-                <canvas id="roi-canvas" class="w-full h-full object-cover"></canvas>
-            </div>
-            <div class="space-y-2">
-                <div class="flex justify-between text-[10px] font-bold text-red-500">
-                    <span>UPPER (R)</span>
-                    <span id="red-val">0%</span>
-                </div>
-                <div class="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
-                    <div id="red-bar" class="h-full bg-red-600 w-0 transition-all duration-200"></div>
-                </div>
-                <div class="flex justify-between text-[10px] font-bold text-green-500">
-                    <span>LOWER (G)</span>
-                    <span id="green-val">0%</span>
-                </div>
-                <div class="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
-                    <div id="green-bar" class="h-full bg-green-600 w-0 transition-all duration-200"></div>
-                </div>
-            </div>
-        </div>
     </div>
 
-    <div id="data-tab" class="tab-content p-6 bg-[#0a0a0a] space-y-4">
-        <div class="bg-zinc-900 rounded-3xl p-5 border border-white/5">
-            <div id="location-text" class="text-lg font-black italic text-blue-400">GPS SEARCHING...</div>
-            <div id="map" class="w-full h-40 bg-zinc-800 mt-4 rounded-2xl overflow-hidden border border-white/10"></div>
-        </div>
-        <div id="api-card" class="bg-zinc-900 rounded-[40px] p-8 border-l-[12px] border-zinc-700 flex-1 flex flex-col justify-between">
-            <h1 id="cross-name" class="text-2xl font-black">교차로 탐색 중</h1>
-            <div class="text-center">
-                <div id="api-status-text" class="text-2xl font-black text-zinc-600">WAITING</div>
+    <div id="data-tab" class="tab-content p-6 bg-[#0a0a0a] space-y-6">
+        <div class="bg-zinc-900 rounded-3xl p-5 border border-white/5 shadow-xl">
+            <div id="location-text" class="text-sm font-bold text-blue-400 italic">GPS 수신 대기 중...</div>
+            <div id="map"></div> </div>
+
+        <div id="api-card" class="bg-zinc-900 rounded-[40px] p-8 border-l-[12px] border-zinc-700 shadow-2xl space-y-4">
+            <h1 id="cross-name" class="text-2xl font-black italic">주변 탐색 중...</h1>
+            <div class="py-6">
+                <div id="api-status-text" class="text-6xl font-black text-zinc-700 text-center tracking-tighter">READY</div>
             </div>
-            <button id="refresh-api" class="w-full py-4 bg-white/5 rounded-2xl text-xs font-bold">REFRESH V2X</button>
+            <button id="refresh-api" class="w-full py-4 bg-white/5 rounded-2xl text-[10px] font-bold uppercase tracking-widest text-zinc-500">Manual Refresh</button>
         </div>
+        
+        <div class="h-20"></div>
     </div>
 
     <div id="boot-screen" class="absolute inset-0 bg-[#050505] z-[100] flex items-center justify-center p-6">
         <div class="bg-zinc-900 w-full max-w-sm p-10 rounded-[50px] text-center shadow-2xl">
             <h1 class="text-3xl font-black mb-10 italic tracking-tighter">ULTRA VISION</h1>
-            <button id="start-btn" class="w-full py-6 bg-blue-600 rounded-[30px] font-black text-xl active:scale-95 transition-transform">SYSTEM START</button>
+            <button id="start-btn" class="w-full py-6 bg-blue-600 rounded-[30px] font-black text-xl">SYSTEM START</button>
         </div>
     </div>
 </div>
