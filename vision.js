@@ -3,7 +3,7 @@
  * 흔들림 방지(Smoothing) 및 원거리 색상 인식 최적화 로직 포함
  */
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
-import { speak } from './app.js';
+import { speak } from './utils.js'; // 경로 변경
 
 let objectDetector;
 let lastColor = "UNKNOWN";

@@ -4,25 +4,10 @@
  */
 import { initVision, startVision } from './vision.js';
 import { initDataTab, fetchSignalData } from './api-data.js';
+import { speak } from './utils.js'; // utils에서 가져옴
 
 let isSpeaking = false;
 
-/**
- * 1. 음성 안내 함수 (중복 방지 및 대기열 관리)
- */
-export function speak(text) {
-    if (isSpeaking) window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ko-KR';
-    utterance.rate = 1.1;
-    utterance.pitch = 1.0;
-
-    utterance.onstart = () => { isSpeaking = true; };
-    utterance.onend = () => { isSpeaking = false; };
-    
-    window.speechSynthesis.speak(utterance);
-}
 
 /**
  * 2. 탭 전환 로직 (비전 vs 데이터)

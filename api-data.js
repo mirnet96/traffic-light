@@ -3,7 +3,8 @@
  * 부하 감소를 위한 호출 최적화 및 에러 핸들링 포함
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-import { speak } from './app.js';
+speak } from './utils.js'; // 경로 변경
+
 
 const supabase = createClient(
     'https://olktyhzffothlpxeddtx.supabase.co',
