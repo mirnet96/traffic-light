@@ -74,9 +74,10 @@ export async function startVision() {
         video.srcObject = stream;
         videoTrack = stream.getVideoTracks()[0];
 
+        // 줌레벨 설정 2.0 -> 1.6
         const capabilities = videoTrack.getCapabilities();
         if (capabilities.zoom) {
-            videoTrack.applyConstraints({ advanced: [{ zoom: 2.0 }] });
+            videoTrack.applyConstraints({ advanced: [{ zoom: 1.6 }] });
         }
 
         video.onloadeddata = () => { video.play(); predictWebcam(); };
