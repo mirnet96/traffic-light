@@ -1,17 +1,14 @@
 /**
- * [ULTRA VISION AI] - api-data.js
- * * [수정 및 강화 사항]
- * 1. READY 상태 탈출: GPS 수신 전이라도 DEFAULT 좌표로 fetchSignalData 즉시 1회 실행
- * 2. GPS 옵션 완화: enableHighAccuracy를 false로 조정하여 수신율 향상 (code: 2 방지)
- * 3. 상태 표시 강화: API 호출 중임을 알리는 로직 추가
+ * [ULTRA VISION AI] - api-data.js (Laravel API Integrated)
+ * 1. Supabase 대신 iot.klueware.com 라라벨 서버 연동
+ * 2. 2단계 호출: 근처 교차로 검색 -> 실시간 신호 데이터 획득
+ * 3. 방향(Bearing) 기반 신호 필터링 적용
  */
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { speak } from './utils.js';
 
-const supabase = createClient(
-    'https://olktyhzffothlpxeddtx.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sa3R5aHpmZm90aGxweGVkZHR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDIwNzUsImV4cCI6MjA4OTk3ODA3NX0.XuFgDFo0FC6BomZrwjD0cMdtQTXzVcEABDNo-VoIm2g'
-);
+// ── 설정 ──────────────────────────────────────────────────────
+const API_BASE_URL = 'https://iot.klueware.com/api/v1';
+const API_KEY = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 
 // ── 기본 좌표 (GPS 미확보 시 fallback) ────────────────────────
 const DEFAULT_LAT = 37.5665;
@@ -20,10 +17,11 @@ const DEFAULT_LNG = 126.9780;
 // ── 상태 변수 ─────────────────────────────────────────────────
 let lastLat = null, lastLng = null;
 let compassHeading = 0;
-let gpsHeading     = 0;
+let gpsHeading = 0;
+let lastIntersectionId = "";
 let lastIntersectionName = "";
-let countdownInterval    = null;
-let currentRemainCentis  = 0;
+let countdownInterval = null;
+let currentRemainCentis = 0;
 let naverMap = null;
 let isFetching = false;
 let isDataTabInitialized = false;
@@ -37,10 +35,9 @@ export function initDataTab() {
     if (isDataTabInitialized) return;
     isDataTabInitialized = true;
 
-    // [FIX] 즉시 지도 표시
     renderMap(DEFAULT_LAT, DEFAULT_LNG);
 
-    // [FIX] READY 탈출: GPS 기다리지 않고 기본 좌표로 즉시 데이터 로드 시도
+    // 즉시 기본 좌표로 데이터 로드 시도
     if (!lastLat) {
         lastLat = DEFAULT_LAT;
         lastLng = DEFAULT_LNG;
@@ -49,6 +46,7 @@ export function initDataTab() {
         fetchSignalData(); 
     }
 
+    // 방향 센서 초기화
     if (typeof DeviceOrientationEvent !== 'undefined') {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             DeviceOrientationEvent.requestPermission()
@@ -61,11 +59,10 @@ export function initDataTab() {
 
     if (!navigator.geolocation) {
         const locationText = document.getElementById('location-text');
-        if (locationText) locationText.innerHTML = "GPS를 지원하지 않는 기기입니다.";
+        if (locationText) locationText.innerHTML = "GPS 미지원 기기";
         return;
     }
 
-    // [FIX] enableHighAccuracy: false로 변경하여 Code 2 에러(Position Unavailable) 빈도 감소
     navigator.geolocation.watchPosition(
         async (pos) => {
             lastLat = pos.coords.latitude;
@@ -78,36 +75,29 @@ export function initDataTab() {
             if (locationText) {
                 const h = getEffectiveHeading();
                 locationText.style.color = "";
-                locationText.innerHTML =
-                    `${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} | ${Math.round(h)}° ${getDirectionLabel(h)}`;
+                locationText.innerHTML = `${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} | ${Math.round(h)}° ${getDirectionLabel(h)}`;
             }
 
             renderMap(lastLat, lastLng);
-
-            // 위치가 업데이트될 때마다 데이터 갱신
             if (!isFetching) fetchSignalData();
         },
         (err) => {
             console.warn("GPS Error:", err);
             const locationText = document.getElementById('location-text');
             if (locationText) {
-                const messages = {
-                    1: "위치 권한 거부됨",
-                    2: "위치 확인 불가 (GPS 신호 약함)",
-                    3: "위치 요청 시간 초과"
-                };
+                const messages = { 1: "권한 거부", 2: "신호 약함", 3: "시간 초과" };
                 locationText.innerHTML = messages[err.code] || "GPS 오류";
                 locationText.style.color = "#ef4444";
             }
         },
-        { enableHighAccuracy: false, timeout: 15000 } // 옵션 완화
+        { enableHighAccuracy: false, timeout: 15000 }
     );
 
     setInterval(fetchSignalData, 15000);
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. 나침반 리스너 (기존과 동일)
+// 2. 방향 및 센서 처리
 // ─────────────────────────────────────────────────────────────
 function listenOrientation() {
     window.addEventListener('deviceorientationabsolute', handleOrientation, true);
@@ -123,66 +113,69 @@ function handleOrientation(e) {
 }
 
 function getEffectiveHeading() {
-    if (compassHeading > 0) return compassHeading;
-    return gpsHeading;
+    return compassHeading > 0 ? compassHeading : gpsHeading;
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3. V2X 신호 데이터 요청
+// 3. V2X 신호 데이터 요청 (라라벨 API 연동 버전)
 // ─────────────────────────────────────────────────────────────
 export async function fetchSignalData() {
-    // [FIX] lastLat이 null인 경우를 대비해 초기화에서 DEFAULT를 할당하므로 진행 가능
     if (!lastLat || !lastLng || isFetching) return;
     isFetching = true;
 
     const statusTextEl = document.getElementById('api-status-text');
+    const heading = getEffectiveHeading();
 
     try {
-        const heading = getEffectiveHeading();
-
-        const { data, error } = await supabase.functions.invoke('get-traffic-signal', {
-            body: {
-                lat: lastLat,
-                lng: lastLng,
-                heading,
-                maxDistanceMeters: 300
-            }
+        // Step 1: 근처 교차로 검색
+        const nearbyRes = await fetch(`${API_BASE_URL}/nearby?lat=${lastLat}&lng=${lastLng}&bearing=${heading}`, {
+            headers: { 'X-API-KEY': API_KEY }
         });
+        const nearbyData = await nearbyRes.json();
 
-        if (error) {
-            if (error.message && error.message.includes("resources")) {
-                if (statusTextEl) statusTextEl.innerText = "SVR OVER";
-            }
-            throw error;
+        if (!nearbyData.data) {
+            if (statusTextEl && !timerRunning) statusTextEl.innerText = "NO NODE";
+            return;
         }
 
-        if (data && data.signal) {
-            const nameEl = document.getElementById('cross-name');
-            if (nameEl) nameEl.innerText = `${data.intersectionName}`;
+        const itstId = nearbyData.data.id;
+        const itstNm = nearbyData.data.n;
 
-            const prefix = getDirectionPrefix(getEffectiveHeading());
-            const serverCentis =
-                data.signal[`${prefix}PdsgRmdrCs`] ||
-                data.signal[`${prefix}StsgRmdrCs`] ||
-                0;
+        // Step 2: 실시간 신호 상태 조회
+        const signalRes = await fetch(`${API_BASE_URL}/signal/${itstId}`, {
+            headers: { 'X-API-KEY': API_KEY }
+        });
+        const signalData = await signalRes.json();
+
+        if (signalData.status === 'success' && signalData.data) {
+            const nameEl = document.getElementById('cross-name');
+            if (nameEl) nameEl.innerText = itstNm;
+
+            // 현재 진행 방향(nt, et, st, wt)에 맞는 데이터 추출
+            const prefix = getDirectionPrefix(heading);
+            const dirData = signalData.data.directions[prefix];
+            
+            // 보행신호 잔여시간 우선, 없으면 직진신호 잔여시간 (단위: 초 -> 센티초 변환하여 타이머 전달)
+            const remainSeconds = dirData.walk > 0 ? dirData.walk : dirData.straight;
+            const serverCentis = remainSeconds * 100;
 
             if (serverCentis > 0 && !timerRunning) {
                 currentRemainCentis = serverCentis;
                 startVisualTimer();
 
-                if (data.intersectionName !== lastIntersectionName) {
-                    speak(`${data.intersectionName} 연동.`);
-                    lastIntersectionName = data.intersectionName;
+                if (itstId !== lastIntersectionId) {
+                    speak(`${itstNm} 연동되었습니다.`);
+                    lastIntersectionId = itstId;
+                    lastIntersectionName = itstNm;
                 }
             } else if (serverCentis <= 0) {
-                // 신호 정보가 없을 때
                 if (statusTextEl && !timerRunning) statusTextEl.innerText = "WAIT";
             }
         } else {
-             if (statusTextEl && !timerRunning) statusTextEl.innerText = "NO DATA";
+            if (statusTextEl && !timerRunning) statusTextEl.innerText = "NO DATA";
         }
     } catch (err) {
-        console.error("V2X Error:", err);
+        console.error("V2X API Error:", err);
         if (statusTextEl && !timerRunning) statusTextEl.innerText = "API ERR";
     } finally {
         isFetching = false;
@@ -190,16 +183,12 @@ export async function fetchSignalData() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. 카운트다운 타이머 (기존과 동일)
+// 4. 카운트다운 타이머
 // ─────────────────────────────────────────────────────────────
 function startVisualTimer() {
     const statusTextEl = document.getElementById('api-status-text');
 
-    if (countdownInterval) {
-        clearInterval(countdownInterval);
-        countdownInterval = null;
-    }
-
+    if (countdownInterval) clearInterval(countdownInterval);
     timerRunning = true;
 
     countdownInterval = setInterval(() => {
@@ -209,8 +198,7 @@ function startVisualTimer() {
 
             if (statusTextEl) {
                 statusTextEl.innerText = `${displaySec}s`;
-                statusTextEl.className =
-                    "text-7xl font-black text-blue-500 italic text-center animate-pulse";
+                statusTextEl.className = "text-7xl font-black text-blue-500 italic text-center animate-pulse";
             }
         } else {
             clearInterval(countdownInterval);
@@ -226,51 +214,27 @@ function startVisualTimer() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. 지도 렌더링 (기존 로직 유지)
+// 5. 지도 및 방향 유틸
 // ─────────────────────────────────────────────────────────────
 function renderMap(lat, lng) {
     if (typeof naver === 'undefined' || !naver.maps) {
         if (mapRetryCount < 10) {
             mapRetryCount++;
             setTimeout(() => renderMap(lat, lng), 500);
-        } else {
-            const mapEl = document.getElementById('map');
-            if (mapEl) mapEl.innerHTML = "<div class='p-4 text-red-500 text-xs text-center'>지도 SDK 로드 실패</div>";
         }
         return;
     }
-
     const position = new naver.maps.LatLng(lat, lng);
-
     if (!naverMap) {
         try {
-            naverMap = new naver.maps.Map('map', {
-                center: position,
-                zoom: 18,
-                logoControl: false,
-                mapDataControl: false,
-                scaleControl: true
-            });
-
-            new naver.maps.Marker({
-                position,
-                map: naverMap,
-                icon: {
-                    content: '<div style="width:16px;height:16px;background:#3b82f6;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>',
-                    anchor: new naver.maps.Point(8, 8)
-                }
-            });
-        } catch (e) {
-            console.error("Naver Map Auth Error:", e);
-        }
+            naverMap = new naver.maps.Map('map', { center: position, zoom: 18, logoControl: false });
+            new naver.maps.Marker({ position, map: naverMap });
+        } catch (e) { console.error("Map Error", e); }
     } else {
         naverMap.setCenter(position);
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// 6. 방향 유틸 (기존과 동일)
-// ─────────────────────────────────────────────────────────────
 function getDirectionPrefix(heading) {
     if (heading >= 315 || heading < 45)  return "nt";
     if (heading >= 45  && heading < 135) return "et";
@@ -280,9 +244,7 @@ function getDirectionPrefix(heading) {
 }
 
 function getDirectionLabel(heading) {
-    if (heading >= 315 || heading < 45)  return "N";
-    if (heading >= 45  && heading < 135) return "E";
-    if (heading >= 135 && heading < 225) return "S";
-    if (heading >= 225 && heading < 315) return "W";
-    return "N";
+    const labels = ["N", "E", "S", "W"];
+    const index = Math.round(((heading %= 360) < 0 ? heading + 360 : heading) / 90) % 4;
+    return labels[index];
 }
