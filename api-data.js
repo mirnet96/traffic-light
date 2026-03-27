@@ -1,18 +1,9 @@
 /**
  * [ULTRA VISION AI] - api-data.js
- *
- * [버그 수정]
- * - BUG FIX: 네이버 지도 미표시 문제 수정
- *   원인 1 — index.html의 defer 제거 (SDK 로드 타이밍 문제, index.html 참고)
- *   원인 2 — GPS 실패 시 renderMap()이 한 번도 호출되지 않아 지도가 빈 상태로 남음
- *            → initDataTab() 호출 시 기본 좌표(서울 시청)로 지도를 즉시 초기화
- *            → GPS 오류 콜백에서도 UI 피드백 표시
- * - BUG FIX: 타이머 종료 직후 15초 주기 갱신이 겹치면 다음 카운트다운이 시작 안 되는 문제
- * - BUG FIX: currentRemainCentis 음수 방어 코드 추가
- * - BUG FIX: GPS 오류 시 UI 피드백 추가
- * - KEEP: isDataTabInitialized 플래그로 watchPosition 중복 등록 방지
- * - KEEP: centisecond 단위 정합성 확보 (100ms tick = 10 centisecond 감소)
- * - KEEP: 반경 300m 이내 교차로만 허용 (maxDistanceMeters)
+ * * [수정 및 강화 사항]
+ * 1. SDK 로드 대기 로직: naver 객체가 없을 경우 500ms 간격으로 재시도 (최대 10회)
+ * 2. GPS 응답 지연 방어: 초기화 시 DEFAULT 좌표로 즉시 지도 생성 시도
+ * 3. NCP 인증 상태 모니터링: auth_fail 이미지 발생 시 콘솔 및 UI 알림 강화
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { speak } from './utils.js';
@@ -23,8 +14,6 @@ const supabase = createClient(
 );
 
 // ── 기본 좌표 (GPS 미확보 시 fallback) ────────────────────────
-// [FIX] GPS가 실패하거나 느릴 때 지도가 빈 상태로 남는 문제 방지
-//       서울 시청 좌표를 기본값으로 사용
 const DEFAULT_LAT = 37.5665;
 const DEFAULT_LNG = 126.9780;
 
@@ -39,6 +28,7 @@ let naverMap = null;
 let isFetching = false;
 let isDataTabInitialized = false;
 let timerRunning = false;
+let mapRetryCount = 0; // SDK 로드 재시도 횟수
 
 // ─────────────────────────────────────────────────────────────
 // 1. 초기화 (최초 1회만 실행)
@@ -47,8 +37,7 @@ export function initDataTab() {
     if (isDataTabInitialized) return;
     isDataTabInitialized = true;
 
-    // [FIX] 탭 진입 즉시 기본 좌표로 지도 초기화
-    //       GPS가 느리거나 실패해도 지도가 바로 표시됨
+    // [FIX] 탭 진입 즉시 기본 좌표로 지도 초기화 시도
     renderMap(DEFAULT_LAT, DEFAULT_LNG);
 
     if (typeof DeviceOrientationEvent !== 'undefined') {
@@ -88,9 +77,8 @@ export function initDataTab() {
 
             if (!lastIntersectionName && !isFetching) fetchSignalData();
         },
-        // [FIX] GPS 오류 시 UI 피드백 (기본 좌표 지도는 이미 표시됨)
         (err) => {
-            console.warn("GPS:", err);
+            console.warn("GPS Error:", err);
             const locationText = document.getElementById('location-text');
             if (locationText) {
                 const messages = {
@@ -102,7 +90,7 @@ export function initDataTab() {
                 locationText.style.color = "#ef4444";
             }
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 10000 }
     );
 
     setInterval(fetchSignalData, 15000);
@@ -225,22 +213,45 @@ function startVisualTimer() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. 지도 렌더링
+// 5. 지도 렌더링 (핵심 수정 부분)
 // ─────────────────────────────────────────────────────────────
 function renderMap(lat, lng) {
+    // [FIX] 네이버 SDK 로드 전 호출 시 재시도 로직 추가
     if (typeof naver === 'undefined' || !naver.maps) {
-        const mapEl = document.getElementById('map');
-        if (mapEl) mapEl.innerText = "지도 인증 실패 (URL 등록 확인)";
+        if (mapRetryCount < 10) {
+            mapRetryCount++;
+            console.log(`Naver Maps SDK loading... Retry ${mapRetryCount}/10`);
+            setTimeout(() => renderMap(lat, lng), 500);
+        } else {
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.innerHTML = "<div class='p-4 text-red-500 text-xs text-center'>지도 SDK 로드 실패<br>Client ID 또는 도메인 설정을 확인하세요.</div>";
+        }
         return;
     }
+
     const position = new naver.maps.LatLng(lat, lng);
+    
     if (!naverMap) {
-        naverMap = new naver.maps.Map('map', {
-            center: position,
-            zoom: 18,
-            logoControl: false
-        });
-        new naver.maps.Marker({ position, map: naverMap });
+        try {
+            naverMap = new naver.maps.Map('map', {
+                center: position,
+                zoom: 18,
+                logoControl: false,
+                mapDataControl: false,
+                scaleControl: true
+            });
+            
+            new naver.maps.Marker({ 
+                position, 
+                map: naverMap,
+                icon: {
+                    content: '<div style="width:16px;height:16px;background:#3b82f6;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>',
+                    anchor: new naver.maps.Point(8, 8)
+                }
+            });
+        } catch (e) {
+            console.error("Naver Map Auth Error:", e);
+        }
     } else {
         naverMap.setCenter(position);
     }
