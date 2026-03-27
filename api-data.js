@@ -1,9 +1,9 @@
 /**
  * [ULTRA VISION AI] - api-data.js
  * * [수정 및 강화 사항]
- * 1. SDK 로드 대기 로직: naver 객체가 없을 경우 500ms 간격으로 재시도 (최대 10회)
- * 2. GPS 응답 지연 방어: 초기화 시 DEFAULT 좌표로 즉시 지도 생성 시도
- * 3. NCP 인증 상태 모니터링: auth_fail 이미지 발생 시 콘솔 및 UI 알림 강화
+ * 1. READY 상태 탈출: GPS 수신 전이라도 DEFAULT 좌표로 fetchSignalData 즉시 1회 실행
+ * 2. GPS 옵션 완화: enableHighAccuracy를 false로 조정하여 수신율 향상 (code: 2 방지)
+ * 3. 상태 표시 강화: API 호출 중임을 알리는 로직 추가
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { speak } from './utils.js';
@@ -28,7 +28,7 @@ let naverMap = null;
 let isFetching = false;
 let isDataTabInitialized = false;
 let timerRunning = false;
-let mapRetryCount = 0; // SDK 로드 재시도 횟수
+let mapRetryCount = 0;
 
 // ─────────────────────────────────────────────────────────────
 // 1. 초기화 (최초 1회만 실행)
@@ -37,8 +37,17 @@ export function initDataTab() {
     if (isDataTabInitialized) return;
     isDataTabInitialized = true;
 
-    // [FIX] 탭 진입 즉시 기본 좌표로 지도 초기화 시도
+    // [FIX] 즉시 지도 표시
     renderMap(DEFAULT_LAT, DEFAULT_LNG);
+
+    // [FIX] READY 탈출: GPS 기다리지 않고 기본 좌표로 즉시 데이터 로드 시도
+    if (!lastLat) {
+        lastLat = DEFAULT_LAT;
+        lastLng = DEFAULT_LNG;
+        const statusTextEl = document.getElementById('api-status-text');
+        if (statusTextEl) statusTextEl.innerText = "STARTING...";
+        fetchSignalData(); 
+    }
 
     if (typeof DeviceOrientationEvent !== 'undefined') {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -56,6 +65,7 @@ export function initDataTab() {
         return;
     }
 
+    // [FIX] enableHighAccuracy: false로 변경하여 Code 2 에러(Position Unavailable) 빈도 감소
     navigator.geolocation.watchPosition(
         async (pos) => {
             lastLat = pos.coords.latitude;
@@ -72,32 +82,32 @@ export function initDataTab() {
                     `${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} | ${Math.round(h)}° ${getDirectionLabel(h)}`;
             }
 
-            // GPS 확보 후 실제 위치로 지도 이동
             renderMap(lastLat, lastLng);
 
-            if (!lastIntersectionName && !isFetching) fetchSignalData();
+            // 위치가 업데이트될 때마다 데이터 갱신
+            if (!isFetching) fetchSignalData();
         },
         (err) => {
             console.warn("GPS Error:", err);
             const locationText = document.getElementById('location-text');
             if (locationText) {
                 const messages = {
-                    1: "위치 권한이 거부되었습니다.",
-                    2: "위치를 확인할 수 없습니다.",
-                    3: "위치 요청 시간이 초과되었습니다."
+                    1: "위치 권한 거부됨",
+                    2: "위치 확인 불가 (GPS 신호 약함)",
+                    3: "위치 요청 시간 초과"
                 };
-                locationText.innerHTML = messages[err.code] || "GPS 오류가 발생했습니다.";
+                locationText.innerHTML = messages[err.code] || "GPS 오류";
                 locationText.style.color = "#ef4444";
             }
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: false, timeout: 15000 } // 옵션 완화
     );
 
     setInterval(fetchSignalData, 15000);
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. 나침반 리스너
+// 2. 나침반 리스너 (기존과 동일)
 // ─────────────────────────────────────────────────────────────
 function listenOrientation() {
     window.addEventListener('deviceorientationabsolute', handleOrientation, true);
@@ -121,6 +131,7 @@ function getEffectiveHeading() {
 // 3. V2X 신호 데이터 요청
 // ─────────────────────────────────────────────────────────────
 export async function fetchSignalData() {
+    // [FIX] lastLat이 null인 경우를 대비해 초기화에서 DEFAULT를 할당하므로 진행 가능
     if (!lastLat || !lastLng || isFetching) return;
     isFetching = true;
 
@@ -163,21 +174,23 @@ export async function fetchSignalData() {
                     speak(`${data.intersectionName} 연동.`);
                     lastIntersectionName = data.intersectionName;
                 }
-            } else if (serverCentis > 0 && timerRunning) {
-                if (data.intersectionName !== lastIntersectionName) {
-                    lastIntersectionName = data.intersectionName;
-                }
+            } else if (serverCentis <= 0) {
+                // 신호 정보가 없을 때
+                if (statusTextEl && !timerRunning) statusTextEl.innerText = "WAIT";
             }
+        } else {
+             if (statusTextEl && !timerRunning) statusTextEl.innerText = "NO DATA";
         }
     } catch (err) {
         console.error("V2X Error:", err);
+        if (statusTextEl && !timerRunning) statusTextEl.innerText = "API ERR";
     } finally {
         isFetching = false;
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. 카운트다운 타이머
+// 4. 카운트다운 타이머 (기존과 동일)
 // ─────────────────────────────────────────────────────────────
 function startVisualTimer() {
     const statusTextEl = document.getElementById('api-status-text');
@@ -213,24 +226,22 @@ function startVisualTimer() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. 지도 렌더링 (핵심 수정 부분)
+// 5. 지도 렌더링 (기존 로직 유지)
 // ─────────────────────────────────────────────────────────────
 function renderMap(lat, lng) {
-    // [FIX] 네이버 SDK 로드 전 호출 시 재시도 로직 추가
     if (typeof naver === 'undefined' || !naver.maps) {
         if (mapRetryCount < 10) {
             mapRetryCount++;
-            console.log(`Naver Maps SDK loading... Retry ${mapRetryCount}/10`);
             setTimeout(() => renderMap(lat, lng), 500);
         } else {
             const mapEl = document.getElementById('map');
-            if (mapEl) mapEl.innerHTML = "<div class='p-4 text-red-500 text-xs text-center'>지도 SDK 로드 실패<br>Client ID 또는 도메인 설정을 확인하세요.</div>";
+            if (mapEl) mapEl.innerHTML = "<div class='p-4 text-red-500 text-xs text-center'>지도 SDK 로드 실패</div>";
         }
         return;
     }
 
     const position = new naver.maps.LatLng(lat, lng);
-    
+
     if (!naverMap) {
         try {
             naverMap = new naver.maps.Map('map', {
@@ -240,9 +251,9 @@ function renderMap(lat, lng) {
                 mapDataControl: false,
                 scaleControl: true
             });
-            
-            new naver.maps.Marker({ 
-                position, 
+
+            new naver.maps.Marker({
+                position,
                 map: naverMap,
                 icon: {
                     content: '<div style="width:16px;height:16px;background:#3b82f6;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(0,0,0,0.5);"></div>',
@@ -258,7 +269,7 @@ function renderMap(lat, lng) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 6. 방향 유틸
+// 6. 방향 유틸 (기존과 동일)
 // ─────────────────────────────────────────────────────────────
 function getDirectionPrefix(heading) {
     if (heading >= 315 || heading < 45)  return "nt";
