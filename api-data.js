@@ -1,9 +1,10 @@
 /**
  * [ULTRA VISION AI] - api-data.js
- * 카카오맵 + 현재위치 마커 + 교차로 마커
+ * 카카오맵 + 현재위치 마커 + 교차로 마커 + HTTPS API 연동
  */
 import { speak } from './utils.js';
 
+// 1. 접속 정보를 HTTPS로 변경
 const API_BASE_URL = 'https://iot.klueware.com/api/v1';
 const API_KEY      = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 
@@ -33,231 +34,232 @@ export function initDataTab() {
     if (isDataTabInitialized) return;
     isDataTabInitialized = true;
 
+    // 초기 맵 렌더링
     renderMap(DEFAULT_LAT, DEFAULT_LNG);
 
-    if (!lastLat) {
-        lastLat = DEFAULT_LAT; lastLng = DEFAULT_LNG;
-        updateStatusDisplay("STARTING...", "zinc");
-        fetchSignalData();
+    // GPS 감시 시작
+    if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(
+            (pos) => {
+                lastLat = pos.coords.latitude;
+                lastLng = pos.coords.longitude;
+                gpsHeading = pos.coords.heading || 0;
+
+                updateMyLocationMarker(lastLat, lastLng);
+                document.getElementById('location-text').innerText = 
+                    `LAT: ${lastLat.toFixed(5)} / LNG: ${lastLng.toFixed(5)} / H: ${gpsHeading}°`;
+
+                // 위치가 처음 잡히면 즉시 API 호출 시도
+                if (!lastIntersectionId && !isFetching) {
+                    fetchSignalData();
+                }
+            },
+            (err) => {
+                console.error("GPS Error:", err);
+                document.getElementById('location-text').innerText = "GPS Error: " + err.message;
+            },
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+        );
     }
 
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission().then(state => {
-            if (state === 'granted')
-                window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+    // 나침반(방향) 센서
+    if (window.DeviceOrientationEvent) {
+        window.addEventListener('deviceorientation', (e) => {
+            compassHeading = e.webkitCompassHeading || (360 - e.alpha) || 0;
         });
-    } else {
-        window.addEventListener('deviceorientation', handleOrientation, true);
     }
 
-    navigator.geolocation.watchPosition(
-        (pos) => {
-            lastLat = pos.coords.latitude;
-            lastLng = pos.coords.longitude;
-            if (pos.coords.heading !== null) gpsHeading = pos.coords.heading;
-
-            const h       = getEffectiveHeading();
-            const locText = document.getElementById('location-text');
-            if (locText) locText.innerHTML =
-                `${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} | ${Math.round(h)}° ${getDirectionLabel(h)}`;
-
-            renderMap(lastLat, lastLng);
-            if (!isFetching) fetchSignalData();
-        },
-        null,
-        { enableHighAccuracy: false, timeout: 15000 }
-    );
-
+    // 10초마다 자동 갱신
     setInterval(fetchSignalData, 10000);
+
+    // 수동 갱신 버튼 이벤트 연결
+    const refreshBtn = document.getElementById('refresh-api');
+    if (refreshBtn) {
+        refreshBtn.onclick = () => {
+            speak("데이터를 수동 갱신합니다.");
+            fetchSignalData();
+        };
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. 신호 데이터 페칭
+// 2. 핵심 API 통신 로직 (주변 교차로 -> 실시간 신호)
 // ─────────────────────────────────────────────────────────────
 export async function fetchSignalData() {
-    if (!lastLat || isFetching) return;
+    // 위치 정보가 없거나 이미 요청 중이면 중단
+    if (isFetching || !lastLat || !lastLng) return;
+    
     isFetching = true;
-
-    const heading = getEffectiveHeading();
+    updateStatusUI("WAIT", "bg-zinc-800 text-zinc-500");
 
     try {
-        const nearbyRes  = await fetch(
-            `${API_BASE_URL}/nearby?lat=${lastLat}&lng=${lastLng}&bearing=${heading}`,
-            { headers: { 'X-API-KEY': API_KEY } }
-        );
-        const nearbyData = await nearbyRes.json();
+        // STEP A: 주변 교차로 검색 (Remote 테스트 결과 구조 반영)
+        const nearbyUrl = `${API_BASE_URL}/nearby?lat=${lastLat}&lng=${lastLng}&bearing=${gpsHeading}`;
+        const nearbyRes = await fetch(nearbyUrl, {
+            headers: { 
+                'X-API-KEY': API_KEY,
+                'Accept': 'application/json'
+            }
+        });
 
-        if (!nearbyData.data) {
-            updateStatusDisplay("NO NODE", "zinc");
+        if (!nearbyRes.ok) throw new Error(`Nearby API Fail: ${nearbyRes.status}`);
+        
+        const nearbyData = await nearbyRes.json();
+        
+        // Remote 테스트 결과에 따라 data[0] 추출
+        const itst = (nearbyData.status === 'success' && nearbyData.data && nearbyData.data.length > 0) 
+                     ? nearbyData.data[0] 
+                     : null;
+
+        if (!itst) {
+            updateStatusUI("NO NODE", "bg-zinc-800 text-zinc-600");
+            document.getElementById('cross-name').innerText = "SEARCHING...";
             return;
         }
 
-        const itstId  = nearbyData.data.id;
-        const itstNm  = nearbyData.data.n;
-        const itstLat = nearbyData.data.lat;
-        const itstLng = nearbyData.data.lng;
+        const itstId = itst.itstId;
+        const itstName = itst.name || "알 수 없는 교차로";
 
-        // 교차로 마커 업데이트
-        if (itstLat && itstLng) updateItstMarker(itstLat, itstLng, itstNm);
+        // 교차로 정보 UI 반영
+        document.getElementById('cross-name').innerText = itstName;
+        renderItstMarker(itst.lat || lastLat, itst.lng || lastLng, itstName);
 
-        const signalRes  = await fetch(
-            `${API_BASE_URL}/signal/${itstId}`,
-            { headers: { 'X-API-KEY': API_KEY } }
-        );
-        const signalData = await signalRes.json();
-
-        if (signalData.status === 'success' && signalData.data) {
-            document.getElementById('cross-name').innerText = itstNm;
-
-            const prefix        = getDirectionPrefix(heading);
-            const dirData       = signalData.data.directions[prefix];
-            const isWalkSignal  = dirData.walk > 0;
-            const remainSeconds = isWalkSignal ? dirData.walk : dirData.straight;
-
-            if (remainSeconds > 0 && !timerRunning) {
-                currentRemainCentis = remainSeconds * 100;
-                startVisualTimer(isWalkSignal);
-                if (itstId !== lastIntersectionId) {
-                    speak(`${itstNm} 교차로 신호가 연동되었습니다.`);
-                    lastIntersectionId = itstId;
-                }
+        // STEP B: 실시간 신호 잔여 시간 조회
+        const signalUrl = `${API_BASE_URL}/signal/${itstId}`;
+        const signalRes = await fetch(signalUrl, {
+            headers: { 
+                'X-API-KEY': API_KEY,
+                'Accept': 'application/json'
             }
+        });
+
+        if (!signalRes.ok) throw new Error(`Signal API Fail: ${signalRes.status}`);
+        
+        const signalResult = await signalRes.json();
+
+        if (signalResult.status === 'success' && signalResult.data) {
+            processSignalInfo(signalResult.data);
+            lastIntersectionId = itstId;
+        } else {
+            updateStatusUI("WAIT", "bg-zinc-800 text-zinc-500");
         }
+
     } catch (err) {
-        console.error("V2X Error:", err);
+        console.error("V2X Data Fetch Error:", err);
+        updateStatusUI("ERR", "bg-red-900/20 text-red-500");
     } finally {
         isFetching = false;
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3. 시각화 타이머
+// 3. 데이터 처리 및 타이머 구동
 // ─────────────────────────────────────────────────────────────
-function startVisualTimer(isGreenPhase) {
-    const statusTextEl = document.getElementById('api-status-text');
+function processSignalInfo(data) {
+    // 4방향 중 보행자 신호(walk)가 0보다 큰 가장 첫 번째 데이터를 우선 표시
+    const dirs = ['nt', 'et', 'st', 'wt'];
+    let activeSec = 0;
+
+    for (const d of dirs) {
+        if (data.directions[d] && data.directions[d].walk > 0) {
+            activeSec = data.directions[d].walk;
+            break;
+        }
+    }
+
+    if (activeSec > 0) {
+        startLocalCountdown(activeSec);
+    } else {
+        updateStatusUI("WAIT", "bg-zinc-800 text-zinc-500");
+    }
+}
+
+function startLocalCountdown(seconds) {
     if (countdownInterval) clearInterval(countdownInterval);
+    
+    currentRemainCentis = Math.floor(seconds * 10); // 0.1초 단위
     timerRunning = true;
 
-    if (isGreenPhase) speak("초록불입니다. 건너가셔도 좋습니다.");
-
     countdownInterval = setInterval(() => {
-        if (currentRemainCentis > 0) {
-            currentRemainCentis -= 10;
-            const sec = (currentRemainCentis / 100).toFixed(1);
-            statusTextEl.innerText = `${sec}s`;
-            if (isGreenPhase) {
-                statusTextEl.className = "text-8xl font-black text-green-500 italic animate-pulse";
-                if (sec == "5.0") speak("신호가 5초 남았습니다. 주의하세요.");
-            } else {
-                statusTextEl.className = "text-8xl font-black text-red-500 italic";
-            }
-        } else {
-            stopTimer();
+        if (currentRemainCentis <= 0) {
+            clearInterval(countdownInterval);
+            timerRunning = false;
+            updateStatusUI("0.0", "bg-zinc-800 text-zinc-700");
+            return;
+        }
+
+        currentRemainCentis--;
+        const displaySec = (currentRemainCentis / 10).toFixed(1);
+        
+        // 초록불 5초 미만 시 빨간색 강조
+        const colorClass = (currentRemainCentis < 50) ? "text-red-500" : "text-green-400";
+        updateStatusUI(displaySec, colorClass);
+
+        // 음성 안내 (정각 초 마다)
+        if (currentRemainCentis > 0 && currentRemainCentis % 10 === 0) {
+            const sec = currentRemainCentis / 10;
+            if (sec <= 5) speak(sec.toString());
         }
     }, 100);
 }
 
-function stopTimer() {
-    clearInterval(countdownInterval);
-    timerRunning = false;
-    updateStatusDisplay("WAIT", "zinc");
-}
-
-function updateStatusDisplay(text, colorClass) {
+function updateStatusUI(text, colorClass) {
     const el = document.getElementById('api-status-text');
-    if (el) {
-        el.innerText = text;
-        el.className = `text-5xl font-black text-${colorClass}-700 text-center`;
-    }
+    if (!el) return;
+    el.innerText = text;
+    el.className = `text-7xl font-black text-center tracking-tighter ${colorClass}`;
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. 유틸리티
-// ─────────────────────────────────────────────────────────────
-function handleOrientation(e) {
-    if (e.webkitCompassHeading) compassHeading = e.webkitCompassHeading;
-    else if (e.alpha)            compassHeading = (360 - e.alpha) % 360;
-}
-function getEffectiveHeading() { return compassHeading || gpsHeading; }
-function getDirectionPrefix(h) {
-    if (h >= 315 || h < 45)  return "nt";
-    if (h >= 45  && h < 135) return "et";
-    if (h >= 135 && h < 225) return "st";
-    return "wt";
-}
-function getDirectionLabel(h) {
-    return ["북","동","남","서"][Math.round(((h %= 360) < 0 ? h+360 : h) / 90) % 4];
-}
-
-// ─────────────────────────────────────────────────────────────
-// 5. 카카오맵 렌더링 + 마커
+// 4. 카카오맵 헬퍼 함수
 // ─────────────────────────────────────────────────────────────
 function renderMap(lat, lng) {
-    if (typeof kakao === 'undefined' || typeof kakao.maps === 'undefined') return;
+    const container = document.getElementById('map');
+    if (!container) return;
 
+    const options = {
+        center: new kakao.maps.LatLng(lat, lng),
+        level: 3
+    };
+
+    kakaoMap = new kakao.maps.Map(container, options);
+    window.kakaoMapInstance = kakaoMap; // app.js relayout 대응
+}
+
+function updateMyLocationMarker(lat, lng) {
+    if (!kakaoMap) return;
     const pos = new kakao.maps.LatLng(lat, lng);
 
-    if (!kakaoMap) {
-        kakaoMap = new kakao.maps.Map(document.getElementById('map'), {
-            center: pos, level: 3
-        });
-        window.kakaoMapInstance = kakaoMap;
-
-        // 현재 위치 마커 — 파란 원형
-        const myImg = new kakao.maps.MarkerImage(
-            'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
-                '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
-                '<circle cx="12" cy="12" r="10" fill="#3b82f6" stroke="white" stroke-width="3"/>' +
-                '<circle cx="12" cy="12" r="4" fill="white"/></svg>'
-            ),
-            new kakao.maps.Size(24, 24),
-            { offset: new kakao.maps.Point(12, 12) }
-        );
-        kakaoMyMarker = new kakao.maps.Marker({
-            position: pos, map: kakaoMap, image: myImg, title: '현재 위치'
-        });
-
-        setTimeout(() => { kakaoMap.relayout(); kakaoMap.setCenter(pos); }, 300);
+    if (!kakaoMyMarker) {
+        kakaoMyMarker = new kakao.maps.Marker({ position: pos, map: kakaoMap });
     } else {
-        kakaoMap.relayout();
-        kakaoMap.setCenter(pos);
         kakaoMyMarker.setPosition(pos);
     }
 }
 
-// 교차로 마커 (빨간 핀) + 이름 말풍선
-function updateItstMarker(lat, lng, name) {
+function renderItstMarker(lat, lng, name) {
     if (!kakaoMap) return;
     const pos = new kakao.maps.LatLng(lat, lng);
 
-    const labelHtml = `<div style="
-        background:#111;color:#fff;padding:4px 10px;border-radius:20px;
-        font-size:11px;font-weight:bold;border:1px solid rgba(255,255,255,0.2);
-        white-space:nowrap;margin-bottom:4px;letter-spacing:-0.3px;">${name}</div>`;
-
     if (!kakaoItstMarker) {
-        const itstImg = new kakao.maps.MarkerImage(
-            'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
-                '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
-                '<path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z"' +
-                ' fill="#ef4444" stroke="white" stroke-width="2"/>' +
-                '<text x="14" y="19" text-anchor="middle" font-size="13" font-weight="bold"' +
-                ' fill="white" font-family="sans-serif">✦</text></svg>'
-            ),
-            new kakao.maps.Size(28, 36),
-            { offset: new kakao.maps.Point(14, 36) }
-        );
         kakaoItstMarker = new kakao.maps.Marker({
-            position: pos, map: kakaoMap, image: itstImg, title: name
+            position: pos,
+            map: kakaoMap,
+            image: new kakao.maps.MarkerImage(
+                'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png',
+                new kakao.maps.Size(24, 35)
+            )
         });
-        kakaoItstOverlay = new kakao.maps.CustomOverlay({
-            position: pos, content: labelHtml, yAnchor: 1.7
-        });
-        kakaoItstOverlay.setMap(kakaoMap);
     } else {
         kakaoItstMarker.setPosition(pos);
-        kakaoItstOverlay.setPosition(pos);
-        kakaoItstOverlay.setContent(labelHtml);
     }
+    
+    // 오버레이 처리 (교차로 이름 표시)
+    if (kakaoItstOverlay) kakaoItstOverlay.setMap(null);
+    kakaoItstOverlay = new kakao.maps.CustomOverlay({
+        position: pos,
+        content: `<div style="padding:5px; background:rgba(0,0,0,0.7); color:#fff; border-radius:5px; font-size:12px;">${name}</div>`,
+        yAnchor: 2.5
+    });
+    kakaoItstOverlay.setMap(kakaoMap);
 }
