@@ -31,6 +31,12 @@ function switchTab(type) {
         vBtn.className = "flex-1 py-4 font-black text-zinc-500";
         // initDataTab 내부 플래그가 중복 watchPosition 등록을 막음
         initDataTab();
+        // [FIX] 탭이 보여진 후 카카오맵 relayout → 타일 깨짐 방지
+        setTimeout(() => {
+            if (window.kakaoMapInstance) {
+                window.kakaoMapInstance.relayout();
+            }
+        }, 200);
     }
 }
 

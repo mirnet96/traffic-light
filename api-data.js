@@ -215,15 +215,25 @@ function renderMap(lat, lng) {
         const container = document.getElementById('map');
         kakaoMap = new kakao.maps.Map(container, {
             center: pos,
-            level: 3  // 확대 레벨 (숫자 낮을수록 확대)
+            level: 3
         });
+        window.kakaoMapInstance = kakaoMap; // app.js에서 relayout 접근용
 
-        // 현재 위치 마커
         kakaoMarker = new kakao.maps.Marker({
             position: pos,
             map: kakaoMap
         });
+
+        // [FIX] 탭 전환 후 컨테이너 크기가 확정된 뒤 relayout 호출
+        // → 타일이 일부만 그려지거나 회색으로 나오는 문제 해결
+        setTimeout(() => {
+            kakaoMap.relayout();
+            kakaoMap.setCenter(pos);
+        }, 300);
+
     } else {
+        // [FIX] 위치 업데이트 시마다 relayout으로 타일 깨짐 방지
+        kakaoMap.relayout();
         kakaoMap.setCenter(pos);
         kakaoMarker.setPosition(pos);
     }
