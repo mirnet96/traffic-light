@@ -21,7 +21,7 @@ let gpsHeading = 0;
 let lastIntersectionId = "";
 let countdownInterval = null;
 let currentRemainCentis = 0;
-// naverMap → Leaflet으로 교체됨 (api-data.js 하단 renderMap 참고)
+// naverMap → kakaoMap으로 교체 (api-data.js 하단 renderMap 참고)
 let isFetching = false;
 let isDataTabInitialized = false;
 let timerRunning = false;
@@ -201,38 +201,30 @@ function getDirectionLabel(h) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. 지도 렌더링 (Leaflet.js / OpenStreetMap — API 키 불필요)
+// 5. 지도 렌더링 (카카오맵)
 // ─────────────────────────────────────────────────────────────
-let leafletMap = null;
-let leafletMarker = null;
+let kakaoMap = null;
+let kakaoMarker = null;
 
 function renderMap(lat, lng) {
-    if (typeof L === 'undefined') return;
+    if (typeof kakao === 'undefined' || typeof kakao.maps === 'undefined') return;
 
-    // 다크 타일: CartoDB Dark Matter (무료, 키 없음)
-    const TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-    const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>';
+    const pos = new kakao.maps.LatLng(lat, lng);
 
-    if (!leafletMap) {
-        leafletMap = L.map('map', {
-            center: [lat, lng],
-            zoom: 17,
-            zoomControl: false,
-            attributionControl: true
+    if (!kakaoMap) {
+        const container = document.getElementById('map');
+        kakaoMap = new kakao.maps.Map(container, {
+            center: pos,
+            level: 3  // 확대 레벨 (숫자 낮을수록 확대)
         });
-        L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(leafletMap);
 
-        // 현재 위치 마커 (파란 원형)
-        leafletMarker = L.circleMarker([lat, lng], {
-            radius: 10,
-            fillColor: '#3b82f6',
-            color: '#fff',
-            weight: 3,
-            opacity: 1,
-            fillOpacity: 0.9
-        }).addTo(leafletMap);
+        // 현재 위치 마커
+        kakaoMarker = new kakao.maps.Marker({
+            position: pos,
+            map: kakaoMap
+        });
     } else {
-        leafletMap.setView([lat, lng], 17);
-        leafletMarker.setLatLng([lat, lng]);
+        kakaoMap.setCenter(pos);
+        kakaoMarker.setPosition(pos);
     }
 }
