@@ -16,21 +16,24 @@ let colorCounter = { RED: 0, GREEN: 0 };
 const CONFIRM_THRESHOLD = 5; 
 
 // ── [가로 탐지 및 방해물 대응 파라미터] ──────────────────────
-const SCAN_ZONE_TOP    = 0.12; // 스캔 영역 상단 (0.0 ~ 1.0)
-const SCAN_ZONE_BOTTOM = 0.58; // 스캔 영역 하단
+// [FIX] 스캔존 확대: 상단 경계를 0.05로 낮추고 하단을 0.70으로 높여
+//       멀리 있거나 화면 상단에 가까운 신호등도 포착
+const SCAN_ZONE_TOP    = 0.05; // 0.12 → 0.05
+const SCAN_ZONE_BOTTOM = 0.70; // 0.58 → 0.70
 
-const PERSIST_LIMIT   = 60;    // 가림 현상 대응: 감지 실패 시 약 2초간 기존 위치 유지 (30 -> 60)
-const SMOOTHING       = 0.15;  // 더 묵직하게 고정하여 보행자 움직임에 튀지 않음 (0.20 -> 0.15)
-const IOU_THRESHOLD   = 0.30;  // 박스가 급격히 변할 때만 타겟 교체 (0.40 -> 0.30)
+const PERSIST_LIMIT   = 60;
+const SMOOTHING       = 0.15;
+const IOU_THRESHOLD   = 0.30;
 
-// 한국 보행자 신호등 종횡비 및 최소 크기
-const ASPECT_MIN      = 0.28;
-const ASPECT_MAX      = 0.75; 
-const MIN_HEIGHT_PX   = 40;   
+// [FIX] 종횡비·최소크기 완화: 멀리서 찍히면 박스가 작고 비율이 다를 수 있음
+// 한국 보행자 신호등(세로형): width/height ≈ 0.25~0.90
+const ASPECT_MIN      = 0.20; // 0.28 → 0.20
+const ASPECT_MAX      = 0.95; // 0.75 → 0.95
+const MIN_HEIGHT_PX   = 20;   // 40 → 20 (멀리 있는 작은 신호등 포착)
 
-// 색상 판정 임계값
-const SCORE_THRESHOLD = 180;  
-const RATIO_THRESHOLD = 0.50; 
+// [FIX] 색상 판정 임계값 완화: 역광·야간 환경에서도 반응하도록
+const SCORE_THRESHOLD = 80;   // 180 → 80
+const RATIO_THRESHOLD = 0.30; // 0.50 → 0.30
 
 // DOM
 const video         = document.getElementById('webcam');
@@ -50,7 +53,7 @@ export async function initVision() {
             modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
             delegate: "GPU"
         },
-        scoreThreshold: 0.40, // 사람/차량 오검출 방지를 위해 문턱값 상향
+        scoreThreshold: 0.25, // [FIX] 0.40 → 0.25: 멀리 있는 신호등도 탐지
         runningMode: "VIDEO"
     });
 }
@@ -228,8 +231,11 @@ function analyzeKoreanSignal(x, y, w, h, canvasCtx) {
     return "UNKNOWN";
 }
 
-function isRedPixel(r, g, b) { return r > 140 && r > g * 1.8 && r > b * 1.8; }
-function isGreenPixel(r, g, b) { return g > 100 && g > r * 1.2 && g > b * 1.1 && r < 180; }
+// [FIX] 역광·야간 환경 대응: 채도 조건 완화
+// 빨간불: R 채널 우세, G·B는 낮아야 함 (기존보다 느슨하게)
+function isRedPixel(r, g, b) { return r > 110 && r > g * 1.5 && r > b * 1.5; }
+// 초록불: G 채널 우세, R은 너무 높지 않아야 함
+function isGreenPixel(r, g, b) { return g > 80 && g > r * 1.1 && g > b * 1.0 && r < 200; }
 
 // ─────────────────────────────────────────────────────────────
 // 7. UI / 렌더링

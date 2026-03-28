@@ -21,7 +21,7 @@ let gpsHeading = 0;
 let lastIntersectionId = "";
 let countdownInterval = null;
 let currentRemainCentis = 0;
-let naverMap = null;
+// naverMap → Leaflet으로 교체됨 (api-data.js 하단 renderMap 참고)
 let isFetching = false;
 let isDataTabInitialized = false;
 let timerRunning = false;
@@ -200,13 +200,39 @@ function getDirectionLabel(h) {
     return arr[Math.round(((h %= 360) < 0 ? h + 360 : h) / 90) % 4];
 }
 
+// ─────────────────────────────────────────────────────────────
+// 5. 지도 렌더링 (Leaflet.js / OpenStreetMap — API 키 불필요)
+// ─────────────────────────────────────────────────────────────
+let leafletMap = null;
+let leafletMarker = null;
+
 function renderMap(lat, lng) {
-    if (typeof naver === 'undefined') return;
-    const pos = new naver.maps.LatLng(lat, lng);
-    if (!naverMap) {
-        naverMap = new naver.maps.Map('map', { center: pos, zoom: 17, logoControl: false });
-        new naver.maps.Marker({ position: pos, map: naverMap });
+    if (typeof L === 'undefined') return;
+
+    // 다크 타일: CartoDB Dark Matter (무료, 키 없음)
+    const TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>';
+
+    if (!leafletMap) {
+        leafletMap = L.map('map', {
+            center: [lat, lng],
+            zoom: 17,
+            zoomControl: false,
+            attributionControl: true
+        });
+        L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(leafletMap);
+
+        // 현재 위치 마커 (파란 원형)
+        leafletMarker = L.circleMarker([lat, lng], {
+            radius: 10,
+            fillColor: '#3b82f6',
+            color: '#fff',
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 0.9
+        }).addTo(leafletMap);
     } else {
-        naverMap.setCenter(pos);
+        leafletMap.setView([lat, lng], 17);
+        leafletMarker.setLatLng([lat, lng]);
     }
 }
