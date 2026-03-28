@@ -4,7 +4,7 @@
  */
 import { speak } from './utils.js';
 
-const API_BASE_URL = 'http://iot.klueware.com/api/v1';
+const API_BASE_URL = 'https://iot.klueware.com/api/v1';
 const API_KEY      = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 
 const DEFAULT_LAT = 37.5665;
