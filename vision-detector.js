@@ -1,20 +1,18 @@
 /** [ULTRA VISION AI] - vision-detector.js */
 
 export const CONFIG = {
-    CONF_THRESHOLD: 0.22,
-    NMS_IOU: 0.40,
-    TRAFFIC_LIGHT_CLASS: 9, // YOLOv8 default traffic light class
-    // 저시력 보행자 특성상 화면 상단에 신호등이 위치할 확률이 높음
+    CONF_THRESHOLD: 0.18, // 0.22에서 0.18로 낮춤 (멀리 있는 신호등 대응)
+    NMS_IOU: 0.45,
+    TRAFFIC_LIGHT_CLASS: 9,
+    // 저시력 보행자 시야 특성상 상단 10%~65% 영역 집중 스캔
     SCAN_ZONE: {
-        PORTRAIT: { top: 0.08, bottom: 0.62 },
-        LANDSCAPE: { top: 0.05, bottom: 0.55 }
+        PORTRAIT: { top: 0.10, bottom: 0.65 },
+        LANDSCAPE: { top: 0.05, bottom: 0.60 }
     }
 };
 
 export async function loadModel() {
-    console.log("Loading YOLOv8 Model...");
     const model = await tf.loadGraphModel('./models/yolov8n_web_model/model.json');
-    // Warmup
     const dummy = tf.zeros([1, 640, 640, 3]);
     await model.executeAsync(dummy);
     tf.dispose(dummy);
@@ -27,7 +25,7 @@ export function getScanZone(vW, vH) {
     return {
         yMin: Math.floor(vH * zone.top),
         yMax: Math.floor(vH * zone.bottom),
-        vW, vH, isLandscape
+        vW, vH
     };
 }
 
@@ -39,16 +37,16 @@ export function processYOLO(res, vW, vH, zone) {
         const score = row[4 + CONFIG.TRAFFIC_LIGHT_CLASS];
         if (score > CONFIG.CONF_THRESHOLD) {
             const [cx, cy, w, h] = row.slice(0, 4);
-            const x1 = (cx - w/2) * (vW/640);
-            const y1 = (cy - h/2) * (vH/640);
-            const boxW = w * (vW/640);
-            const boxH = h * (vH/640);
+            const x = (cx - w/2) * (vW/640);
+            const y = (cy - h/2) * (vH/640);
+            const bw = w * (vW/640);
+            const bh = h * (vH/640);
 
-            // 스캔 존 내에 있는 것만 필터링
-            if (y1 > zone.yMin && (y1 + boxH) < zone.yMax) {
-                boxes.push({ x: x1, y: y1, w: boxW, h: boxH, score });
+            // 스캔 존 필터링 및 최소 크기 검증
+            if (y > zone.yMin && (y + bh) < zone.yMax && bw > 5 && bh > 10) {
+                boxes.push({ x, y, w: bw, h: bh, score });
             }
         }
     });
-    return boxes;
+    return boxes.sort((a, b) => b.score - a.score);
 }
