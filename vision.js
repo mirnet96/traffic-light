@@ -1,6 +1,6 @@
 /**
  * [ULTRA VISION AI] - vision.js
- * v0.5.3 — 카메라 안정화 + 로컬 모델 + 한국형 신호등 분석 (전체 소스)
+ * v0.5.5 — 카메라 기동 안정화 및 로컬 모델 대응
  */
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 import { speak } from './utils.js';
@@ -15,7 +15,7 @@ let detectionCounter = 0;
 let colorCounter = { RED: 0, GREEN: 0 };
 const CONFIRM_THRESHOLD = 4;
 
-// ── 탐지 파라미터 (최적화) ──────────────────────────────────────
+// ── 탐지 파라미터 ──────────────────────────────────────────
 const SCAN_ZONE_TOP    = 0.03;
 const SCAN_ZONE_BOTTOM = 0.72;
 const PERSIST_LIMIT    = 45;
@@ -44,7 +44,7 @@ export async function initVision() {
             "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
         );
         
-        // CORS 문제를 피하기 위해 로컬 경로 사용
+        // [중요] 외부 URL 대신 로컬 경로로 설정하여 로딩 속도 및 안정성 확보
         objectDetector = await ObjectDetector.createFromOptions(vision, {
             baseOptions: {
                 modelAssetPath: `./models/efficientdet_lite0.tflite`, 
@@ -53,48 +53,74 @@ export async function initVision() {
             scoreThreshold: 0.22,
             runningMode: "VIDEO"
         });
-        
-        console.log("Vision AI Model Loaded Successfully!");
-        
+        console.log("Vision AI Model Loaded!");
     } catch (err) {
-        console.error("AI Model Initialization Failed:", err);
-        speak("에이아이 모델 로딩에 실패했습니다. 모델 파일 경로를 확인하세요.");
+        console.error("AI Model Error:", err);
+        // 모델 로딩 실패 시 외부 URL로 대체 시도 (Fallback)
+        try {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+            objectDetector = await ObjectDetector.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
+                    delegate: "GPU"
+                },
+                scoreThreshold: 0.22,
+                runningMode: "VIDEO"
+            });
+        } catch (e) {
+            speak("모델 파일 접근에 실패했습니다.");
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. 카메라 시작 (모바일 안정성 강화)
+// 2. 카메라 시작 (기동 로직 대폭 수정)
 // ─────────────────────────────────────────────────────────────
 export async function startVision() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("이 브라우저는 카메라를 지원하지 않습니다.");
+        return;
+    }
+
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const constraints = {
             video: {
                 facingMode: "environment",
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
             }
-        });
-
-        video.srcObject = stream;
-
-        // metadata 로드 후 재생 및 루프 시작
-        video.onloadedmetadata = () => {
-            video.play().then(() => {
-                predictWebcam();
-            }).catch(e => console.error("Play Error:", e));
         };
 
-        videoTrack = stream.getVideoTracks()[0];
-        const capabilities = videoTrack.getCapabilities?.() || {};
-        
-        // 줌 설정 (지원 기기만)
-        if (capabilities.zoom) {
-            videoTrack.applyConstraints({ advanced: [{ zoom: 1.0 }] }).catch(() => {});
-        }
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+
+        // [핵심] onloadedmetadata 이벤트 사용 (onloadeddata보다 빠르고 확실함)
+        video.onloadedmetadata = async () => {
+            try {
+                await video.play();
+                console.log("Video playing...");
+                
+                // 트랙 설정 (줌 등)
+                videoTrack = stream.getVideoTracks()[0];
+                const capabilities = videoTrack.getCapabilities?.() || {};
+                if (capabilities.zoom) {
+                    await videoTrack.applyConstraints({ advanced: [{ zoom: 1.0 }] }).catch(() => {});
+                }
+                
+                // 영상 재생 시작 후 루프 기동
+                predictWebcam();
+            } catch (playErr) {
+                console.error("Video Play Error:", playErr);
+            }
+        };
 
     } catch (err) {
-        console.error("Camera Error:", err);
-        alert("카메라를 시작할 수 없습니다. 권한 설정을 확인하세요.");
+        console.error("Camera Access Error:", err);
+        if (err.name === 'NotAllowedError') {
+            alert("카메라 권한이 거부되었습니다. 설정에서 허용해주세요.");
+        } else {
+            alert("카메라를 시작할 수 없습니다: " + err.message);
+        }
     }
 }
 
@@ -109,14 +135,18 @@ async function predictWebcam() {
             canvasElement.height = video.videoHeight;
         }
         
-        const result = await objectDetector.detectForVideo(video, performance.now());
-        processDetections(result);
+        try {
+            const result = await objectDetector.detectForVideo(video, performance.now());
+            processDetections(result);
+        } catch (detectErr) {
+            console.error("Detection Error:", detectErr);
+        }
     }
     window.requestAnimationFrame(predictWebcam);
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. 탐지 처리 + 안정화 (Smoothing)
+// 4. 탐지 처리 + 안정화
 // ─────────────────────────────────────────────────────────────
 function processDetections(result) {
     const canvasCtx = canvasElement.getContext("2d");
@@ -178,7 +208,7 @@ function processDetections(result) {
         lastDetection = null;
     }
 
-    // 스캔존 경계 표시
+    // 스캔존 가이드라인
     canvasCtx.strokeStyle = "rgba(59,130,246,0.3)";
     canvasCtx.lineWidth   = 1;
     canvasCtx.setLineDash([6, 4]);
@@ -188,7 +218,7 @@ function processDetections(result) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. 색상 분석 (Top/Bottom 픽셀 분석)
+// 5. 색상 분석 로직
 // ─────────────────────────────────────────────────────────────
 function analyzeKoreanSignal(x, y, w, h, canvasCtx) {
     const sx = Math.max(0, Math.floor(x));
@@ -240,7 +270,7 @@ function isRedPixel(r, g, b)   { return r > 110 && r > g * 1.5 && r > b * 1.5; }
 function isGreenPixel(r, g, b) { return g > 80  && g > r * 1.1 && g > b * 1.0 && r < 200; }
 
 // ─────────────────────────────────────────────────────────────
-// 6. UI 및 결과 처리
+// 6. UI 업데이트 및 드로잉
 // ─────────────────────────────────────────────────────────────
 function updateGauge(redRatio, greenRatio) {
     const rPct = Math.round(redRatio   * 100);
@@ -303,7 +333,7 @@ function drawBox(x, y, w, h, color, canvasCtx, isOccluded = false) {
     canvasCtx.setLineDash([]);
     canvasCtx.fillStyle = canvasCtx.strokeStyle;
     canvasCtx.font      = "bold 13px monospace";
-    canvasCtx.fillText(isOccluded ? `OCCLUDED r:${(w/h).toFixed(2)}` : `${color} r:${(w/h).toFixed(2)}`, x + 4, y - 6);
+    canvasCtx.fillText(isOccluded ? `OCCLUDED` : `${color}`, x + 4, y - 6);
 }
 
 // ─────────────────────────────────────────────────────────────
