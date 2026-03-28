@@ -39,17 +39,30 @@ const roiCanvas     = document.getElementById('roi-canvas');
 // 1. 모델 초기화
 // ─────────────────────────────────────────────────────────────
 export async function initVision() {
-    const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-    );
-    objectDetector = await ObjectDetector.createFromOptions(vision, {
-        baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite`,
-            delegate: "GPU"
-        },
-        scoreThreshold: 0.22,
-        runningMode: "VIDEO"
-    });
+    updateStatusUI("MODEL LOADING...", "bg-zinc-800 text-zinc-500");
+    
+    try {
+        const vision = await FilesetResolver.forVisionTasks(
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+        );
+        
+        // [FIX] CORS 문제를 피하기 위해 외부 구글 저장소 대신 로컬 모델 폴더를 참조하도록 수정
+        objectDetector = await ObjectDetector.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: `./models/efficientdet_lite0.tflite`, // 로컬 경로로 변경
+                delegate: "GPU"
+            },
+            scoreThreshold: 0.22,
+            runningMode: "VIDEO"
+        });
+        
+        console.log("Vision AI Model Loaded Successfully!");
+        
+    } catch (err) {
+        console.error("AI Model Initialization Failed:", err);
+        updateStatusUI("AI ERR", "bg-red-900/20 text-red-500");
+        speak("에이아이 모델 초기화에 실패했습니다. CORS 설정을 확인하세요.");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
