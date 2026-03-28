@@ -1,6 +1,6 @@
 /**
  * [ULTRA VISION AI] - vision.js
- * v0.5 — 탐지 강화 + 분할 화면 UI (카메라 좌 / ROI+게이지 우)
+ * v0.5.3 — 카메라 안정화 + 로컬 모델 + 한국형 신호등 분석 (전체 소스)
  */
 import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
 import { speak } from './utils.js';
@@ -15,7 +15,7 @@ let detectionCounter = 0;
 let colorCounter = { RED: 0, GREEN: 0 };
 const CONFIRM_THRESHOLD = 4;
 
-// ── 탐지 파라미터 (완화) ──────────────────────────────────────
+// ── 탐지 파라미터 (최적화) ──────────────────────────────────────
 const SCAN_ZONE_TOP    = 0.03;
 const SCAN_ZONE_BOTTOM = 0.72;
 const PERSIST_LIMIT    = 45;
@@ -39,17 +39,15 @@ const roiCanvas     = document.getElementById('roi-canvas');
 // 1. 모델 초기화
 // ─────────────────────────────────────────────────────────────
 export async function initVision() {
-    updateStatusUI("MODEL LOADING...", "bg-zinc-800 text-zinc-500");
-    
     try {
         const vision = await FilesetResolver.forVisionTasks(
             "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
         );
         
-        // [FIX] CORS 문제를 피하기 위해 외부 구글 저장소 대신 로컬 모델 폴더를 참조하도록 수정
+        // CORS 문제를 피하기 위해 로컬 경로 사용
         objectDetector = await ObjectDetector.createFromOptions(vision, {
             baseOptions: {
-                modelAssetPath: `./models/efficientdet_lite0.tflite`, // 로컬 경로로 변경
+                modelAssetPath: `./models/efficientdet_lite0.tflite`, 
                 delegate: "GPU"
             },
             scoreThreshold: 0.22,
@@ -60,13 +58,12 @@ export async function initVision() {
         
     } catch (err) {
         console.error("AI Model Initialization Failed:", err);
-        updateStatusUI("AI ERR", "bg-red-900/20 text-red-500");
-        speak("에이아이 모델 초기화에 실패했습니다. CORS 설정을 확인하세요.");
+        speak("에이아이 모델 로딩에 실패했습니다. 모델 파일 경로를 확인하세요.");
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. 카메라 시작
+// 2. 카메라 시작 (모바일 안정성 강화)
 // ─────────────────────────────────────────────────────────────
 export async function startVision() {
     try {
@@ -74,23 +71,30 @@ export async function startVision() {
             video: {
                 facingMode: "environment",
                 width: { ideal: 1280 },
-                height: { ideal: 720 },
-                aspectRatio: { ideal: 1.777 }
+                height: { ideal: 720 }
             }
         });
+
         video.srcObject = stream;
+
+        // metadata 로드 후 재생 및 루프 시작
+        video.onloadedmetadata = () => {
+            video.play().then(() => {
+                predictWebcam();
+            }).catch(e => console.error("Play Error:", e));
+        };
+
         videoTrack = stream.getVideoTracks()[0];
+        const capabilities = videoTrack.getCapabilities?.() || {};
+        
+        // 줌 설정 (지원 기기만)
+        if (capabilities.zoom) {
+            videoTrack.applyConstraints({ advanced: [{ zoom: 1.0 }] }).catch(() => {});
+        }
 
-        const capabilities = videoTrack.getCapabilities();
-        const constraints  = { advanced: [] };
-        if (capabilities.zoom)                 constraints.advanced.push({ zoom: 1.0 });
-        if (capabilities.exposureCompensation) constraints.advanced.push({ exposureCompensation: -1.0 });
-        if (constraints.advanced.length > 0)   await videoTrack.applyConstraints(constraints);
-
-        video.onloadeddata = () => { video.play(); predictWebcam(); };
     } catch (err) {
         console.error("Camera Error:", err);
-        alert("카메라를 시작할 수 없습니다.");
+        alert("카메라를 시작할 수 없습니다. 권한 설정을 확인하세요.");
     }
 }
 
@@ -99,8 +103,12 @@ export async function startVision() {
 // ─────────────────────────────────────────────────────────────
 async function predictWebcam() {
     if (objectDetector && video.readyState >= 2) {
-        canvasElement.width  = video.videoWidth;
-        canvasElement.height = video.videoHeight;
+        // 캔버스 크기 동기화
+        if (canvasElement.width !== video.videoWidth) {
+            canvasElement.width  = video.videoWidth;
+            canvasElement.height = video.videoHeight;
+        }
+        
         const result = await objectDetector.detectForVideo(video, performance.now());
         processDetections(result);
     }
@@ -108,7 +116,7 @@ async function predictWebcam() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. 탐지 처리 + 안정화
+// 4. 탐지 처리 + 안정화 (Smoothing)
 // ─────────────────────────────────────────────────────────────
 function processDetections(result) {
     const canvasCtx = canvasElement.getContext("2d");
@@ -170,8 +178,8 @@ function processDetections(result) {
         lastDetection = null;
     }
 
-    // 스캔존 경계선
-    canvasCtx.strokeStyle = "rgba(59,130,246,0.4)";
+    // 스캔존 경계 표시
+    canvasCtx.strokeStyle = "rgba(59,130,246,0.3)";
     canvasCtx.lineWidth   = 1;
     canvasCtx.setLineDash([6, 4]);
     canvasCtx.beginPath(); canvasCtx.moveTo(0, SCAN_ZONE_TOP * vH);    canvasCtx.lineTo(vW, SCAN_ZONE_TOP * vH);    canvasCtx.stroke();
@@ -180,7 +188,7 @@ function processDetections(result) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. 색상 분석
+// 5. 색상 분석 (Top/Bottom 픽셀 분석)
 // ─────────────────────────────────────────────────────────────
 function analyzeKoreanSignal(x, y, w, h, canvasCtx) {
     const sx = Math.max(0, Math.floor(x));
@@ -232,7 +240,7 @@ function isRedPixel(r, g, b)   { return r > 110 && r > g * 1.5 && r > b * 1.5; }
 function isGreenPixel(r, g, b) { return g > 80  && g > r * 1.1 && g > b * 1.0 && r < 200; }
 
 // ─────────────────────────────────────────────────────────────
-// 6. UI
+// 6. UI 및 결과 처리
 // ─────────────────────────────────────────────────────────────
 function updateGauge(redRatio, greenRatio) {
     const rPct = Math.round(redRatio   * 100);
@@ -299,7 +307,7 @@ function drawBox(x, y, w, h, color, canvasCtx, isOccluded = false) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 7. 수학 유틸
+// 7. 유틸리티
 // ─────────────────────────────────────────────────────────────
 function lerp(a, b, t) { return a * (1 - t) + b * t; }
 function calcIOU(a, b) {
