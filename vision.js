@@ -4,36 +4,57 @@ import * as Renderer from './vision-renderer.js';
 
 let visionWorker = null;
 let isWorkerBusy = false;
-let lastKnownBox = null;    // 마지막으로 확인된 좌표 고정용
-let lockCounter = 0;        // 좌표 유지 프레임 카운트
-let isVisionActive = true;  // 비전 활성화 상태 변수
-const MAX_LOCK_FRAMES = 30; // 탐지 실패 시 약 1초간 마지막 좌표 유지
+let lastKnownBox = null;
+let lockCounter = 0;
+let isVisionActive = true; 
+const MAX_LOCK_FRAMES = 30;
 
 /**
- * 시스템 초기화: 워커 생성 및 모델 로드
+ * 시스템 초기화: 워커를 생성하고 모델 로드 완료를 기다림
  */
 export async function initVision() {
-    return new Promise((resolve) => {
-        // 워커 파일 경로가 정확한지 확인 필수
-        visionWorker = new Worker('vision-worker.js');
-        visionWorker.postMessage({ type: 'LOAD' });
-        visionWorker.onmessage = (e) => {
-            if (e.data.type === 'LOADED') {
-                console.log("Vision Model Loaded.");
-                resolve();
-            }
-            if (e.data.type === 'RESULT') {
-                handleWorkerResult(e.data.boxes);
-            }
-        };
+    console.log("Vision Worker 초기화 시작...");
+    return new Promise((resolve, reject) => {
+        try {
+            visionWorker = new Worker('vision-worker.js');
+            
+            // 타임아웃 설정 (10초 내에 로드 안되면 실패 처리)
+            const timeout = setTimeout(() => {
+                reject(new Error("모델 로딩 시간 초과 (Network 확인)"));
+            }, 10000);
+
+            visionWorker.postMessage({ type: 'LOAD' });
+            
+            visionWorker.onmessage = (e) => {
+                if (e.data.type === 'LOADED') {
+                    clearTimeout(timeout);
+                    console.log("Vision Model 로드 완료.");
+                    resolve();
+                }
+                if (e.data.type === 'RESULT') {
+                    handleWorkerResult(e.data.boxes);
+                }
+                if (e.data.type === 'ERROR') {
+                    console.error("Worker Error:", e.data.message);
+                    reject(new Error(e.data.message));
+                }
+            };
+        } catch (err) {
+            reject(err);
+        }
     });
 }
 
 /**
- * 카메라 시작 및 루프 실행
+ * 카메라 시작: 권한을 요청하고 영상을 비디오 태그에 연결
  */
 export async function startVision() {
+    console.log("카메라 스트림 요청 중...");
     const video = document.getElementById('webcam');
+    if (!video) {
+        throw new Error("HTML에 'webcam' ID를 가진 video 태그가 없습니다.");
+    }
+
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { 
@@ -42,36 +63,33 @@ export async function startVision() {
                 height: { ideal: 720 }
             }
         });
+        
         video.srcObject = stream;
-        await video.play();
+        
+        // play()가 완료될 때까지 대기
+        await new Promise((resolve) => {
+            video.onloadedmetadata = () => {
+                video.play().then(resolve);
+            };
+        });
+
+        console.log("카메라 활성화 성공. 탐지 루프 시작.");
         requestAnimationFrame(detectLoop);
     } catch (err) {
-        console.error("Camera access denied:", err);
+        console.error("카메라 접근 에러:", err);
+        if (err.name === 'NotAllowedError') {
+            alert("카메라 권한이 거부되었습니다. 설정에서 카메라를 허용해주세요.");
+        }
         throw err;
     }
 }
 
-/**
- * 비전 활성화/비활성화 제어 (탭 전환 시 호출)
- */
 export function setVisionActive(active) {
     isVisionActive = active;
-    if (!active) {
-        Renderer.updateStatusText('PAUSED');
-        const video = document.getElementById('webcam');
-        if (video) Renderer.drawPreview(video);
-    } else {
-        Renderer.updateStatusText('READY');
-    }
 }
 
-/**
- * 탐지 루프: 주기적으로 워커에 이미지를 전달
- */
 async function detectLoop() {
     const video = document.getElementById('webcam');
-    
-    // 비활성 상태거나 워커가 바쁘면 다음 프레임으로 대기
     if (!video || video.readyState < 2 || isWorkerBusy || !isVisionActive) {
         requestAnimationFrame(detectLoop);
         return;
@@ -89,40 +107,25 @@ async function detectLoop() {
             data: { bitmap, vW, vH, zone }
         }, [bitmap]);
     } catch (e) {
-        console.error("Bitmap creation failed:", e);
         isWorkerBusy = false;
     }
-
     requestAnimationFrame(detectLoop);
 }
 
-/**
- * 워커 탐지 결과 처리 및 화면 고정 로직
- */
 function handleWorkerResult(boxes) {
     const video = document.getElementById('webcam');
-    
     if (boxes && boxes.length > 0) {
-        // [탐지 성공] 좌표 업데이트 및 유지 시간 초기화
         lastKnownBox = boxes[0];
         lockCounter = MAX_LOCK_FRAMES; 
     } else {
-        // [탐지 실패] 기존 좌표가 있다면 일정 시간(MAX_LOCK_FRAMES) 동안 버티기
-        if (lockCounter > 0) {
-            lockCounter--;
-        } else {
-            lastKnownBox = null;
-        }
+        if (lockCounter > 0) lockCounter--;
+        else lastKnownBox = null;
     }
 
-    // 렌더링: 고정된 박스가 있다면 확대 UI, 없다면 일반 미리보기
     if (lastKnownBox) {
         Renderer.drawUI(video, lastKnownBox);
-        Renderer.updateStatusText('DETECTED');
     } else {
         Renderer.drawPreview(video);
-        Renderer.updateStatusText('READY');
     }
-
     isWorkerBusy = false;
 }
