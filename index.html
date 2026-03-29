@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="referrer" content="no-referrer-when-downgrade">
-    <title>ULTRA VISION AI - Dynamic ROI & V2X</title>
+    <title>ULTRA VISION AI - Dynamic ROI & V2X (Improved)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
@@ -21,7 +21,9 @@
         #webcam { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
         #roi-fullscreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         #preview-canvas, #roi-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        #roi-canvas { object-fit: contain; display: none; }
+        
+        /* **ROI 모니터링을 위해 display: none 제거 및 반투명 처리** */
+        #roi-canvas { object-fit: contain; display: block; opacity: 0.5; border: 2px solid rgba(255, 255, 0, 0.8); z-index: 5; pointer-events: none;}
         
         /* UI 오버레이 */
         #color-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; z-index: 10; }
@@ -51,10 +53,10 @@
             
             <div id="color-overlay"></div>
             
-            <div id="top-label">AI REAL-TIME DYNAMIC ROI ANALYSIS</div>
+            <div id="top-label">AI REAL-TIME DYNAMIC ROI ANALYSIS (IMPROVED FILTERS)</div>
             <div id="status-bar">
                 <div id="status-main" style="color:#71717a;">READY</div>
-                <div id="status-sub">신호등을 찾고 있습니다</div>
+                <div id="status-sub">개선된 필터로 신호등을 찾고 있습니다</div>
             </div>
         </div>
     </div>
