@@ -4,8 +4,6 @@ export const CONFIG = {
     CONF_THRESHOLD: 0.20,
     NMS_IOU: 0.45,
     TRAFFIC_LIGHT_CLASS: 9,
-    // 보행자가 서 있을 때 신호등은 보통 화면 상단 15~55% 구간
-    // 10~65%는 너무 넓어서 차량 신호등도 같이 잡힘
     SCAN_ZONE: {
         PORTRAIT:  { top: 0.10, bottom: 0.55 },
         LANDSCAPE: { top: 0.05, bottom: 0.50 }
@@ -20,12 +18,17 @@ export async function loadModel() {
     return model;
 }
 
-export function getScanZone(vW, vH) {
+/** * vW, vH: 비디오 해상도
+ * dynamicCoords: MediaPipe에서 보낸 {top, bottom} 비율 좌표
+ */
+export function getScanZone(vW, vH, dynamicCoords) {
     const isLandscape = vW > vH;
-    const zone = isLandscape ? CONFIG.SCAN_ZONE.LANDSCAPE : CONFIG.SCAN_ZONE.PORTRAIT;
+    // 동적 좌표가 없으면 기본 설정 사용
+    const coords = dynamicCoords || (isLandscape ? CONFIG.SCAN_ZONE.LANDSCAPE : CONFIG.SCAN_ZONE.PORTRAIT);
+    
     return {
-        yMin: Math.floor(vH * zone.top),
-        yMax: Math.floor(vH * zone.bottom),
+        yMin: Math.floor(vH * coords.top),
+        yMax: Math.floor(vH * coords.bottom),
         vW, vH
     };
 }
@@ -44,12 +47,7 @@ export function processYOLO(res, vW, vH, zone) {
             const bh = h * (vH/640);
 
             const aspectRatio = bh / bw;
-
-            // 신호등 비율 필터: 세로가 가로보다 1.2~6배 길어야 함
-            // 한국 보행자 신호등은 보통 1:2 ~ 1:4 비율
             const isValidShape = aspectRatio >= 1.2 && aspectRatio <= 6.0;
-
-            // 최소 크기 강화: 너무 작은 박스는 오탐 가능성 높음
             const isValidSize = bw > 8 && bh > 20;
 
             if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape && isValidSize) {
@@ -57,6 +55,5 @@ export function processYOLO(res, vW, vH, zone) {
             }
         }
     });
-
     return boxes.sort((a, b) => b.score - a.score);
 }
