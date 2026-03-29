@@ -4,98 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="referrer" content="no-referrer-when-downgrade">
-    <title>ULTRA VISION AI - ROI & V2X</title>
+    <title>ULTRA VISION AI - Dynamic ROI & V2X</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3696a1a72981f0d97505a7dc983c1d39&libraries=services"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3696a1a72981f0d97505a7dc983c1d39&libraries=services"></script>
 
     <style>
         .h-safe { height: 100dvh; }
         .tab-content { display: none; height: calc(100% - 140px); position: relative; overflow: hidden; }
         .tab-content.active { display: block; }
-
-        /* 전체화면 카메라 (숨김 상태로 유지, AI 입력용) */
-        #webcam {
-            position: absolute;
-            width: 1px; height: 1px;
-            opacity: 0; pointer-events: none;
-        }
-        /* AI 박스 오버레이용 캔버스도 숨김 (내부 연산용) */
-        #webcam-canvas {
-            position: absolute;
-            width: 1px; height: 1px;
-            opacity: 0; pointer-events: none;
-        }
-
-        /* 전체화면 ROI 뷰 */
-        #roi-fullscreen {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #000;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            transition: background-color 0.4s ease;
-        }
-
-        /* 미감지 상태: 카메라 원본 전체 표시용 캔버스 */
-        #preview-canvas {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: cover;
-        }
-
-        /* 감지 상태: 신호등 확대 ROI 캔버스 */
-        #roi-canvas {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: contain;
-            display: none;
-        }
-
-        /* 색상 오버레이: 빨강/초록 판별 시 화면 전체에 반투명 색 */
-        #color-overlay {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            pointer-events: none;
-        }
-
-        /* 상태 텍스트: 하단 중앙 */
-        #status-bar {
-            position: absolute;
-            bottom: 24px; left: 0; width: 100%;
-            text-align: center;
-            z-index: 20;
-            pointer-events: none;
-        }
-        #status-main {
-            font-size: 48px;
-            font-weight: 900;
-            letter-spacing: 4px;
-            text-shadow: 0 2px 12px rgba(0,0,0,0.8);
-        }
-        #status-sub {
-            font-size: 13px;
-            font-weight: 700;
-            color: rgba(255,255,255,0.5);
-            letter-spacing: 2px;
-            margin-top: 4px;
-        }
-
-        /* 상단 라벨 */
-        #top-label {
-            position: absolute;
-            top: 12px; left: 16px;
-            font-size: 11px; font-weight: 900;
-            color: rgba(255,255,255,0.4);
-            letter-spacing: 2px;
-            z-index: 20;
-            pointer-events: none;
-        }
-
-        /* V2X 탭: 스크롤 가능 */
+        #webcam, #webcam-canvas { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        #roi-fullscreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #preview-canvas, #roi-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        #roi-canvas { object-fit: contain; display: none; }
+        #color-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+        #status-bar { position: absolute; bottom: 24px; left: 0; width: 100%; text-align: center; z-index: 20; pointer-events: none; }
+        #status-main { font-size: 48px; font-weight: 900; letter-spacing: 4px; text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
+        #status-sub { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.5); letter-spacing: 2px; margin-top: 4px; }
+        #top-label { position: absolute; top: 12px; left: 16px; font-size: 11px; font-weight: 900; color: rgba(255,255,255,0.4); letter-spacing: 2px; z-index: 20; pointer-events: none; }
         #data-tab { overflow-y: auto; -webkit-overflow-scrolling: touch; }
     </style>
 </head>
@@ -107,18 +34,13 @@
     </nav>
 
     <div id="vision-tab" class="tab-content active">
-        <!-- AI 연산용 (숨김) -->
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="webcam-canvas"></canvas>
-
-        <!-- 전체화면 뷰 -->
         <div id="roi-fullscreen">
             <canvas id="preview-canvas"></canvas>
             <canvas id="roi-canvas"></canvas>
             <div id="color-overlay"></div>
-
-            <div id="top-label">AI REAL-TIME ROI ANALYSIS</div>
-
+            <div id="top-label">AI REAL-TIME DYNAMIC ROI ANALYSIS</div>
             <div id="status-bar">
                 <div id="status-main" style="color:#71717a;">READY</div>
                 <div id="status-sub">신호등을 찾고 있습니다</div>
@@ -138,7 +60,6 @@
             </div>
             <button id="refresh-api" class="w-full py-4 bg-white/5 rounded-2xl text-[10px] font-bold uppercase text-zinc-500 hover:bg-white/10">Manual Refresh</button>
         </div>
-
         <div class="bg-zinc-900 rounded-3xl p-5 border border-white/5 shadow-xl space-y-3">
             <div class="flex justify-between items-end border-b border-white/5 pb-2">
                 <div class="flex-1 pr-4">
@@ -151,7 +72,6 @@
             </div>
             <div id="map" style="width:100%; height:200px; border-radius:1rem; background:#111;"></div>
         </div>
-        <div class="h-24"></div>
     </div>
 
     <div id="boot-screen" class="absolute inset-0 bg-[#050505] z-[100] flex items-center justify-center p-6 transition-opacity duration-500">

@@ -4,13 +4,13 @@ import * as Analyzer from './vision-analyzer.js';
 import * as Renderer from './vision-renderer.js';
 
 let visionWorker = null;
-let pose = null;
+let poseDetector = null;
 let lastColor = 'UNKNOWN';
 let smoothedBox = null;
 let holdCounter = 0;
 let isVisionActive = true;
 let isWorkerBusy = false;
-let dynamicZoneCoords = null; // MediaPipe에서 계산된 동적 영역 비율
+let dynamicZoneCoords = null; 
 const ALPHA = 0.25;
 
 const colorHistory = [];
@@ -32,33 +32,35 @@ export function setVisionActive(active) {
     }
 }
 
-/** MediaPipe Pose 초기화 및 시선 분석 설정 */
+/** MediaPipe Pose 초기화 */
 async function initMediaPipe() {
-    pose = new Pose({
+    // window.Pose 가 로드되었는지 확인
+    if (!window.Pose) return;
+    
+    poseDetector = new window.Pose({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     });
-    pose.setOptions({
-        modelComplexity: 0, // 초경량 모드
+    poseDetector.setOptions({
+        modelComplexity: 0,
         smoothLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5,
     });
-    pose.onResults((results) => {
+    poseDetector.onResults((results) => {
         if (!results.poseLandmarks) {
             dynamicZoneCoords = null;
             return;
         }
-        // 코(0)와 양쪽 어깨(11, 12) 좌표로 고개 각도 계산
         const nose = results.poseLandmarks[0];
         const shoulderY = (results.poseLandmarks[11].y + results.poseLandmarks[12].y) / 2;
         
-        // 고개가 숙여졌는지 들렸는지에 따라 ROI 비율 조정 (0.0 ~ 1.0)
-        if (nose.y > shoulderY + 0.05) { // 고개 숙임
-            dynamicZoneCoords = { top: 0.25, bottom: 0.65 };
-        } else if (nose.y < shoulderY - 0.05) { // 고개 들음
-            dynamicZoneCoords = { top: 0.0, bottom: 0.40 };
-        } else { // 정면
-            dynamicZoneCoords = { top: 0.05, bottom: 0.50 };
+        // 고개 위치에 따른 ROI 비율 조정
+        if (nose.y > shoulderY + 0.05) { 
+            dynamicZoneCoords = { top: 0.25, bottom: 0.65 }; // 하단 집중
+        } else if (nose.y < shoulderY - 0.05) { 
+            dynamicZoneCoords = { top: 0.0, bottom: 0.40 };  // 상단 집중
+        } else {
+            dynamicZoneCoords = { top: 0.05, bottom: 0.50 }; // 정면
         }
     });
 }
@@ -82,8 +84,6 @@ export async function startVision() {
     });
     video.srcObject = stream;
     await video.play();
-
-    // 루프 시작
     requestAnimationFrame(detectLoop);
 }
 
@@ -94,15 +94,13 @@ async function detectLoop() {
         return;
     }
 
-    // MediaPipe 포즈 분석 실행
-    await pose.send({ image: video });
+    // MediaPipe 분석 수행
+    if (poseDetector) await poseDetector.send({ image: video });
 
     if (!isWorkerBusy) {
         isWorkerBusy = true;
         const vW = video.videoWidth;
         const vH = video.videoHeight;
-        
-        // Detector에서 동적 좌표 반영하여 zone 생성
         const zone = Detector.getScanZone(vW, vH, dynamicZoneCoords);
 
         const bitmap = await createImageBitmap(video);

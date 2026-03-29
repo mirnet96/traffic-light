@@ -27,13 +27,17 @@ function switchTab(type) {
 document.addEventListener('DOMContentLoaded', () => {
     const startBtn = document.getElementById('start-btn');
     const bootScreen = document.getElementById('boot-screen');
-    const refreshBtn = document.getElementById('refresh-api');
 
     if (startBtn) {
         startBtn.onclick = async () => {
+            // 브라우저 오디오 컨텍스트 활성화를 위해 더미 사운드 재생 시도
+            const dummyCtx = new (window.AudioContext || window.webkitAudioContext)();
+            dummyCtx.resume();
+
             bootScreen.style.opacity = '0';
             setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
-            speak("시스템을 시작합니다.");
+            speak("울트라 비전 시스템을 시작합니다.");
+            
             try {
                 await Promise.all([initVision().then(() => startVision()), initDataTab()]);
             } catch (err) { console.error(err); }
@@ -41,5 +45,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     document.getElementById('tab-v-btn').onclick = () => switchTab('vision');
     document.getElementById('tab-d-btn').onclick = () => switchTab('data');
-    if (refreshBtn) refreshBtn.onclick = () => fetchSignalData();
 });

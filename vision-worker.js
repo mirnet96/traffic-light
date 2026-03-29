@@ -13,7 +13,7 @@ async function loadModel() {
         model = await tf.loadGraphModel('./models/yolov8n_web_model/model.json');
         const dummy = tf.zeros([1, 640, 640, 3]);
         await model.executeAsync(dummy);
-        tf.dispose(dummy);
+        dummy.dispose();
         self.postMessage({ type: 'LOADED' });
     } catch (err) {
         self.postMessage({ type: 'ERROR', message: err.message });
@@ -37,7 +37,6 @@ function processYOLO(res, vW, vH, zone) {
             const isValidShape = aspectRatio >= 1.2 && aspectRatio <= 6.0;
             const isValidSize = bw > 8 && bh > 20;
 
-            // 전달받은 동적 zone 범위 내에 있는지 체크
             if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape && isValidSize) {
                 boxes.push({ x, y, w: bw, h: bh, score });
             }
@@ -54,14 +53,19 @@ self.onmessage = async (e) => {
         if (!model) return;
         const { bitmap, vW, vH, zone } = data;
 
-        const boxes = await tf.tidy(async () => {
-            const tensor = tf.browser.fromPixels(bitmap);
-            const input = tensor.resizeBilinear([640, 640]).div(255).expandDims(0);
-            const res = await model.executeAsync(input);
-            return processYOLO(res, vW, vH, zone);
-        });
+        // 비동기 처리를 위해 tf.tidy 대신 수동 dispose 사용
+        const tensor = tf.browser.fromPixels(bitmap);
+        const input = tensor.resizeBilinear([640, 640]).div(255).expandDims(0);
+        const res = await model.executeAsync(input);
+        
+        const boxes = processYOLO(res, vW, vH, zone);
+
+        // 메모리 해제
+        tensor.dispose();
+        input.dispose();
+        tf.dispose(res);
+        bitmap.close();
 
         self.postMessage({ type: 'RESULT', boxes });
-        bitmap.close();
     }
 };
