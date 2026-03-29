@@ -3,71 +3,160 @@ import { speak } from './utils.js';
 
 let audioCtx = null, beepTimer = null;
 
-export function drawUI(ctx, box, color, vW, vH) {
+/*
+ * 저시력자 전용 전체화면 ROI 모드
+ *
+ * [미감지 상태]
+ *   - preview-canvas: 카메라 원본을 전체화면으로 표시
+ *   - roi-canvas: 숨김
+ *   - 배경: 어두운 색 유지
+ *   - 상태 텍스트: "READY"
+ *
+ * [감지 상태]
+ *   - preview-canvas: 숨김
+ *   - roi-canvas: 신호등 영역을 전체화면으로 확대
+ *   - color-overlay: RED/GREEN 판별 시 반투명 색상 오버레이
+ *   - 상태 텍스트: "RED" / "GREEN" / "DETECTED"
+ */
+
+export function drawUI(ctx, box, color) {
     if (!box) return;
 
-    // 1. 상단 메인 캠 화면에 박스 그리기
+    // webcam-canvas 에는 내부 연산용 박스만 그림 (화면에 표시 안됨)
     const colors = { RED: '#FF3B30', GREEN: '#34C759', UNKNOWN: '#3b82f6' };
     const c = colors[color] || '#3b82f6';
-
     ctx.strokeStyle = c;
     ctx.lineWidth = 4;
     ctx.strokeRect(box.x, box.y, box.w, box.h);
 
-    // 2. 하단 ROI 캔버스: 패널 전체에 꽉 채워서 그림
-    const roiCanvas = document.getElementById('roi-canvas');
-    if (roiCanvas) {
-        const panel = roiCanvas.parentElement;
-        const panelW = panel ? panel.clientWidth  : window.innerWidth;
-        const panelH = panel ? panel.clientHeight : window.innerHeight * 0.5;
+    // 신호등 감지 상태: ROI 전체화면 확대
+    const previewCanvas = document.getElementById('preview-canvas');
+    const roiCanvas     = document.getElementById('roi-canvas');
+    const overlay       = document.getElementById('color-overlay');
 
-        // 캔버스 해상도를 패널 실제 크기에 맞춤
-        roiCanvas.width  = panelW;
-        roiCanvas.height = panelH;
+    if (!roiCanvas || !previewCanvas) return;
 
-        const rCtx = roiCanvas.getContext('2d');
-        rCtx.clearRect(0, 0, panelW, panelH);
+    const video = document.getElementById('webcam');
+    if (!video || video.readyState < 2) return;
 
-        const video = document.getElementById('webcam');
-        if (video && video.readyState >= 2) {
-            rCtx.drawImage(
-                video,
-                box.x, box.y, box.w, box.h, // 소스: 탐지된 박스 영역
-                0, 0, panelW, panelH          // 대상: 패널 전체
-            );
+    // preview 숨기고 ROI 표시
+    previewCanvas.style.display = 'none';
+    roiCanvas.style.display = 'block';
+
+    const W = roiCanvas.clientWidth  || window.innerWidth;
+    const H = roiCanvas.clientHeight || window.innerHeight;
+    roiCanvas.width  = W;
+    roiCanvas.height = H;
+
+    const rCtx = roiCanvas.getContext('2d');
+    rCtx.fillStyle = '#000';
+    rCtx.fillRect(0, 0, W, H);
+
+    // 신호등 박스 비율 유지하며 전체화면에 letterbox 방식으로 그림
+    const srcRatio = box.w / box.h;
+    const dstRatio = W / H;
+    let drawW, drawH, drawX, drawY;
+
+    if (srcRatio > dstRatio) {
+        drawW = W;
+        drawH = W / srcRatio;
+        drawX = 0;
+        drawY = (H - drawH) / 2;
+    } else {
+        drawH = H;
+        drawW = H * srcRatio;
+        drawX = (W - drawW) / 2;
+        drawY = 0;
+    }
+
+    rCtx.drawImage(video, box.x, box.y, box.w, box.h, drawX, drawY, drawW, drawH);
+
+    // 색상 오버레이: RED/GREEN 판별 시 화면 전체에 반투명 색 입힘
+    if (overlay) {
+        if (color === 'RED') {
+            overlay.style.background = '#FF3B30';
+            overlay.style.opacity = '0.25';
+        } else if (color === 'GREEN') {
+            overlay.style.background = '#34C759';
+            overlay.style.opacity = '0.25';
+        } else {
+            overlay.style.opacity = '0';
         }
-
-        // 탐지 색상에 맞게 테두리 색상 업데이트
-        roiCanvas.style.border = '4px solid ' + c;
-        roiCanvas.style.boxSizing = 'border-box';
     }
 }
 
+// 미감지 상태: 카메라 원본을 preview-canvas 에 전체화면으로 표시
+export function drawPreview(video) {
+    const previewCanvas = document.getElementById('preview-canvas');
+    const roiCanvas     = document.getElementById('roi-canvas');
+    const overlay       = document.getElementById('color-overlay');
+
+    if (!previewCanvas || !video || video.readyState < 2) return;
+
+    roiCanvas.style.display  = 'none';
+    previewCanvas.style.display = 'block';
+    if (overlay) overlay.style.opacity = '0';
+
+    const W = previewCanvas.clientWidth  || window.innerWidth;
+    const H = previewCanvas.clientHeight || window.innerHeight;
+    previewCanvas.width  = W;
+    previewCanvas.height = H;
+
+    const pCtx = previewCanvas.getContext('2d');
+
+    // 원본 비율 유지하며 cover 방식으로 그림
+    const vRatio = video.videoWidth / video.videoHeight;
+    const cRatio = W / H;
+    let sx, sy, sw, sh;
+
+    if (vRatio > cRatio) {
+        sh = video.videoHeight;
+        sw = sh * cRatio;
+        sx = (video.videoWidth - sw) / 2;
+        sy = 0;
+    } else {
+        sw = video.videoWidth;
+        sh = sw / cRatio;
+        sx = 0;
+        sy = (video.videoHeight - sh) / 2;
+    }
+
+    pCtx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
+}
+
 export function updateStatusText(color) {
-    const el = document.getElementById('api-status-text');
-    if (!el) return;
+    const main = document.getElementById('status-main');
+    const sub  = document.getElementById('status-sub');
+    if (!main || !sub) return;
 
     if (color === 'READY') {
-        el.innerText = 'READY';
-        el.style.color = '#71717a';
+        main.innerText = 'READY';
+        main.style.color = '#71717a';
+        sub.innerText = '신호등을 찾고 있습니다';
     } else if (color === 'UNKNOWN') {
-        el.innerText = 'DETECTED';
-        el.style.color = '#3b82f6';
-    } else {
-        el.innerText = color;
-        el.style.color = color === 'RED' ? '#FF3B30' : '#34C759';
+        main.innerText = 'DETECTED';
+        main.style.color = '#3b82f6';
+        sub.innerText = '신호등을 감지했습니다';
+    } else if (color === 'RED') {
+        main.innerText = 'RED';
+        main.style.color = '#FF3B30';
+        sub.innerText = '빨간불 - 멈추세요';
+    } else if (color === 'GREEN') {
+        main.innerText = 'GREEN';
+        main.style.color = '#34C759';
+        sub.innerText = '초록불 - 건너세요';
     }
 }
 
 export function playFeedback(color, lastColor) {
     if (color === 'UNKNOWN') return;
-
     if (color === lastColor) return;
+
     if (color === 'RED') {
-        speak("빨간불입니다.");
+        speak("빨간불입니다. 멈추세요.");
         startBeep(440, 1200);
     } else if (color === 'GREEN') {
-        speak("초록불입니다.");
+        speak("초록불입니다. 건너세요.");
         startBeep(880, 500);
     } else {
         stopBeep();

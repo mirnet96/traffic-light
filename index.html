@@ -14,41 +14,84 @@
         .tab-content { display: none; height: calc(100% - 140px); position: relative; overflow: hidden; }
         .tab-content.active { display: block; }
 
-        /* VISION 탭: 상하 5:5 분할 */
-        #webcam-container {
-            position: absolute; top: 0; left: 0; width: 100%; height: 50%;
-            background: #000; border-bottom: 2px solid rgba(255,255,255,0.1);
+        /* 전체화면 카메라 (숨김 상태로 유지, AI 입력용) */
+        #webcam {
+            position: absolute;
+            width: 1px; height: 1px;
+            opacity: 0; pointer-events: none;
         }
-        #webcam { width: 100%; height: 100%; object-fit: cover; }
-        #webcam-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
-
-        /* ROI 패널: 하단 전체 */
-        #roi-focus-panel {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 50%;
-            background: #0a0a0a;
-        }
-
-        /* ROI 라벨: 좌측 상단 */
-        .roi-label {
-            position: absolute; top: 10px; left: 14px;
-            font-weight: 900; color: #3b82f6; font-size: 11px; letter-spacing: 2px;
-            z-index: 10;
+        /* AI 박스 오버레이용 캔버스도 숨김 (내부 연산용) */
+        #webcam-canvas {
+            position: absolute;
+            width: 1px; height: 1px;
+            opacity: 0; pointer-events: none;
         }
 
-        /* 상태 텍스트: 우측 상단 */
-        #api-status-text {
-            position: absolute; top: 8px; right: 14px;
-            font-size: 18px; font-weight: 900;
-            color: #71717a; text-transform: uppercase;
-            z-index: 10;
+        /* 전체화면 ROI 뷰 */
+        #roi-fullscreen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            transition: background-color 0.4s ease;
         }
 
-        /* ROI 캔버스: 하단 전체를 꽉 채움 */
-        #roi-canvas {
-            position: absolute; top: 0; left: 0;
-            width: 100%; height: 100%;
+        /* 미감지 상태: 카메라 원본 전체 표시용 캔버스 */
+        #preview-canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
             object-fit: cover;
-            display: block;
+        }
+
+        /* 감지 상태: 신호등 확대 ROI 캔버스 */
+        #roi-canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        /* 색상 오버레이: 빨강/초록 판별 시 화면 전체에 반투명 색 */
+        #color-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        /* 상태 텍스트: 하단 중앙 */
+        #status-bar {
+            position: absolute;
+            bottom: 24px; left: 0; width: 100%;
+            text-align: center;
+            z-index: 20;
+            pointer-events: none;
+        }
+        #status-main {
+            font-size: 48px;
+            font-weight: 900;
+            letter-spacing: 4px;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+        }
+        #status-sub {
+            font-size: 13px;
+            font-weight: 700;
+            color: rgba(255,255,255,0.5);
+            letter-spacing: 2px;
+            margin-top: 4px;
+        }
+
+        /* 상단 라벨 */
+        #top-label {
+            position: absolute;
+            top: 12px; left: 16px;
+            font-size: 11px; font-weight: 900;
+            color: rgba(255,255,255,0.4);
+            letter-spacing: 2px;
+            z-index: 20;
+            pointer-events: none;
         }
 
         /* V2X 탭: 스크롤 가능 */
@@ -63,14 +106,22 @@
     </nav>
 
     <div id="vision-tab" class="tab-content active">
-        <div id="webcam-container">
-            <video id="webcam" autoplay playsinline muted></video>
-            <canvas id="webcam-canvas"></canvas>
-        </div>
-        <div id="roi-focus-panel">
-            <div class="roi-label">AI REAL-TIME ROI ANALYSIS</div>
-            <div id="api-status-text">READY</div>
+        <!-- AI 연산용 (숨김) -->
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="webcam-canvas"></canvas>
+
+        <!-- 전체화면 뷰 -->
+        <div id="roi-fullscreen">
+            <canvas id="preview-canvas"></canvas>
             <canvas id="roi-canvas"></canvas>
+            <div id="color-overlay"></div>
+
+            <div id="top-label">AI REAL-TIME ROI ANALYSIS</div>
+
+            <div id="status-bar">
+                <div id="status-main" style="color:#71717a;">READY</div>
+                <div id="status-sub">신호등을 찾고 있습니다</div>
+            </div>
         </div>
     </div>
 

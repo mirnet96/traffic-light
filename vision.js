@@ -27,7 +27,7 @@ export async function initVision() {
 }
 
 export async function startVision() {
-    const video = document.getElementById('webcam');
+    const video  = document.getElementById('webcam');
     const canvas = document.getElementById('webcam-canvas');
 
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -36,7 +36,7 @@ export async function startVision() {
     video.srcObject = stream;
     await video.play();
 
-    // video.play() 완료 + 메타데이터 로드 후 캔버스 크기 1회만 설정하고 루프 시작
+    // video 준비 완료 후 캔버스 크기 1회 설정
     await new Promise(resolve => {
         if (video.readyState >= 2) {
             resolve();
@@ -45,16 +45,16 @@ export async function startVision() {
         }
     });
 
-    // 캔버스 크기를 여기서 1회만 설정
-    canvas.width = video.videoWidth;
+    canvas.width  = video.videoWidth;
     canvas.height = video.videoHeight;
 
     detectLoop();
 }
 
 async function detectLoop() {
-    const video = document.getElementById('webcam');
+    const video  = document.getElementById('webcam');
     const canvas = document.getElementById('webcam-canvas');
+
     if (!video || !canvas || video.readyState < 2) {
         requestAnimationFrame(detectLoop);
         return;
@@ -65,16 +65,16 @@ async function detectLoop() {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     // 1. 탐지 실행
-    const zone = Detector.getScanZone(vW, vH);
+    const zone  = Detector.getScanZone(vW, vH);
     const input = tf.tidy(() =>
         tf.image.resizeBilinear(tf.browser.fromPixels(video), [640, 640]).div(255).expandDims(0)
     );
-    const res = await model.executeAsync(input);
+    const res   = await model.executeAsync(input);
     const boxes = Detector.processYOLO(res, vW, vH, zone);
     tf.dispose(input);
 
     // 2. 흔들림 보정 (Smoothing & Hold)
-    let currentBox = boxes.length > 0 ? boxes[0] : null;
+    const currentBox = boxes.length > 0 ? boxes[0] : null;
 
     if (currentBox) {
         holdCounter = 15;
@@ -98,16 +98,19 @@ async function detectLoop() {
 
     // 3. 분석 및 렌더링
     ctx.clearRect(0, 0, vW, vH);
+
     if (smoothedBox) {
         const rawColor = Analyzer.analyzeROI(ctx, smoothedBox);
-        // 멀티프레임 투표로 최종 색상 결정 (오탐/깜빡임 방지)
-        const color = getVotedColor(rawColor);
-        Renderer.drawUI(ctx, smoothedBox, color, vW, vH);
+        const color    = getVotedColor(rawColor);
+
+        Renderer.drawUI(ctx, smoothedBox, color);
         Renderer.playFeedback(color, lastColor);
         Renderer.updateStatusText(color);
         lastColor = color;
     } else {
-        colorHistory.length = 0; // 신호등 사라지면 투표 기록 초기화
+        // 미감지 상태: 카메라 원본을 전체화면으로 보여줌
+        colorHistory.length = 0;
+        Renderer.drawPreview(video);
         Renderer.stopBeep();
         Renderer.updateStatusText('READY');
         lastColor = 'UNKNOWN';
