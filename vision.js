@@ -14,6 +14,7 @@ const MAX_LOCK_FRAMES = 30; // 탐지 실패 시 약 1초간 마지막 좌표 �
  */
 export async function initVision() {
     return new Promise((resolve) => {
+        // 워커 파일 경로가 정확한지 확인 필수
         visionWorker = new Worker('vision-worker.js');
         visionWorker.postMessage({ type: 'LOAD' });
         visionWorker.onmessage = (e) => {
@@ -46,6 +47,7 @@ export async function startVision() {
         requestAnimationFrame(detectLoop);
     } catch (err) {
         console.error("Camera access denied:", err);
+        throw err;
     }
 }
 
@@ -56,7 +58,6 @@ export function setVisionActive(active) {
     isVisionActive = active;
     if (!active) {
         Renderer.updateStatusText('PAUSED');
-        // 비활성화 시 즉시 캔버스 초기화 (선택 사항)
         const video = document.getElementById('webcam');
         if (video) Renderer.drawPreview(video);
     } else {
@@ -70,7 +71,7 @@ export function setVisionActive(active) {
 async function detectLoop() {
     const video = document.getElementById('webcam');
     
-    // 1. 영상 준비 미흡, 워커 작업 중, 혹은 비활성 상태면 스킵
+    // 비활성 상태거나 워커가 바쁘면 다음 프레임으로 대기
     if (!video || video.readyState < 2 || isWorkerBusy || !isVisionActive) {
         requestAnimationFrame(detectLoop);
         return;
@@ -81,7 +82,6 @@ async function detectLoop() {
     const vH = video.videoHeight;
     const zone = Detector.getScanZone(vW, vH);
 
-    // 2. 현재 프레임을 비트맵으로 캡처하여 워커로 전송
     try {
         const bitmap = await createImageBitmap(video);
         visionWorker.postMessage({
@@ -89,6 +89,7 @@ async function detectLoop() {
             data: { bitmap, vW, vH, zone }
         }, [bitmap]);
     } catch (e) {
+        console.error("Bitmap creation failed:", e);
         isWorkerBusy = false;
     }
 
@@ -96,17 +97,17 @@ async function detectLoop() {
 }
 
 /**
- * 워커로부터 받은 탐지 결과 처리
+ * 워커 탐지 결과 처리 및 화면 고정 로직
  */
 function handleWorkerResult(boxes) {
     const video = document.getElementById('webcam');
     
     if (boxes && boxes.length > 0) {
-        // [탐지 성공] 가장 신뢰도 높은 첫 번째 박스 선택
+        // [탐지 성공] 좌표 업데이트 및 유지 시간 초기화
         lastKnownBox = boxes[0];
         lockCounter = MAX_LOCK_FRAMES; 
     } else {
-        // [탐지 실패] 기존 좌표가 있다면 카운트 감소하며 유지 (Hysteresis)
+        // [탐지 실패] 기존 좌표가 있다면 일정 시간(MAX_LOCK_FRAMES) 동안 버티기
         if (lockCounter > 0) {
             lockCounter--;
         } else {
@@ -114,13 +115,11 @@ function handleWorkerResult(boxes) {
         }
     }
 
-    // 렌더링 결정
+    // 렌더링: 고정된 박스가 있다면 확대 UI, 없다면 일반 미리보기
     if (lastKnownBox) {
-        // 찾았거나 유지 중이면 확대 UI
         Renderer.drawUI(video, lastKnownBox);
         Renderer.updateStatusText('DETECTED');
     } else {
-        // 완전히 놓쳤으면 일반 미리보기
         Renderer.drawPreview(video);
         Renderer.updateStatusText('READY');
     }
