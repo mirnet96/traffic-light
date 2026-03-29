@@ -6,7 +6,10 @@ let visionWorker = null;
 let isWorkerBusy = false;
 let lastKnownBox = null; // 마지막으로 확인된 좌표 고정용
 let lockCounter = 0;     // 좌표 유지 프레임 카운트
+let isVisionActive = true; // 비전 활성화 상태 변수 추가
 const MAX_LOCK_FRAMES = 30; // 탐지 실패 시 약 1초간 마지막 좌표 유지
+
+
 
 export async function initVision() {
     return new Promise((resolve) => {
@@ -50,6 +53,41 @@ async function detectLoop() {
     requestAnimationFrame(detectLoop);
 }
 
+export function setVisionActive(active) {
+    isVisionActive = active;
+    if (!active) {
+        Renderer.updateStatusText('PAUSED');
+        // 필요 시 비프음 중지 로직 추가 가능
+    } else {
+        Renderer.updateStatusText('READY');
+    }
+}
+
+// detectLoop 함수 상단에 활성화 체크 로직 추가
+async function detectLoop() {
+    const video = document.getElementById('webcam');
+    // isVisionActive가 false면 루프를 돌지만 탐지는 하지 않음
+    if (!video || video.readyState < 2 || isWorkerBusy || !isVisionActive) {
+        requestAnimationFrame(detectLoop);
+        return;
+    }
+
+    isWorkerBusy = true;
+    const vW = video.videoWidth;
+    const vH = video.videoHeight;
+    const zone = Detector.getScanZone(vW, vH);
+
+    const bitmap = await createImageBitmap(video);
+    visionWorker.postMessage({
+        type: 'DETECT',
+        data: { bitmap, vW, vH, zone }
+    }, [bitmap]);
+
+    requestAnimationFrame(detectLoop);
+}
+
+
+
 function handleWorkerResult(boxes) {
     const video = document.getElementById('webcam');
     
@@ -77,3 +115,5 @@ function handleWorkerResult(boxes) {
 
     isWorkerBusy = false;
 }
+
+
