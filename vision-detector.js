@@ -1,13 +1,14 @@
 /** [ULTRA VISION AI] - vision-detector.js */
 
 export const CONFIG = {
-    CONF_THRESHOLD: 0.18, // 0.22에서 0.18로 낮춤 (멀리 있는 신호등 대응)
+    CONF_THRESHOLD: 0.20,
     NMS_IOU: 0.45,
     TRAFFIC_LIGHT_CLASS: 9,
-    // 저시력 보행자 시야 특성상 상단 10%~65% 영역 집중 스캔
+    // 보행자가 서 있을 때 신호등은 보통 화면 상단 15~55% 구간
+    // 10~65%는 너무 넓어서 차량 신호등도 같이 잡힘
     SCAN_ZONE: {
-        PORTRAIT: { top: 0.10, bottom: 0.65 },
-        LANDSCAPE: { top: 0.05, bottom: 0.60 }
+        PORTRAIT:  { top: 0.10, bottom: 0.55 },
+        LANDSCAPE: { top: 0.05, bottom: 0.50 }
     }
 };
 
@@ -42,11 +43,20 @@ export function processYOLO(res, vW, vH, zone) {
             const bw = w * (vW/640);
             const bh = h * (vH/640);
 
-            // 스캔 존 필터링 및 최소 크기 검증
-            if (y > zone.yMin && (y + bh) < zone.yMax && bw > 5 && bh > 10) {
+            const aspectRatio = bh / bw;
+
+            // 신호등 비율 필터: 세로가 가로보다 1.2~6배 길어야 함
+            // 한국 보행자 신호등은 보통 1:2 ~ 1:4 비율
+            const isValidShape = aspectRatio >= 1.2 && aspectRatio <= 6.0;
+
+            // 최소 크기 강화: 너무 작은 박스는 오탐 가능성 높음
+            const isValidSize = bw > 8 && bh > 20;
+
+            if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape && isValidSize) {
                 boxes.push({ x, y, w: bw, h: bh, score });
             }
         }
     });
+
     return boxes.sort((a, b) => b.score - a.score);
 }
