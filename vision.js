@@ -1,13 +1,12 @@
-/** [ULTRA VISION AI] - vision.js (Auto-Scanning) */
+/** [ULTRA VISION AI] - vision.js */
 import * as Detector from './vision-detector.js';
 import * as Renderer from './vision-renderer.js';
 
 let visionWorker = null;
 let isWorkerBusy = false;
-let smoothedBox = null;
-let currentZoom = 1.0;
-let scanCount = 0;
-let lockBox = null; // 찾은 신호등 좌표 고정용
+let lastKnownBox = null; // 마지막으로 확인된 좌표 고정용
+let lockCounter = 0;     // 좌표 유지 프레임 카운트
+const MAX_LOCK_FRAMES = 30; // 탐지 실패 시 약 1초간 마지막 좌표 유지
 
 export async function initVision() {
     return new Promise((resolve) => {
@@ -32,68 +31,49 @@ export async function startVision() {
 
 async function detectLoop() {
     const video = document.getElementById('webcam');
-    if (!video || video.readyState < 2) { requestAnimationFrame(detectLoop); return; }
-
-    if (!isWorkerBusy) {
-        isWorkerBusy = true;
-        const bitmap = await createImageBitmap(video);
-        visionWorker.postMessage({
-            type: 'DETECT',
-            data: { 
-                bitmap, 
-                vW: video.videoWidth, 
-                vH: video.videoHeight, 
-                zone: Detector.getScanZone(video.videoWidth, video.videoHeight) 
-            }
-        }, [bitmap]);
+    if (!video || video.readyState < 2 || isWorkerBusy) {
+        requestAnimationFrame(detectLoop);
+        return;
     }
+
+    isWorkerBusy = true;
+    const vW = video.videoWidth;
+    const vH = video.videoHeight;
+    const zone = Detector.getScanZone(vW, vH);
+
+    const bitmap = await createImageBitmap(video);
+    visionWorker.postMessage({
+        type: 'DETECT',
+        data: { bitmap, vW, vH, zone }
+    }, [bitmap]);
+
     requestAnimationFrame(detectLoop);
 }
 
-async function handleWorkerResult(boxes) {
+function handleWorkerResult(boxes) {
     const video = document.getElementById('webcam');
-    const track = video.srcObject.getVideoTracks()[0];
-    const caps = track.getCapabilities();
-
+    
     if (boxes.length > 0) {
-        // [찾았음] -> 해당 좌표 고정 및 줌 유지
-        lockBox = boxes[0];
-        scanCount = 0;
-        // 찾았을 때 사용자에게 알림 (진동 등 추가 가능)
-        Renderer.updateStatusText('신호등 확인됨');
+        // [탐지 성공] 신규 좌표 업데이트 및 카운트 초기화
+        lastKnownBox = boxes[0];
+        lockCounter = MAX_LOCK_FRAMES; 
     } else {
-        // [못 찾았음] -> 스캔 카운트 증가 및 자동 줌 확대
-        scanCount++;
-        if (scanCount > 15) { // 약 0.5초 동안 못 찾으면
-            if (caps.zoom) {
-                currentZoom = Math.min(currentZoom + 0.5, caps.zoom.max || 3.0);
-                track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
-            }
-            scanCount = 0;
-            lockBox = null;
-            Renderer.updateStatusText('신호등 찾는 중... 줌 확대');
+        // [탐지 실패] 기존 좌표가 있다면 카운트 감소하며 버티기
+        if (lockCounter > 0) {
+            lockCounter--;
+        } else {
+            lastKnownBox = null;
         }
     }
 
-    // 화면 렌더링 (찾은 박스가 있으면 그 부분을 확대해서 보여줌)
-    renderResult(video, lockBox || boxes[0]);
+    // 화면 렌더링: lastKnownBox가 있으면 해당 영역을 고정해서 보여줌
+    if (lastKnownBox) {
+        Renderer.drawUI(video, lastKnownBox);
+        Renderer.updateStatusText('DETECTED');
+    } else {
+        Renderer.drawPreview(video);
+        Renderer.updateStatusText('READY');
+    }
+
     isWorkerBusy = false;
-}
-
-function renderResult(video, box) {
-    const canvas = document.getElementById('webcam-canvas');
-    const ctx = canvas.getContext('2d');
-    if (canvas.width !== video.videoWidth) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-    }
-
-    ctx.drawImage(video, 0, 0);
-    
-    if (box) {
-        // 찾은 신호등 주변에 가이드라인 표시
-        Renderer.drawUI(ctx, box, 'UNKNOWN'); 
-        // Renderer.js의 drawUI에서 이 box 좌표를 기반으로 
-        // roi-canvas에 전체화면 확대를 수행하도록 설계되어 있어야 함
-    }
 }
