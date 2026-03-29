@@ -1,10 +1,10 @@
 /** [ULTRA VISION AI] - vision-detector.js */
 
 export const CONFIG = {
-    // 보행자 시선에서 신호등은 보통 상단에 위치함
+    // [수정] 신호등이 화면 중간 근처에 올 수도 있으므로 범위를 0.65(65%)까지 확장
     SCAN_ZONE: {
-        PORTRAIT:  { top: 0.02, bottom: 0.50 }, // 화면 위쪽 절반만 집중
-        LANDSCAPE: { top: 0.02, bottom: 0.45 }
+        PORTRAIT:  { top: 0.0, bottom: 0.65 }, 
+        LANDSCAPE: { top: 0.0, bottom: 0.60 }
     }
 };
 

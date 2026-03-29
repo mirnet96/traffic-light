@@ -2,7 +2,8 @@
 importScripts("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js");
 
 const CONFIG = {
-    CONF_THRESHOLD: 0.15, 
+    // [수정] 멀리 있는 작은 객체를 잡기 위해 임계값을 0.1로 낮춤
+    CONF_THRESHOLD: 0.10, 
     TRAFFIC_LIGHT_CLASS: 9 // COCO 데이터셋 기준 traffic light
 };
 
@@ -10,7 +11,6 @@ let model = null;
 
 async function loadModel() {
     try {
-        // 모델 경로는 실제 파일 위치에 맞게 수정이 필요할 수 있습니다.
         model = await tf.loadGraphModel('./models/yolov8n_web_model/model.json');
         const dummy = tf.fill([1, 640, 640, 3], 0);
         const res = await model.executeAsync(dummy);
@@ -22,20 +22,14 @@ async function loadModel() {
     }
 }
 
-/**
- * YOLOv8 결과 해석 함수
- */
 function processYOLO(res, vW, vH, zone) {
     const output = res.dataSync(); 
     const boxes = [];
     
-    // YOLOv8 output shape: [1, 84, 8400] -> [class_scores, x, y, w, h]
-    // 8400개의 후보 박스를 순회
     for (let i = 0; i < 8400; i++) {
         const score = output[8400 * (4 + CONFIG.TRAFFIC_LIGHT_CLASS) + i];
         
         if (score > CONFIG.CONF_THRESHOLD) {
-            // 0~640 좌표를 원본 영상 크기로 변환
             const cx = output[8400 * 0 + i] * (vW / 640);
             const cy = output[8400 * 1 + i] * (vH / 640);
             const bw = output[8400 * 2 + i] * (vW / 640);
@@ -45,18 +39,18 @@ function processYOLO(res, vW, vH, zone) {
             const y = cy - bh / 2;
             
             const aspectRatio = bh / bw;
-            // 3단 숫자형 신호등 대응을 위해 범위 확장 (1.2 ~ 6.5)
-            const isValidShape = aspectRatio >= 1.2 && aspectRatio <= 6.5; 
-            const isValidSize = bw > 5 && bh > 15;
+            // [수정] 원거리에서는 형태가 뭉개질 수 있으므로 비율 범위를 더 넓힘 (1.0 ~ 7.0)
+            const isValidShape = aspectRatio >= 1.0 && aspectRatio <= 7.0; 
+            // [수정] 아주 작은 신호등도 허용 (너비 3px 이상)
+            const isValidSize = bw > 3 && bh > 8;
 
-            // 설정된 스캔 존(화면 상단부) 안에 있는지 확인
-            if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape && isValidSize) {
+            // [수정] zone 체크 시 약간의 여유를 둠
+            if (y > (zone.yMin - 20) && (y + bh) < (zone.yMax + 20) && isValidShape && isValidSize) {
                 boxes.push({ x, y, w: bw, h: bh, score });
             }
         }
     }
     
-    // 점수 순으로 정렬 후 가장 확실한 것 반환
     return boxes.sort((a, b) => b.score - a.score);
 }
 
@@ -77,7 +71,6 @@ self.onmessage = async (e) => {
 
             self.postMessage({ type: 'RESULT', boxes });
 
-            // 메모리 해제
             tensor.dispose();
             input.dispose();
             tf.dispose(res);
