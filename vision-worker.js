@@ -21,30 +21,20 @@ async function loadModel() {
 }
 
 function processYOLO(res, vW, vH, zone) {
-    const trans = res.transpose([0, 2, 1]).squeeze().arraySync();
-    let boxes = [];
+    // ... 기존 코드
+    const aspectRatio = bh / bw;
+    
+    // 3단 숫자형 신호등(세로로 매우 긴 형태)을 수용하기 위해 범위 확장
+    // 일반 2단은 약 2.0, 3단은 3.0~4.5 수준입니다.
+    const isValidShape = aspectRatio >= 1.2 && aspectRatio <= 6.5; 
+    const isValidSize = bw > 5 && bh > 15; // 원거리 숫자형 대응을 위해 크기 제한 살짝 완화
 
-    trans.forEach(row => {
-        const score = row[4 + CONFIG.TRAFFIC_LIGHT_CLASS];
-        if (score > CONFIG.CONF_THRESHOLD) {
-            const [cx, cy, w, h] = row.slice(0, 4);
-            const x = (cx - w/2) * (vW/640);
-            const y = (cy - h/2) * (vH/640);
-            const bw = w * (vW/640);
-            const bh = h * (vH/640);
-
-            const aspectRatio = bh / bw;
-            // 보행 신호등 특성: 세로가 긴 직사각형 (모양.png 참고)
-            const isValidShape = aspectRatio >= 1.2 && aspectRatio <= 5.0;
-            
-            // 지정된 zone(상단 영역 등) 내에 있고 형태가 맞으면 후보 등록
-            if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape) {
-                boxes.push({ x, y, w: bw, h: bh, score });
-            }
-        }
-    });
-    return boxes.sort((a, b) => b.score - a.score);
+    if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape && isValidSize) {
+        boxes.push({ x, y, w: bw, h: bh, score });
+    }
+    // ...
 }
+
 
 self.onmessage = async (e) => {
     const { type, data } = e.data;
