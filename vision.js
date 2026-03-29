@@ -15,17 +15,33 @@ export async function initVision() {
 
 export async function startVision() {
     const video = document.getElementById('webcam');
+    const canvas = document.getElementById('webcam-canvas'); // [BUG1 FIX] 'vision-canvas' → 'webcam-canvas'
+
     const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 } }
     });
     video.srcObject = stream;
-    video.play();
+    await video.play();
+
+    // [BUG2 FIX] video.play() 완료 + 메타데이터 로드 후 캔버스 크기 1회만 설정하고 루프 시작
+    await new Promise(resolve => {
+        if (video.readyState >= 2) {
+            resolve();
+        } else {
+            video.addEventListener('loadeddata', resolve, { once: true });
+        }
+    });
+
+    // [BUG3 FIX] 캔버스 크기를 여기서 1회만 설정 (detectLoop 안에서 매 프레임 재설정 제거)
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
     detectLoop();
 }
 
 async function detectLoop() {
     const video = document.getElementById('webcam');
-    const canvas = document.getElementById('vision-canvas');
+    const canvas = document.getElementById('webcam-canvas'); // [BUG1 FIX] 올바른 ID
     if (!video || !canvas || video.readyState < 2) {
         requestAnimationFrame(detectLoop);
         return;
@@ -33,7 +49,7 @@ async function detectLoop() {
 
     const vW = video.videoWidth;
     const vH = video.videoHeight;
-    canvas.width = vW; canvas.height = vH;
+    // [BUG3 FIX] canvas.width / canvas.height 재설정 제거
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     // 1. 탐지 실행
@@ -47,11 +63,10 @@ async function detectLoop() {
     let currentBox = boxes.length > 0 ? boxes[0] : null;
 
     if (currentBox) {
-        holdCounter = 15; // 신호등을 찾으면 홀드 카운터 초기화
+        holdCounter = 15;
         if (!smoothedBox) {
             smoothedBox = currentBox;
         } else {
-            // 박스 좌표 보간 (이전 위치 75% + 현재 위치 25%) -> 흔들림 대폭 감소
             smoothedBox = {
                 x: smoothedBox.x * (1 - ALPHA) + currentBox.x * ALPHA,
                 y: smoothedBox.y * (1 - ALPHA) + currentBox.y * ALPHA,
@@ -60,7 +75,6 @@ async function detectLoop() {
             };
         }
     } else {
-        // 신호등을 놓쳤을 때 바로 지우지 않고 잠시 유지 (Hold)
         if (holdCounter > 0) {
             holdCounter--;
         } else {

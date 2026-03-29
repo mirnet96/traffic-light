@@ -18,19 +18,17 @@ export function drawUI(ctx, box, color, vW, vH) {
     const roiCanvas = document.getElementById('roi-canvas');
     if (roiCanvas) {
         const rCtx = roiCanvas.getContext('2d');
-        // 캔버스 크기를 신호등 비율에 맞게 설정 (보통 세로가 김)
         roiCanvas.width = 300; 
         roiCanvas.height = 600; 
 
         rCtx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
         
-        // 원본 비디오에서 탐지된 box 영역만 추출하여 roiCanvas 전체에 그림
         const video = document.getElementById('webcam');
         if (video && video.readyState >= 2) {
             rCtx.drawImage(
                 video, 
-                box.x, box.y, box.w, box.h, // 소스 영역 (탐지된 박스)
-                0, 0, roiCanvas.width, roiCanvas.height // 대상 영역 (캔버스 전체)
+                box.x, box.y, box.w, box.h,
+                0, 0, roiCanvas.width, roiCanvas.height
             );
         }
     }
@@ -40,7 +38,11 @@ export function updateStatusText(color) {
     const el = document.getElementById('api-status-text');
     if (!el) return;
     
-    if (color === 'UNKNOWN') {
+    // [BUG4 FIX] 'READY' 케이스 명시적 처리 추가
+    if (color === 'READY') {
+        el.innerText = "READY";
+        el.style.color = "#71717a";
+    } else if (color === 'UNKNOWN') {
         el.innerText = "DETECTED";
         el.style.color = "#3b82f6";
     } else {
@@ -50,7 +52,6 @@ export function updateStatusText(color) {
 }
 
 export function playFeedback(color, lastColor) {
-    // 색상 판별이 비활성화되었으므로 피드백 로직도 현재는 대기
     if (color === 'UNKNOWN') return; 
     
     if (color === lastColor) return;
