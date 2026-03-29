@@ -18,10 +18,9 @@ export async function initVision() {
         try {
             visionWorker = new Worker('vision-worker.js');
             
-            // 타임아웃 설정 (10초 내에 로드 안되면 실패 처리)
             const timeout = setTimeout(() => {
                 reject(new Error("모델 로딩 시간 초과 (Network 확인)"));
-            }, 10000);
+            }, 15000);
 
             visionWorker.postMessage({ type: 'LOAD' });
             
@@ -46,7 +45,7 @@ export async function initVision() {
 }
 
 /**
- * 카메라 시작: 권한을 요청하고 영상을 비디오 태그에 연결
+ * 카메라 시작
  */
 export async function startVision() {
     console.log("카메라 스트림 요청 중...");
@@ -66,7 +65,6 @@ export async function startVision() {
         
         video.srcObject = stream;
         
-        // play()가 완료될 때까지 대기
         await new Promise((resolve) => {
             video.onloadedmetadata = () => {
                 video.play().then(resolve);
@@ -77,9 +75,7 @@ export async function startVision() {
         requestAnimationFrame(detectLoop);
     } catch (err) {
         console.error("카메라 접근 에러:", err);
-        if (err.name === 'NotAllowedError') {
-            alert("카메라 권한이 거부되었습니다. 설정에서 카메라를 허용해주세요.");
-        }
+        alert("카메라를 시작할 수 없습니다: " + err.message);
         throw err;
     }
 }
@@ -90,7 +86,17 @@ export function setVisionActive(active) {
 
 async function detectLoop() {
     const video = document.getElementById('webcam');
-    if (!video || video.readyState < 2 || isWorkerBusy || !isVisionActive) {
+    
+    // 1. 비전 비활성화 상태거나 비디오 준비 안됨 체크
+    if (!isVisionActive || !video || video.readyState < 2) {
+        requestAnimationFrame(detectLoop);
+        return;
+    }
+
+    // 2. 워커가 작업 중이면 드로잉만 수행하고 리턴
+    if (isWorkerBusy) {
+        if (lastKnownBox) Renderer.drawUI(video, lastKnownBox);
+        else Renderer.drawPreview(video);
         requestAnimationFrame(detectLoop);
         return;
     }
@@ -107,25 +113,33 @@ async function detectLoop() {
             data: { bitmap, vW, vH, zone }
         }, [bitmap]);
     } catch (e) {
+        console.error("Bitmap 생성 에러:", e);
         isWorkerBusy = false;
     }
+    
     requestAnimationFrame(detectLoop);
 }
 
 function handleWorkerResult(boxes) {
     const video = document.getElementById('webcam');
+    
     if (boxes && boxes.length > 0) {
         lastKnownBox = boxes[0];
         lockCounter = MAX_LOCK_FRAMES; 
     } else {
-        if (lockCounter > 0) lockCounter--;
-        else lastKnownBox = null;
+        if (lockCounter > 0) {
+            lockCounter--;
+        } else {
+            lastKnownBox = null;
+        }
     }
 
+    // 결과에 따른 렌더링 실행
     if (lastKnownBox) {
         Renderer.drawUI(video, lastKnownBox);
     } else {
         Renderer.drawPreview(video);
     }
-    isWorkerBusy = false;
+    
+    isWorkerBusy = false; // 워커 가용 상태로 복구
 }
