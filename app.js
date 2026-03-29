@@ -1,6 +1,6 @@
-/** [ULTRA VISION AI] - app.js 수정본 */
+/** [ULTRA VISION AI] - app.js */
 import { initVision, startVision, setVisionActive } from './vision.js';
-import { initDataTab } from './api-data.js';
+import { initDataTab } from './api-data.js'; // fetchSignalData 제거 (미사용 시)
 import { speak } from './utils.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -9,44 +9,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (startBtn) {
         startBtn.onclick = async () => {
-            console.log("System initialization started...");
+            console.log("시작 버튼 클릭됨");
             
-            // 1. 오디오 컨텍스트 활성화
+            // 오디오 권한 획득
             const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const dummyCtx = new AudioContext();
-            if (dummyCtx.state === 'suspended') {
-                await dummyCtx.resume();
-            }
+            const audioCtx = new AudioContext();
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-            // 2. 화면 전환
             bootScreen.style.opacity = '0';
             setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
+            
             speak("울트라 비전 시스템을 시작합니다.");
             
             try {
-                // 3. 비전 시스템 초기화 (개별 에러 핸들링)
-                console.log("Loading Vision Model...");
+                // 하나씩 순차적으로 실행하여 에러 지점 파악
+                console.log("1. 비전 초기화 시작");
                 await initVision();
                 
-                console.log("Starting Camera...");
+                console.log("2. 카메라 시작");
                 await startVision();
                 
-                console.log("Initializing Data Tab...");
+                console.log("3. 데이터 탭 초기화");
                 await initDataTab();
                 
-                console.log("System Ready.");
-            } catch (err) { 
-                console.error("Initialization failed:", err);
-                alert("시스템 초기화 중 오류가 발생했습니다: " + err.message);
+                console.log("모든 시스템 준비 완료");
+            } catch (err) {
+                console.error("시스템 시작 실패:", err);
+                alert("오류 발생: " + err.message);
             }
         };
     }
-    
-    // 탭 전환 버튼 연결
-    const vBtn = document.getElementById('tab-v-btn');
-    const dBtn = document.getElementById('tab-d-btn');
-    if (vBtn) vBtn.onclick = () => switchTab('vision');
-    if (dBtn) dBtn.onclick = () => switchTab('data');
+
+    // 탭 전환 버튼 이벤트 연결
+    document.getElementById('tab-v-btn').onclick = () => switchTab('vision');
+    document.getElementById('tab-d-btn').onclick = () => switchTab('data');
 });
 
 function switchTab(type) {
@@ -68,4 +64,3 @@ function switchTab(type) {
         if (window.kakaoMapInstance) window.kakaoMapInstance.relayout();
     }
 }
-
