@@ -2,7 +2,7 @@
 importScripts("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js");
 
 const CONFIG = {
-    CONF_THRESHOLD: 0.15, // 탐지 문턱값 하향
+    CONF_THRESHOLD: 0.15, // 탐지 문턱값 하향 (원거리 감지 강화)
     TRAFFIC_LIGHT_CLASS: 9
 };
 
@@ -28,16 +28,14 @@ function processYOLO(res, vW, vH, zone) {
         const score = row[4 + CONFIG.TRAFFIC_LIGHT_CLASS];
         if (score > CONFIG.CONF_THRESHOLD) {
             const [cx, cy, w, h] = row.slice(0, 4);
-            // 640x640 모델 좌표를 실제 영상 좌표로 변환
             const x = (cx - w/2) * (vW/640);
             const y = (cy - h/2) * (vH/640);
             const bw = w * (vW/640);
             const bh = h * (vH/640);
 
             const aspectRatio = bh / bw;
-            // 한국 신호등 특성상 세로가 길지만, 원거리는 1.0에 가까워질 수 있으므로 범위 확장
+            // 한국 신호등 세로 비율 및 원거리 대응 범위 확장
             const isValidShape = aspectRatio >= 1.0 && aspectRatio <= 6.0;
-            // 최소 크기 제한을 낮춤 (원거리 대응)
             const isValidSize = bw > 5 && bh > 12;
 
             if (y > zone.yMin && (y + bh) < zone.yMax && isValidShape && isValidSize) {
@@ -45,7 +43,6 @@ function processYOLO(res, vW, vH, zone) {
             }
         }
     });
-    // 가장 점수가 높은 순으로 정렬
     return boxes.sort((a, b) => b.score - a.score);
 }
 
@@ -57,14 +54,12 @@ self.onmessage = async (e) => {
         if (!model) return;
         const { bitmap, vW, vH, zone } = data;
 
-        // tf.tidy는 비동기(await)를 지원하지 않으므로 수동 dispose
         const tensor = tf.browser.fromPixels(bitmap);
         const input = tensor.resizeBilinear([640, 640]).div(255).expandDims(0);
         const res = await model.executeAsync(input);
         
         const boxes = processYOLO(res, vW, vH, zone);
 
-        // 메모리 해제 필수
         tensor.dispose();
         input.dispose();
         tf.dispose(res);

@@ -9,7 +9,7 @@ let smoothedBox = null;
 let holdCounter = 0;
 let isVisionActive = true;
 let isWorkerBusy = false;
-const ALPHA = 0.35; // 스무딩 속도 (0.25 -> 0.35로 반응성 상향)
+const ALPHA = 0.35; // 보정 감도
 
 const colorHistory = [];
 const VOTE_WINDOW = 5;
@@ -53,10 +53,10 @@ export async function startVision() {
         });
         video.srcObject = stream;
         
-        // 카메라 줌 설정 (지원되는 경우 1.5배~2배 줌 고정)
         const track = stream.getVideoTracks()[0];
         const caps = track.getCapabilities();
         if (caps.zoom) {
+            // 원거리 신호등 감지 확률을 높이기 위해 1.8배 줌 적용
             track.applyConstraints({ advanced: [{ zoom: 1.8 }] });
         }
         
@@ -78,10 +78,8 @@ async function detectLoop() {
         isWorkerBusy = true;
         const vW = video.videoWidth;
         const vH = video.videoHeight;
-        // 탐지 영역 가져오기
         const zone = Detector.getScanZone(vW, vH);
 
-        // 현재 프레임을 비트맵으로 캡처하여 워커로 전달 (오버헤드 최소화)
         const bitmap = await createImageBitmap(video);
         visionWorker.postMessage({
             type: 'DETECT',
@@ -104,17 +102,15 @@ function handleWorkerResult(boxes) {
         canvas.height = video.videoHeight;
     }
 
-    // 분석을 위해 캔버스에 비디오 프레임 그리기
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const currentBox = boxes.length > 0 ? boxes[0] : null;
 
     if (currentBox) {
-        holdCounter = 20; // 박스 유지 프레임 상향
+        holdCounter = 25; // 감지 유지 시간 상향
         if (!smoothedBox) {
             smoothedBox = currentBox;
         } else {
-            // 위치 부드럽게 보정
             smoothedBox = {
                 x: smoothedBox.x * (1 - ALPHA) + currentBox.x * ALPHA,
                 y: smoothedBox.y * (1 - ALPHA) + currentBox.y * ALPHA,
