@@ -1,17 +1,15 @@
-/** [ULTRA VISION AI] - vision.js */
+/** [ULTRA VISION AI] - vision.js (Main) */
 import * as Detector from './vision-detector.js';
 import * as Analyzer from './vision-analyzer.js';
 import * as Renderer from './vision-renderer.js';
 
 let visionWorker = null;
-let poseDetector = null;
 let lastColor = 'UNKNOWN';
 let smoothedBox = null;
 let holdCounter = 0;
 let isVisionActive = true;
 let isWorkerBusy = false;
-let dynamicZoneCoords = null; 
-const ALPHA = 0.25;
+const ALPHA = 0.35; // 스무딩 속도 (0.25 -> 0.35로 반응성 상향)
 
 const colorHistory = [];
 const VOTE_WINDOW = 5;
@@ -32,41 +30,7 @@ export function setVisionActive(active) {
     }
 }
 
-/** MediaPipe Pose 초기화 */
-async function initMediaPipe() {
-    // window.Pose 가 로드되었는지 확인
-    if (!window.Pose) return;
-    
-    poseDetector = new window.Pose({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-    });
-    poseDetector.setOptions({
-        modelComplexity: 0,
-        smoothLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-    });
-    poseDetector.onResults((results) => {
-        if (!results.poseLandmarks) {
-            dynamicZoneCoords = null;
-            return;
-        }
-        const nose = results.poseLandmarks[0];
-        const shoulderY = (results.poseLandmarks[11].y + results.poseLandmarks[12].y) / 2;
-        
-        // 고개 위치에 따른 ROI 비율 조정
-        if (nose.y > shoulderY + 0.05) { 
-            dynamicZoneCoords = { top: 0.25, bottom: 0.65 }; // 하단 집중
-        } else if (nose.y < shoulderY - 0.05) { 
-            dynamicZoneCoords = { top: 0.0, bottom: 0.40 };  // 상단 집중
-        } else {
-            dynamicZoneCoords = { top: 0.05, bottom: 0.50 }; // 정면
-        }
-    });
-}
-
 export async function initVision() {
-    await initMediaPipe();
     return new Promise((resolve) => {
         visionWorker = new Worker('vision-worker.js');
         visionWorker.postMessage({ type: 'LOAD' });
@@ -79,12 +43,28 @@ export async function initVision() {
 
 export async function startVision() {
     const video = document.getElementById('webcam');
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 } }
-    });
-    video.srcObject = stream;
-    await video.play();
-    requestAnimationFrame(detectLoop);
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+                facingMode: 'environment', 
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
+        });
+        video.srcObject = stream;
+        
+        // 카메라 줌 설정 (지원되는 경우 1.5배~2배 줌 고정)
+        const track = stream.getVideoTracks()[0];
+        const caps = track.getCapabilities();
+        if (caps.zoom) {
+            track.applyConstraints({ advanced: [{ zoom: 1.8 }] });
+        }
+        
+        await video.play();
+        requestAnimationFrame(detectLoop);
+    } catch (err) {
+        console.error("Camera Start Failed:", err);
+    }
 }
 
 async function detectLoop() {
@@ -94,15 +74,14 @@ async function detectLoop() {
         return;
     }
 
-    // MediaPipe 분석 수행
-    if (poseDetector) await poseDetector.send({ image: video });
-
     if (!isWorkerBusy) {
         isWorkerBusy = true;
         const vW = video.videoWidth;
         const vH = video.videoHeight;
-        const zone = Detector.getScanZone(vW, vH, dynamicZoneCoords);
+        // 탐지 영역 가져오기
+        const zone = Detector.getScanZone(vW, vH);
 
+        // 현재 프레임을 비트맵으로 캡처하여 워커로 전달 (오버헤드 최소화)
         const bitmap = await createImageBitmap(video);
         visionWorker.postMessage({
             type: 'DETECT',
@@ -125,13 +104,17 @@ function handleWorkerResult(boxes) {
         canvas.height = video.videoHeight;
     }
 
+    // 분석을 위해 캔버스에 비디오 프레임 그리기
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
     const currentBox = boxes.length > 0 ? boxes[0] : null;
 
     if (currentBox) {
-        holdCounter = 15;
+        holdCounter = 20; // 박스 유지 프레임 상향
         if (!smoothedBox) {
             smoothedBox = currentBox;
         } else {
+            // 위치 부드럽게 보정
             smoothedBox = {
                 x: smoothedBox.x * (1 - ALPHA) + currentBox.x * ALPHA,
                 y: smoothedBox.y * (1 - ALPHA) + currentBox.y * ALPHA,
@@ -144,11 +127,10 @@ function handleWorkerResult(boxes) {
         else smoothedBox = null;
     }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     if (smoothedBox) {
         const rawColor = Analyzer.analyzeROI(ctx, smoothedBox);
         const color = getVotedColor(rawColor);
+        
         Renderer.drawUI(ctx, smoothedBox, color);
         Renderer.playFeedback(color, lastColor);
         Renderer.updateStatusText(color);
