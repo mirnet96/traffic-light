@@ -1,12 +1,8 @@
-/** [ULTRA VISION AI] - app.js (수정본) */
-import { initVision, startVision, setVisionActive } from './vision.js';
+/** [ULTRA VISION AI] - app.js (iOS 카메라 수정본) */
+import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js';
 import { initDataTab } from './api-data.js';
 import { speak } from './utils.js';
 
-// **필터 인스턴스 미리 생성 (성능 최적화)**
-// contrast(1.4): 대비 40% 증가 (흐릿한 신호등 윤곽 강조)
-// saturate(1.2): 채도 20% 증가 (신호등 색상 뚜렷하게)
-// brightness(1.1): 밝기 10% 증가 (어두운 객체 식별 보조)
 const improvedFilter = 'contrast(1.4) saturate(1.2) brightness(1.1)';
 
 function switchTab(type) {
@@ -14,43 +10,31 @@ function switchTab(type) {
     const dTab = document.getElementById('data-tab');
     const vBtn = document.getElementById('tab-v-btn');
     const dBtn = document.getElementById('tab-d-btn');
-    
-    // **미리 캔버스 컨텍스트 가져오기 (탭 전환 시 초기 필터 적용)**
     const pCanvas = document.getElementById('preview-canvas');
-    const pCtx = pCanvas.getContext('2d');
 
     if (type === 'vision') {
-        // 1. 시각적 활성화
         vTab.classList.add('active');
         dTab.classList.remove('active');
-        
-        // 2. 버튼 스타일 변경
         vBtn.className = "flex-1 py-4 font-black text-blue-400 border-b-4 border-blue-500";
         dBtn.className = "flex-1 py-4 font-black text-zinc-500 border-b-4 border-transparent";
-        
-        // 3. 비전 로직 가동
         setVisionActive(true);
-        console.log("Vision Mode Activated with Improved Filters");
 
-        // **비전 탭 활성화 시 기본 필터 적용 (첫 프레임 대비)**
-        pCtx.filter = improvedFilter;
-
+        if (pCanvas) {
+            const pCtx = pCanvas.getContext('2d');
+            pCtx.filter = improvedFilter;
+        }
     } else {
-        // 1. 시각적 활성화
         vTab.classList.remove('active');
         dTab.classList.add('active');
-        
-        // 2. 버튼 스타일 변경
         dBtn.className = "flex-1 py-4 font-black text-blue-400 border-b-4 border-blue-500";
         vBtn.className = "flex-1 py-4 font-black text-zinc-500 border-b-4 border-transparent";
-        
-        // 3. 비전 로직 중지 (자원 절약)
         setVisionActive(false);
-        initDataTab(); // V2X 데이터 로드
-        console.log("V2X Mode Activated (Vision Paused)");
+        initDataTab();
 
-        // **데이터 탭으로 전환 시 비전 캔버스 필터 초기화 (자원 낭비 방지)**
-        pCtx.filter = 'none';
+        if (pCanvas) {
+            const pCtx = pCanvas.getContext('2d');
+            pCtx.filter = 'none';
+        }
 
         if (window.kakaoMapInstance) {
             setTimeout(() => window.kakaoMapInstance.relayout(), 300);
@@ -61,34 +45,84 @@ function switchTab(type) {
 document.addEventListener('DOMContentLoaded', () => {
     const startBtn = document.getElementById('start-btn');
     const bootScreen = document.getElementById('boot-screen');
+    const statusSub = document.getElementById('status-sub');
 
     if (startBtn) {
         startBtn.onclick = async () => {
-            // 시스템 시작 안내
+            // [iOS 핵심 수정] 
+            // 1단계: 버튼 터치 직후 즉시 카메라 권한 요청 (제스처 컨텍스트 유지)
+            // 2단계: 카메라 켜는 동안 부팅 화면 유지 (모델 로딩 중 표시)
+            // 3단계: 카메라 + 모델 준비 완료 후 탐지 시작
+
+            // 부트 화면 숨기기
             bootScreen.style.opacity = '0';
             setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
-            speak("울트라 비전 시스템을 시작합니다. 영상 품질이 개선되었습니다.");
-            
-            // [중요] 시작 시점에 무조건 vision 탭으로 초기화
+
+            // 비전 탭 UI 활성화
             switchTab('vision');
 
+            // 상태 표시
+            if (statusSub) statusSub.innerText = '카메라 초기화 중...';
+            Renderer_updateStatus('LOADING');
+
             try {
-                // **임계값 조정을 위해 initVision에 설정값 전달**
-                // minDetectionConfidence: 0.5 -> 0.35 (감지 신뢰도 대폭 하향)
-                // minTrackingConfidence: 0.5 -> 0.4 (추적 신뢰도 소폭 하향)
-                await initVision({
-                    minDetectionConfidence: 0.35,
-                    minTrackingConfidence: 0.4
-                });  
-                await startVision(); // 카메라 시작
+                // [iOS 핵심] 
+                // step 1: 터치 직후 즉시 카메라 권한 요청 (제스처 컨텍스트 살아있을 때)
+                // step 2: 카메라 켜는 동안 모델도 병렬 로딩
+                if (statusSub) statusSub.innerText = '카메라 연결 중...';
+
+                const [cameraReady] = await Promise.all([
+                    startCameraFirst(),
+                    (async () => {
+                        if (statusSub) statusSub.innerText = 'AI 모델 로딩 중... (최초 1회)';
+                        await initVision({
+                            minDetectionConfidence: 0.35,
+                            minTrackingConfidence: 0.4
+                        });
+                    })()
+                ]);
+
+                // 둘 다 준비 완료 → 탐지 루프 시작
+                if (statusSub) statusSub.innerText = '개선된 필터로 신호등을 찾고 있습니다';
+                speak("울트라 비전 시스템을 시작합니다.");
+                startVision();
+
             } catch (err) {
-                console.error("초기 구동 에러:", err);
+                console.error("[초기 구동 에러]:", err);
+
+                // HTTPS 문제 → 부트화면 유지, 재시도 안내
+                if (err.message === 'HTTPS_REQUIRED' || err.message === 'CAMERA_API_UNAVAILABLE') {
+                    if (statusSub) statusSub.innerText = 'HTTPS 필요 — 보안 연결로 접속해주세요';
+                    bootScreen.style.display = 'flex';
+                    bootScreen.style.opacity = '1';
+                    startBtn.innerText = '다시 시도';
+                    return;
+                }
+
+                // 권한 거부 → 설정 안내 후 부트화면 복원
+                if (err.name === 'NotAllowedError') {
+                    if (statusSub) statusSub.innerText = '카메라 권한 거부됨 — 설정에서 허용해주세요';
+                    bootScreen.style.display = 'flex';
+                    bootScreen.style.opacity = '1';
+                    startBtn.innerText = '다시 시도';
+                    return;
+                }
+
+                // 기타 오류
+                if (statusSub) statusSub.innerText = '오류: ' + err.message;
+                bootScreen.style.display = 'flex';
+                bootScreen.style.opacity = '1';
+                startBtn.innerText = '다시 시도';
             }
         };
     }
 
-    // 탭 버튼 클릭 이벤트 바인딩 (오타 수정됨)
     document.getElementById('tab-v-btn').onclick = () => switchTab('vision');
-    // document.getElementById('tab-d-btn').onclick = () => switchTab('vision'); // 오타 주의: 'data'로 되어있는지 확인
     document.getElementById('tab-d-btn').onclick = () => switchTab('data');
 });
+
+// vision-renderer의 updateStatusText를 app.js에서도 쓸 수 있도록 래핑
+function Renderer_updateStatus(text) {
+    const main = document.getElementById('status-main');
+    if (main) main.innerText = text;
+}

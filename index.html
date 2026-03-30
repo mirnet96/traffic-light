@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="referrer" content="no-referrer-when-downgrade">
+    <!-- [iOS 필수] HTTPS 없이 카메라 불가 → 로컬 테스트는 localhost 사용 -->
     <title>ULTRA VISION AI - Dynamic ROI & V2X (Improved)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
@@ -11,28 +12,34 @@
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=3696a1a72981f0d97505a7dc983c1d39&libraries=services"></script>
 
     <style>
-        /* 기본 레이아웃 */
         .h-safe { height: 100dvh; }
         .tab-content { display: none; height: calc(100% - 140px); position: relative; overflow-y: auto; }
         .tab-content.active { display: block !important; }
 
-        /* 비전 탭 내부 요소 */
-        #vision-tab { overflow: hidden; } /* 비전 탭은 스크롤 방지 */
-        #webcam { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+        #vision-tab { overflow: hidden; }
+
+        /* [iOS 핵심 수정] 
+           - autoplay, playsinline, muted 속성 필수
+           - display:none 대신 opacity:0 + pointer-events:none 사용
+             (일부 iOS Safari는 display:none 비디오의 getUserMedia를 무시함) */
+        #webcam { 
+            position: absolute; 
+            width: 1px; height: 1px; 
+            opacity: 0; 
+            pointer-events: none;
+            /* display:none 제거 → iOS 호환성 */
+        }
+
         #roi-fullscreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         #preview-canvas, #roi-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        
-        /* **ROI 모니터링을 위해 display: none 제거 및 반투명 처리** */
         #roi-canvas { object-fit: contain; display: block; opacity: 0.5; border: 2px solid rgba(255, 255, 0, 0.8); z-index: 5; pointer-events: none;}
-        
-        /* UI 오버레이 */
+
         #color-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; z-index: 10; }
         #status-bar { position: absolute; bottom: 40px; left: 0; width: 100%; text-align: center; z-index: 20; pointer-events: none; }
-        #status-main { font-size: 56px; font-weight: 900; letter-spacing: 4px; text-shadow: 0 4px 20px rgba(0,0,0,0.9); }
+        #status-main { font-size: 56px; font-weight: 900; letter-spacing: 4px; text-shadow: 0 4px 20px rgba(0,0,0,0.9); transition: color 0.3s ease, text-shadow 0.3s ease; }
         #status-sub { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.6); letter-spacing: 2px; margin-top: 8px; }
         #top-label { position: absolute; top: 12px; left: 16px; font-size: 11px; font-weight: 900; color: rgba(255,255,255,0.4); letter-spacing: 2px; z-index: 20; pointer-events: none; }
-        
-        /* 데이터 탭 스크롤 바 숨기기 (선택 사항) */
+
         #data-tab::-webkit-scrollbar { display: none; }
     </style>
 </head>
@@ -45,6 +52,7 @@
     </nav>
 
     <div id="vision-tab" class="tab-content active">
+        <!-- [iOS 핵심] playsinline 반드시 필요. muted는 자동재생 정책 충족용 -->
         <video id="webcam" autoplay playsinline muted></video>
         
         <div id="roi-fullscreen">
@@ -91,13 +99,31 @@
     <div id="boot-screen" class="absolute inset-0 bg-[#050505] z-[100] flex items-center justify-center p-6 transition-opacity duration-500">
         <div class="bg-zinc-900 w-full max-w-sm p-10 rounded-[50px] text-center shadow-2xl border border-white/5">
             <h1 class="text-4xl font-black mb-10 italic tracking-tighter uppercase text-white">Ultra Vision</h1>
+            <!-- [iOS] HTTPS 체크: HTTP 접속 시 경고 표시 -->
+            <div id="https-warning" class="hidden mb-6 bg-red-900/50 border border-red-500/50 rounded-2xl p-4 text-left">
+                <p class="text-red-400 text-xs font-bold mb-1">⚠️ HTTPS 필요</p>
+                <p class="text-red-300 text-[10px] leading-relaxed">iOS Safari에서 카메라를 사용하려면 HTTPS 연결이 필요합니다. 현재 HTTP로 접속 중입니다.</p>
+            </div>
             <button id="start-btn" class="w-full py-6 bg-blue-600 hover:bg-blue-500 active:scale-95 rounded-[30px] font-black text-xl transition-all shadow-[0_0_30px_rgba(37,99,235,0.4)]">SYSTEM START</button>
             <p class="text-zinc-500 text-[10px] mt-6 font-bold uppercase tracking-widest">Powered by AI & V2X Data</p>
+            <p class="text-zinc-600 text-[9px] mt-2">카메라 사용에는 HTTPS 또는 localhost 환경이 필요합니다</p>
         </div>
     </div>
 
 </div>
 
 <script type="module" src="app.js"></script>
+<script>
+    // [iOS] 페이지 로드 시 HTTPS 여부 즉시 확인 → 경고 배너 표시
+    (function() {
+        const isSecure = location.protocol === 'https:' 
+            || location.hostname === 'localhost' 
+            || location.hostname === '127.0.0.1';
+        if (!isSecure) {
+            const warn = document.getElementById('https-warning');
+            if (warn) warn.classList.remove('hidden');
+        }
+    })();
+</script>
 </body>
 </html>
