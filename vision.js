@@ -1,7 +1,7 @@
 /** [ULTRA VISION AI] - vision.js (iOS 카메라 수정 + 원거리 인식 개선) */
 import * as Detector from './vision-detector.js';
 import * as Renderer from './vision-renderer.js';
-import { analyzeROI } from './vision-analyzer.js';
+import { analyzeROI, detectByHSV as analyzeByHSV } from './vision-analyzer.js';
 
 let visionWorker = null;
 let isWorkerBusy = false;
@@ -216,17 +216,18 @@ function handleWorkerResult(boxes) {
     const video = document.getElementById('webcam');
 
     if (boxes && boxes.length > 0) {
+        // YOLO 탐지 성공
         lastKnownBox = boxes[0];
         lockCounter = MAX_LOCK_FRAMES;
-
-        // [원거리 인식 개선] 탐지된 ROI에서 색상 분석 후 상태 표시
         analyzeAndShowSignal(video, lastKnownBox);
     } else {
         if (lockCounter > 0) {
+            // 이전 박스 유지 (lock 중)
             lockCounter--;
         } else {
+            // [HSV Fallback] YOLO 탐지 실패 + lock 만료 → HSV로 직접 스캔
             lastKnownBox = null;
-            Renderer.updateStatusText('SEARCHING');
+            tryHSVFallback(video);
         }
     }
 
@@ -237,6 +238,35 @@ function handleWorkerResult(boxes) {
     }
 
     isWorkerBusy = false;
+}
+
+/**
+ * YOLO 미탐지 시 HSV 색상 분석으로 신호 판별
+ * preview-canvas에 현재 프레임이 그려져 있으므로 그것을 읽어 분석
+ */
+function tryHSVFallback(video) {
+    try {
+        const previewCanvas = document.getElementById('preview-canvas');
+        if (!previewCanvas) return;
+        const ctx = previewCanvas.getContext('2d');
+
+        const vW = video.videoWidth  || previewCanvas.width;
+        const vH = video.videoHeight || previewCanvas.height;
+        const zone = Detector.getScanZone(vW, vH);
+
+        const { signal, box } = analyzeByHSV(ctx, zone);
+
+        if (signal !== 'UNKNOWN' && box) {
+            // HSV fallback으로 박스 확보 → 짧게 유지 (lockCounter 절반)
+            lastKnownBox = box;
+            lockCounter = Math.floor(MAX_LOCK_FRAMES / 2);
+            Renderer.updateSignalStatus(signal);
+        } else {
+            Renderer.updateSignalStatus('UNKNOWN');
+        }
+    } catch (e) {
+        console.warn('[HSV Fallback]:', e.message);
+    }
 }
 
 /**
