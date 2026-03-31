@@ -10,41 +10,67 @@ export function analyzeROI(ctx, box) {
     const canvas = ctx.canvas;
     const x = Math.max(0, Math.floor(box.x));
     const y = Math.max(0, Math.floor(box.y));
-    const w = Math.min(Math.floor(box.w), canvas.width  - x);
+    const w = Math.min(Math.floor(box.w), canvas.width - x);
     const h = Math.min(Math.floor(box.h), canvas.height - y);
     if (w < 2 || h < 4) return 'UNKNOWN';
 
     const { data } = ctx.getImageData(x, y, w, h);
 
-    const topEnd   = Math.floor(h * 0.35);
-    const botStart = Math.floor(h * 0.65);
+    const topEnd   = Math.floor(h * 0.38);
+    const botStart = Math.floor(h * 0.62);
 
-    let rScore = 0, gScore = 0, rCount = 0, gCount = 0, rTotal = 0, gTotal = 0;
+    let rScore = 0, gScore = 0, rCount = 0, gCount = 0;
+    let rTotal = 0, gTotal = 0;
 
     for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i+1], b = data[i+2];
-        const br = Math.max(r, g, b);
+        const { h: hue, s, v } = _rgbToHSV(r, g, b);
+
+        // 발광체 조건: 밝고 채도 있는 픽셀만 분석
+        if (v < 0.4 || s < 0.3) continue;
+
         const py = Math.floor((i / 4) / w);
-        if (br < 50) continue;
+        const brightness = v * 255;
 
         if (py < topEnd) {
             rTotal++;
-            if (r > 130 && r > g * 1.5 && r > b * 1.5) { rCount++; rScore += br; }
+            // ★ HSV 기반 빨간색 판정 (역광·야간에 강함)
+            const isRed = (hue <= 15 || hue >= 345) && s > 0.5;
+            if (isRed) { rCount++; rScore += brightness; }
         } else if (py >= botStart) {
             gTotal++;
-            if (g > 110 && g > r * 1.1 && g > b * 1.0) { gCount++; gScore += br; }
+            // ★ HSV 기반 초록색 판정
+            const isGreen = (hue >= 85 && hue <= 170) && s > 0.4;
+            if (isGreen) { gCount++; gScore += brightness; }
         }
     }
 
-    const rRatio = rTotal > 0 ? rCount / rTotal : 0;
-    const gRatio = gTotal > 0 ? gCount / gTotal : 0;
-    const isRed   = rRatio > 0.15 && rScore > 80;
-    const isGreen = gRatio > 0.15 && gScore > 80;
+    const rRatio = rTotal > 10 ? rCount / rTotal : 0;
+    const gRatio = gTotal > 10 ? gCount / gTotal : 0;
+    const isRed   = rRatio > 0.12 && rScore > 60;
+    const isGreen = gRatio > 0.12 && gScore > 60;
 
     if (isRed  && !isGreen) return 'RED';
     if (isGreen && !isRed)  return 'GREEN';
-    if (isRed  && isGreen)  return rScore > gScore ? 'RED' : 'GREEN';
+    if (isRed  && isGreen)  return rScore > gScore * 1.2 ? 'RED' : 'GREEN';
     return 'UNKNOWN';
+}
+
+
+function _rgbToHSV(r, g, b) {
+    const rn = r/255, gn = g/255, bn = b/255;
+    const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+    const delta = max - min;
+    const v = max;
+    const s = max > 0 ? delta / max : 0;
+    let h = 0;
+    if (delta > 0) {
+        if      (max === rn) h = 60 * (((gn-bn)/delta) % 6);
+        else if (max === gn) h = 60 * (((bn-rn)/delta) + 2);
+        else                 h = 60 * (((rn-gn)/delta) + 4);
+        if (h < 0) h += 360;
+    }
+    return { h, s, v };
 }
 
 

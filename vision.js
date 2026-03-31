@@ -110,7 +110,31 @@ class KalmanBox {
     reset() { this.x = null; this.P = 100; this.vx = 0; this.vy = 0; }
 }
 
+class SignalVoter {
+    constructor(windowSize = 8) {
+        this.window = [];
+        this.size = windowSize;
+    }
+
+    vote(signal) {
+        this.window.push(signal);
+        if (this.window.length > this.size) this.window.shift();
+
+        const counts = { RED: 0, GREEN: 0, UNKNOWN: 0 };
+        for (const s of this.window) counts[s] = (counts[s] || 0) + 1;
+
+        // ★ RED/GREEN이 60% 이상일 때만 확정 (노이즈 프레임 무시)
+        const threshold = this.size * 0.6;
+        if (counts.RED >= threshold)   return 'RED';
+        if (counts.GREEN >= threshold) return 'GREEN';
+        return 'UNKNOWN';
+    }
+
+    reset() { this.window = []; }
+}
+
 const kalman = new KalmanBox();
+const signalVoter = new SignalVoter(8); // 최근 8프레임 투표
 
 // handleWorkerResult 수정
 function handleWorkerResult(boxes) {
@@ -285,7 +309,13 @@ async function detectLoop() {
 
     try {
         const bitmap = await createImageBitmap(video);
-        visionWorker.postMessage({ type: 'DETECT', data: { bitmap, vW, vH, zone } }, [bitmap]);
+
+        visionWorker.postMessage({
+            type: 'DETECT',
+            data: { bitmap, vW, vH, zone, lastBox: lastKnownBox } // ★ 추가
+        }, [bitmap]);
+
+
     } catch (e) {
         console.error("[Bitmap 생성 에러]:", e);
         isWorkerBusy = false;
@@ -325,9 +355,14 @@ function analyzeAndShowSignal(video, box) {
         const offscreen = new OffscreenCanvas(Math.max(1, Math.floor(box.w)), Math.max(1, Math.floor(box.h)));
         const ctx = offscreen.getContext('2d');
         ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
-        const result = analyzeROI(ctx, { x: 0, y: 0, w: box.w, h: box.h });
-        Renderer.updateSignalStatus(result);
+        const rawResult = analyzeROI(ctx, { x: 0, y: 0, w: box.w, h: box.h });
+
+        // ★ 투표로 최종 결정
+        const finalResult = signalVoter.vote(rawResult);
+        Renderer.updateSignalStatus(finalResult);
     } catch (e) {
-        console.warn("[색상분석] OffscreenCanvas 미지원:", e.message);
+        console.warn("[색상분석]:", e.message);
     }
 }
+
+

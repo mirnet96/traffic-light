@@ -108,23 +108,39 @@ function processYOLO(output, vW, vH, zone, yOffset) {
  * ★ 교번 전략: 짝수=전체화면, 홀수=상단 타일 고해상도
  *   각 패스에서 tf.tidy로 중간 텐서 완전 정리
  */
-async function detectWithAlternating(bitmap, vW, vH, zone) {
+async function detectWithAlternating(bitmap, vW, vH, zone, lastBox) {
     frameCount++;
     const isFullFrame = (frameCount % 2 === 0);
 
-    if (isFullFrame) {
-        // 패스 A: 전체 화면
+    if (isFullFrame || !lastBox) {
         const tensor = tf.browser.fromPixels(bitmap).toFloat().div(255);
         return await runInference(tensor, vW, vH, zone, 0);
     } else {
-        // 패스 B: 상단 TILE_CROP_RATIO 타일
-        const cropH = Math.floor(vH * CONFIG.TILE_CROP_RATIO);
+        // ★ 이전 박스 주변만 크롭해서 고해상도 재추론
+        const pad  = Math.max(lastBox.w, lastBox.h) * 1.5;
+        const cx   = lastBox.x + lastBox.w / 2;
+        const cy   = lastBox.y + lastBox.h / 2;
+
+        const cropX = Math.max(0, Math.floor(cx - pad));
+        const cropY = Math.max(0, Math.floor(cy - pad));
+        const cropW = Math.min(vW - cropX, Math.floor(pad * 2));
+        const cropH = Math.min(vH - cropY, Math.floor(pad * 2));
+
         const fullTensor = tf.browser.fromPixels(bitmap).toFloat().div(255);
-        const cropTensor = tf.tidy(() => fullTensor.slice([0, 0, 0], [cropH, vW, 3]));
+        const cropTensor = tf.tidy(() =>
+            fullTensor.slice([cropY, cropX, 0], [cropH, cropW, 3])
+        );
         fullTensor.dispose();
 
-        const tileZone = { yMin: 0, yMax: cropH };
-        return await runInference(cropTensor, vW, cropH, tileZone, 0);
+        const cropZone = { yMin: 0, yMax: cropH };
+        const boxes = await runInference(cropTensor, cropW, cropH, cropZone, 0);
+
+        // 좌표를 원본 기준으로 복원
+        return boxes.map(b => ({
+            ...b,
+            x: b.x + cropX,
+            y: b.y + cropY
+        }));
     }
 }
 
