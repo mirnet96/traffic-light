@@ -295,29 +295,6 @@ async function detectLoop() {
     requestAnimationFrame(detectLoop);
 }
 
-function handleWorkerResult(boxes) {
-    clearTimeout(workerWatchdog);
-
-    const video = document.getElementById('webcam');
-
-    if (boxes && boxes.length > 0) {
-        lastKnownBox = boxes[0];
-        lockCounter = MAX_LOCK_FRAMES;
-        analyzeAndShowSignal(video, lastKnownBox);
-    } else {
-        if (lockCounter > 0) {
-            lockCounter--;
-        } else {
-            lastKnownBox = null;
-            tryHSVFallback(video);
-        }
-    }
-
-    if (lastKnownBox) Renderer.drawUI(video, lastKnownBox);
-    else Renderer.drawPreview(video);
-
-    isWorkerBusy = false;
-}
 
 function tryHSVFallback(video) {
     try {
