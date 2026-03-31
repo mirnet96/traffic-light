@@ -1,85 +1,159 @@
-/** [ULTRA VISION AI] - api-data.js */
-import { speak } from './utils.js';
+/** [ULTRA VISION AI] - vision-analyzer.js
+ *  버그 수정:
+ *  - [BUG FIX] _rgbToHSV / rgbToHSV 중복 정의 제거 → 단일 함수 rgbToHSV로 통일
+ */
 
-const API_BASE_URL = 'https://iot.klueware.com/api/v1';
-const API_KEY      = '7c76f496-b1f7-459f-85f1-ec9359276fce';
+/**
+ * YOLO가 탐지한 박스 내부 색상 분석 (RGB → HSV 기반)
+ * 상단 35% = 빨간불 영역, 하단 35% = 초록불 영역
+ */
+export function analyzeROI(ctx, box) {
+    if (box.w < 1 || box.h < 1) return 'UNKNOWN';
 
-let lastLat = null, lastLng = null;
-let isDataTabInitialized = false;
-let kakaoMap = null, kakaoMyMarker = null, geocoder = null;
-let signalTimer = null;
+    const canvas = ctx.canvas;
+    const x = Math.max(0, Math.floor(box.x));
+    const y = Math.max(0, Math.floor(box.y));
+    const w = Math.min(Math.floor(box.w), canvas.width  - x);
+    const h = Math.min(Math.floor(box.h), canvas.height - y);
+    if (w < 2 || h < 4) return 'UNKNOWN';
 
-const getEls = () => ({
-    status: document.getElementById('api-status-text-data'),
-    detailed: document.getElementById('api-detailed-status'),
-    address: document.getElementById('address-text'),
-    coords: document.getElementById('location-text'),
-    crossName: document.getElementById('cross-name')
-});
+    const { data } = ctx.getImageData(x, y, w, h);
 
-export function initDataTab() {
-    if (isDataTabInitialized) return;
-    
-    // 카카오맵 SDK 로드 대기 후 초기화
-    if (window.kakao && kakao.maps.services) {
-        geocoder = new kakao.maps.services.Geocoder();
-        isDataTabInitialized = true;
-    } else {
-        setTimeout(initDataTab, 500);
-        return;
-    }
-    
-    if (navigator.geolocation) {
-        navigator.geolocation.watchPosition((pos) => {
-            const { latitude, longitude } = pos.coords;
-            lastLat = latitude; lastLng = longitude;
-            updateLocationUI(latitude, longitude);
-            if (!kakaoMap) renderMap(latitude, longitude);
-            else updateMyLocationMarker(latitude, longitude);
-        }, (err) => console.error(err), { enableHighAccuracy: true });
-    }
-}
+    const topEnd   = Math.floor(h * 0.38);
+    const botStart = Math.floor(h * 0.62);
 
-function updateLocationUI(lat, lng) {
-    const els = getEls();
-    if (els.coords) els.coords.innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    if (geocoder) {
-        geocoder.coord2Address(lng, lat, (result, status) => {
-            if (status === kakao.maps.services.Status.OK) {
-                const addr = result[0].road_address ? result[0].road_address.address_name : result[0].address.address_name;
-                if (els.address) els.address.innerText = addr;
-            }
-        });
-    }
-}
+    let rScore = 0, gScore = 0, rCount = 0, gCount = 0;
+    let rTotal = 0, gTotal = 0;
 
-export async function fetchSignalData() {
-    if (!lastLat || !lastLng) return;
-    const els = getEls();
-    try {
-        // 엔드포인트 수정: traffic-signals
-        const resp = await fetch(`${API_BASE_URL}/traffic-signals?lat=${lastLat}&lng=${lastLng}`, { 
-            headers: { 'x-api-key': API_KEY } 
-        });
-        const data = await resp.json();
-        if (data && data.length > 0) {
-            if (els.crossName) els.crossName.innerText = data[0].itstName;
-            // 카운트다운 로직...
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        // [BUG FIX] _rgbToHSV → rgbToHSV (중복 함수 제거 후 단일 함수 사용)
+        const { h: hue, s, v } = rgbToHSV(r, g, b);
+
+        if (v < 0.4 || s < 0.3) continue;
+
+        const py = Math.floor((i / 4) / w);
+        const brightness = v * 255;
+
+        if (py < topEnd) {
+            rTotal++;
+            const isRed = (hue <= 15 || hue >= 345) && s > 0.5;
+            if (isRed) { rCount++; rScore += brightness; }
+        } else if (py >= botStart) {
+            gTotal++;
+            const isGreen = (hue >= 85 && hue <= 170) && s > 0.4;
+            if (isGreen) { gCount++; gScore += brightness; }
         }
-    } catch (err) { console.error(err); }
+    }
+
+    const rRatio  = rTotal > 10 ? rCount / rTotal : 0;
+    const gRatio  = gTotal > 10 ? gCount / gTotal : 0;
+    const isRed   = rRatio > 0.12 && rScore > 60;
+    const isGreen = gRatio > 0.12 && gScore > 60;
+
+    if (isRed  && !isGreen) return 'RED';
+    if (isGreen && !isRed)  return 'GREEN';
+    if (isRed  && isGreen)  return rScore > gScore * 1.2 ? 'RED' : 'GREEN';
+    return 'UNKNOWN';
 }
 
-function renderMap(lat, lng) {
-    const container = document.getElementById('map');
-    if (!container) return;
-    const options = { center: new kakao.maps.LatLng(lat, lng), level: 3 };
-    kakaoMap = new kakao.maps.Map(container, options);
-    window.kakaoMapInstance = kakaoMap;
-    updateMyLocationMarker(lat, lng);
+/**
+ * [HSV Fallback] YOLO 탐지 실패 시 화면 스캔존 전체를 HSV로 직접 스캔
+ */
+export function detectByHSV(ctx, zone) {
+    const canvasW = ctx.canvas.width;
+    const scanY   = Math.max(0, zone.yMin);
+    const scanH   = Math.min(zone.yMax, ctx.canvas.height) - scanY;
+    if (scanH < 4) return { signal: 'UNKNOWN', box: null };
+
+    const { data } = ctx.getImageData(0, scanY, canvasW, scanH);
+
+    const redPixels   = [];
+    const greenPixels = [];
+
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const { h, s, v } = rgbToHSV(r, g, b);
+
+        if (v < 0.45 || s < 0.35) continue;
+
+        const pixIdx = Math.floor(i / 4);
+        const px = pixIdx % canvasW;
+        const py = Math.floor(pixIdx / canvasW) + scanY;
+
+        if (h <= 18 || h >= 342) {
+            redPixels.push({ x: px, y: py });
+        } else if (h >= 88 && h <= 165) {
+            greenPixels.push({ x: px, y: py });
+        }
+    }
+
+    const redCluster   = findDenseCluster(redPixels,   canvasW);
+    const greenCluster = findDenseCluster(greenPixels, canvasW);
+
+    if (!redCluster && !greenCluster) return { signal: 'UNKNOWN', box: null };
+    if (redCluster  && !greenCluster) return { signal: 'RED',   box: clusterToBBox(redCluster,   20) };
+    if (greenCluster && !redCluster)  return { signal: 'GREEN', box: clusterToBBox(greenCluster, 20) };
+
+    return redCluster.count >= greenCluster.count
+        ? { signal: 'RED',   box: clusterToBBox(redCluster,   20) }
+        : { signal: 'GREEN', box: clusterToBBox(greenCluster, 20) };
 }
 
-function updateMyLocationMarker(lat, lng) {
-    const pos = new kakao.maps.LatLng(lat, lng);
-    if (!kakaoMyMarker) kakaoMyMarker = new kakao.maps.Marker({ position: pos, map: kakaoMap });
-    else kakaoMyMarker.setPosition(pos);
+// ─────────────────────────────────────────────
+// [BUG FIX] 중복 함수(_rgbToHSV, rgbToHSV) → 단일 함수 rgbToHSV로 통일
+// ─────────────────────────────────────────────
+function rgbToHSV(r, g, b) {
+    const rn = r / 255, gn = g / 255, bn = b / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    const delta = max - min;
+    const v = max;
+    const s = max > 0 ? delta / max : 0;
+    let h = 0;
+    if (delta > 0) {
+        if      (max === rn) h = 60 * (((gn - bn) / delta) % 6);
+        else if (max === gn) h = 60 * (((bn - rn) / delta) + 2);
+        else                 h = 60 * (((rn - gn) / delta) + 4);
+        if (h < 0) h += 360;
+    }
+    return { h, s, v };
+}
+
+function findDenseCluster(pixels, canvasW) {
+    if (pixels.length < 8) return null;
+
+    const CELL = 16;
+    const cellMap = new Map();
+
+    for (const { x, y } of pixels) {
+        const key = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
+        cellMap.set(key, (cellMap.get(key) || 0) + 1);
+    }
+
+    let bestKey = null, bestCount = 0;
+    for (const [key, count] of cellMap) {
+        if (count > bestCount) { bestCount = count; bestKey = key; }
+    }
+
+    if (bestCount < 6) return null;
+
+    const [gx, gy] = bestKey.split(',').map(Number);
+    return {
+        cx: (gx + 0.5) * CELL,
+        cy: (gy + 0.5) * CELL,
+        count: bestCount
+    };
+}
+
+function clusterToBBox(cluster, padding) {
+    const size = Math.max(padding * 2, 20);
+    return {
+        x: cluster.cx - size / 2,
+        y: cluster.cy - size / 2,
+        w: size,
+        h: size * 2.5,
+        score: 0.5,
+        fromHSV: true
+    };
 }
