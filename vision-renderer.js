@@ -1,4 +1,4 @@
-/** [ULTRA VISION AI] - vision-renderer.js */
+/** [ULTRA VISION AI] - vision-renderer.js (기존 기능 + 줌 UI 표시) */
 
 const SIGNAL_CONFIG = {
     RED:     { color: '#ef4444', label: '빨간불 · 정지',     glow: 'rgba(239,68,68,0.5)'  },
@@ -7,61 +7,68 @@ const SIGNAL_CONFIG = {
     LOADING: { color: '#3b82f6', label: '모델 로딩 중...',    glow: 'rgba(59,130,246,0.3)'  }
 };
 
-const ZOOM_COLOR = {
-    WIDE: '#3b82f6', // 파랑
-    MID:  '#f59e0b', // 주황
-    TELE: '#ec4899'  // 핑크
+const ZOOM_UI_CONFIG = {
+    WIDE: { color: '#3b82f6', label: 'WIDE (1x)' },
+    MID:  { color: '#f59e0b', label: 'MID (2x)'  },
+    TELE: { color: '#ec4899', label: 'TELE (4x)' }
 };
 
 let lastSignal = 'UNKNOWN';
 
 export function drawUI(video, boxes, currentZoom) {
-    const canvas = document.getElementById('preview-canvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const previewCanvas = document.getElementById('preview-canvas');
+    if (!previewCanvas) return;
 
     const W = window.innerWidth;
     const H = window.innerHeight;
-    canvas.width = W;
-    canvas.height = H;
+    previewCanvas.width = W;
+    previewCanvas.height = H;
+
+    const ctx = previewCanvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // 1. 카메라 배경 렌더링
     ctx.drawImage(video, 0, 0, W, H);
 
-    // 2. 현재 줌 레벨 표시 (우측 상단)
+    // 2. 우측 상단 현재 스캔 모드 표시
     if (currentZoom) {
-        const label = `SCAN MODE: ${currentZoom.label}`;
-        ctx.font = 'bold 14px Inter, sans-serif';
-        const metrics = ctx.measureText(label);
-        
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.roundRect(W - metrics.width - 30, 20, metrics.width + 20, 30, 15);
+        const ui = ZOOM_UI_CONFIG[currentZoom.label];
+        const text = `SCAN: ${ui.label}`;
+        ctx.font = 'bold 13px Inter, sans-serif';
+        const tw = ctx.measureText(text).width;
+
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.beginPath();
+        ctx.roundRect(W - tw - 35, 25, tw + 20, 28, 14);
         ctx.fill();
-        
-        ctx.fillStyle = ZOOM_COLOR[currentZoom.label] || '#fff';
-        ctx.fillText(label, W - metrics.width - 20, 40);
+
+        ctx.fillStyle = ui.color;
+        ctx.fillText(text, W - tw - 25, 44);
     }
 
-    // 3. 탐지된 신호등 박스 및 라벨 렌더링
+    // 3. 탐지 박스 렌더링
     boxes.forEach(box => {
-        // 비디오 좌표(1280x720 가정)를 화면 크기에 맞게 스케일링
         const scaleX = W / video.videoWidth;
         const scaleY = H / video.videoHeight;
-        
-        const screenX = box.x * scaleX;
-        const screenY = box.y * scaleY;
-        const screenW = box.w * scaleX;
-        const screenH = box.h * scaleY;
+        const sx = box.x * scaleX, sy = box.y * scaleY;
+        const sw = box.w * scaleX, sh = box.h * scaleY;
 
-        // 박스 그리기
-        ctx.strokeStyle = ZOOM_COLOR[box.zoomLabel] || '#fff';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(screenX, screenY, screenW, screenH);
+        const uiColor = ZOOM_UI_CONFIG[box.zoomLabel]?.color || '#fff';
 
-        // 줌 라벨 그리기
-        ctx.fillStyle = ZOOM_COLOR[box.zoomLabel] || '#fff';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.fillText(`${box.zoomLabel} (${Math.round(box.score * 100)}%)`, screenX, screenY - 10);
+        ctx.strokeStyle = uiColor;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(sx, sy, sw, sh);
+
+        // 박스 상단 모드/확률 라벨
+        ctx.fillStyle = uiColor;
+        const labelText = `${box.zoomLabel} ${Math.round(box.score * 100)}%`;
+        const lw = ctx.measureText(labelText).width;
+        ctx.fillRect(sx - 1.5, sy - 20, lw + 10, 20);
+
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(labelText, sx + 3, sy - 6);
     });
 }
 
