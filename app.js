@@ -1,15 +1,33 @@
-/** [ULTRA VISION AI] - app.js (iOS 카메라 수정본) */
+/** [ULTRA VISION AI] - app.js
+ *  [FIX] 삼성 인터넷(Android) 호환성 수정
+ *  1. DOMContentLoaded 대신 readyState 체크 후 즉시 바인딩
+ *  2. startBtn.onclick → addEventListener 방식으로 변경
+ *  3. 전역 에러 핸들러 추가 (무반응 원인 콘솔 노출)
+ *  4. createImageBitmap / OffscreenCanvas 사전 지원 여부 체크
+ */
 import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js';
 import { initDataTab } from './api-data.js';
 import { speak } from './utils.js';
 
 const improvedFilter = 'contrast(1.4) saturate(1.2) brightness(1.1)';
 
+// ── 전역 에러 캐치: 삼성 인터넷에서 무반응 원인 파악용 ──
+window.addEventListener('error', (e) => {
+    console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
+    const sub = document.getElementById('status-sub');
+    if (sub) sub.innerText = '오류: ' + e.message;
+});
+window.addEventListener('unhandledrejection', (e) => {
+    console.error('[UNHANDLED PROMISE]', e.reason);
+    const sub = document.getElementById('status-sub');
+    if (sub) sub.innerText = '오류: ' + (e.reason?.message || e.reason);
+});
+
 function switchTab(type) {
-    const vTab = document.getElementById('vision-tab');
-    const dTab = document.getElementById('data-tab');
-    const vBtn = document.getElementById('tab-v-btn');
-    const dBtn = document.getElementById('tab-d-btn');
+    const vTab    = document.getElementById('vision-tab');
+    const dTab    = document.getElementById('data-tab');
+    const vBtn    = document.getElementById('tab-v-btn');
+    const dBtn    = document.getElementById('tab-d-btn');
     const pCanvas = document.getElementById('preview-canvas');
 
     if (type === 'vision') {
@@ -18,11 +36,7 @@ function switchTab(type) {
         vBtn.className = "flex-1 py-4 font-black text-blue-400 border-b-4 border-blue-500";
         dBtn.className = "flex-1 py-4 font-black text-zinc-500 border-b-4 border-transparent";
         setVisionActive(true);
-
-        if (pCanvas) {
-            const pCtx = pCanvas.getContext('2d');
-            pCtx.filter = improvedFilter;
-        }
+        if (pCanvas) pCanvas.getContext('2d').filter = improvedFilter;
     } else {
         vTab.classList.remove('active');
         dTab.classList.add('active');
@@ -30,98 +44,98 @@ function switchTab(type) {
         vBtn.className = "flex-1 py-4 font-black text-zinc-500 border-b-4 border-transparent";
         setVisionActive(false);
         initDataTab();
+        if (pCanvas) pCanvas.getContext('2d').filter = 'none';
+        if (window.kakaoMapInstance) setTimeout(() => window.kakaoMapInstance.relayout(), 300);
+    }
+}
 
-        if (pCanvas) {
-            const pCtx = pCanvas.getContext('2d');
-            pCtx.filter = 'none';
+async function handleStart() {
+    const startBtn   = document.getElementById('start-btn');
+    const bootScreen = document.getElementById('boot-screen');
+    const statusSub  = document.getElementById('status-sub');
+
+    // 중복 클릭 방지
+    if (startBtn) startBtn.disabled = true;
+
+    bootScreen.style.opacity = '0';
+    setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
+
+    switchTab('vision');
+
+    Renderer_updateStatus('LOADING');
+    if (statusSub) statusSub.innerText = '카메라 초기화 중...';
+
+    try {
+        // [FIX] createImageBitmap 지원 여부 사전 확인
+        if (!('createImageBitmap' in window)) {
+            throw new Error('이 브라우저는 createImageBitmap을 지원하지 않습니다.');
         }
 
-        if (window.kakaoMapInstance) {
-            setTimeout(() => window.kakaoMapInstance.relayout(), 300);
+        // [FIX] OffscreenCanvas 미지원 시 경고만 출력 후 계속 진행
+        //       (vision.js analyzeAndShowSignal 에서 폴백 처리)
+        if (!('OffscreenCanvas' in window)) {
+            console.warn('[WARN] OffscreenCanvas 미지원 → preview-canvas 폴백 사용');
+        }
+
+        if (statusSub) statusSub.innerText = '카메라 연결 중...';
+
+        const [cameraReady] = await Promise.all([
+            startCameraFirst(),
+            (async () => {
+                if (statusSub) statusSub.innerText = 'AI 모델 로딩 중... (최초 1회)';
+                await initVision({
+                    minDetectionConfidence: 0.35,
+                    minTrackingConfidence:  0.4
+                });
+            })()
+        ]);
+
+        if (statusSub) statusSub.innerText = '개선된 필터로 신호등을 찾고 있습니다';
+        speak("울트라 비전 시스템을 시작합니다.");
+        startVision();
+
+    } catch (err) {
+        console.error("[초기 구동 에러]:", err);
+
+        if (startBtn) {
+            startBtn.disabled  = false;
+            startBtn.innerText = '다시 시도';
+        }
+        bootScreen.style.display = 'flex';
+        bootScreen.style.opacity = '1';
+
+        if (err.message === 'HTTPS_REQUIRED' || err.message === 'CAMERA_API_UNAVAILABLE') {
+            if (statusSub) statusSub.innerText = 'HTTPS 필요 — 보안 연결로 접속해주세요';
+        } else if (err.name === 'NotAllowedError') {
+            if (statusSub) statusSub.innerText = '카메라 권한 거부됨 — 설정에서 허용해주세요';
+        } else {
+            if (statusSub) statusSub.innerText = '오류: ' + err.message;
         }
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// ── [FIX] DOMContentLoaded 대신 readyState 즉시 체크 ──────────
+// type="module" 스크립트는 defer처럼 동작하므로 DOMContentLoaded가
+// 이미 지난 뒤 실행될 수 있음 → readyState로 분기 처리
+function bindEvents() {
     const startBtn = document.getElementById('start-btn');
-    const bootScreen = document.getElementById('boot-screen');
-    const statusSub = document.getElementById('status-sub');
+    const vBtn     = document.getElementById('tab-v-btn');
+    const dBtn     = document.getElementById('tab-d-btn');
 
     if (startBtn) {
-        startBtn.onclick = async () => {
-            // [iOS 핵심 수정] 
-            // 1단계: 버튼 터치 직후 즉시 카메라 권한 요청 (제스처 컨텍스트 유지)
-            // 2단계: 카메라 켜는 동안 부팅 화면 유지 (모델 로딩 중 표시)
-            // 3단계: 카메라 + 모델 준비 완료 후 탐지 시작
-
-            // 부트 화면 숨기기
-            bootScreen.style.opacity = '0';
-            setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
-
-            // 비전 탭 UI 활성화
-            switchTab('vision');
-
-            // 상태 표시
-            if (statusSub) statusSub.innerText = '카메라 초기화 중...';
-            Renderer_updateStatus('LOADING');
-
-            try {
-                // [iOS 핵심] 
-                // step 1: 터치 직후 즉시 카메라 권한 요청 (제스처 컨텍스트 살아있을 때)
-                // step 2: 카메라 켜는 동안 모델도 병렬 로딩
-                if (statusSub) statusSub.innerText = '카메라 연결 중...';
-
-                const [cameraReady] = await Promise.all([
-                    startCameraFirst(),
-                    (async () => {
-                        if (statusSub) statusSub.innerText = 'AI 모델 로딩 중... (최초 1회)';
-                        await initVision({
-                            minDetectionConfidence: 0.35,
-                            minTrackingConfidence: 0.4
-                        });
-                    })()
-                ]);
-
-                // 둘 다 준비 완료 → 탐지 루프 시작
-                if (statusSub) statusSub.innerText = '개선된 필터로 신호등을 찾고 있습니다';
-                speak("울트라 비전 시스템을 시작합니다.");
-                startVision();
-
-            } catch (err) {
-                console.error("[초기 구동 에러]:", err);
-
-                // HTTPS 문제 → 부트화면 유지, 재시도 안내
-                if (err.message === 'HTTPS_REQUIRED' || err.message === 'CAMERA_API_UNAVAILABLE') {
-                    if (statusSub) statusSub.innerText = 'HTTPS 필요 — 보안 연결로 접속해주세요';
-                    bootScreen.style.display = 'flex';
-                    bootScreen.style.opacity = '1';
-                    startBtn.innerText = '다시 시도';
-                    return;
-                }
-
-                // 권한 거부 → 설정 안내 후 부트화면 복원
-                if (err.name === 'NotAllowedError') {
-                    if (statusSub) statusSub.innerText = '카메라 권한 거부됨 — 설정에서 허용해주세요';
-                    bootScreen.style.display = 'flex';
-                    bootScreen.style.opacity = '1';
-                    startBtn.innerText = '다시 시도';
-                    return;
-                }
-
-                // 기타 오류
-                if (statusSub) statusSub.innerText = '오류: ' + err.message;
-                bootScreen.style.display = 'flex';
-                bootScreen.style.opacity = '1';
-                startBtn.innerText = '다시 시도';
-            }
-        };
+        // [FIX] onclick 직접 할당 대신 addEventListener (삼성 인터넷 호환)
+        startBtn.addEventListener('click', handleStart, { once: true });
     }
+    if (vBtn) vBtn.addEventListener('click', () => switchTab('vision'));
+    if (dBtn) dBtn.addEventListener('click', () => switchTab('data'));
+}
 
-    document.getElementById('tab-v-btn').onclick = () => switchTab('vision');
-    document.getElementById('tab-d-btn').onclick = () => switchTab('data');
-});
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindEvents);
+} else {
+    bindEvents();
+}
 
-// vision-renderer의 updateStatusText를 app.js에서도 쓸 수 있도록 래핑
 function Renderer_updateStatus(text) {
     const main = document.getElementById('status-main');
     if (main) main.innerText = text;

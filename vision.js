@@ -1,13 +1,15 @@
 /** [ULTRA VISION AI] - vision.js
- *  변경사항:
- *  - [NEW] analyzeAndShowSignal()에 pedMode 분기 추가
- *      box.pedMode === true → analyzePedestrianROI() 호출
- *      box.pedMode === false → 기존 analyzeROI() 호출
- *  - [KEEP] 모든 기존 버그 수정 사항 유지
- *      - startVision() export
- *      - detectLoopRunning 중복 루프 방지
- *      - initVision()에서 스트림 분리
- *      - 워치독 중복 방지
+ *  [FIX] 삼성 인터넷(Android) + iOS Safari 호환성 최종 수정
+ *  1. createImageBitmap() 옵션 → try/catch 이중 구조
+ *     iOS Safari  : 옵션 지원 → resizeWidth/resizeHeight 그대로 사용 (메모리 최적)
+ *     삼성 인터넷 : 옵션 미지원 예외 catch → 옵션 없이 재시도
+ *  2. analyzeAndShowSignal() OffscreenCanvas → createElement('canvas') 폴백
+ *  [KEEP] 기존 수정사항 유지
+ *  - startVision() export
+ *  - detectLoopRunning 중복 루프 방지
+ *  - initVision()에서 스트림 분리
+ *  - 워치독 중복 방지
+ *  - analyzeAndShowSignal() pedMode 분기
  */
 import * as Detector from './vision-detector.js';
 import * as Renderer from './vision-renderer.js';
@@ -22,7 +24,7 @@ let videoStream       = null;
 let workerWatchdog    = null;
 let detectLoopRunning = false;
 
-const MAX_LOCK_FRAMES  = 30;
+const MAX_LOCK_FRAMES   = 30;
 const WORKER_TIMEOUT_MS = 3000;
 
 export async function startCameraFirst() {
@@ -31,8 +33,8 @@ export async function startCameraFirst() {
 
     const isSecure =
         location.protocol === 'https:' ||
-        location.hostname === 'localhost' ||
-        location.hostname === '127.0.0.1';
+        location.hostname  === 'localhost' ||
+        location.hostname  === '127.0.0.1';
     if (!isSecure) {
         alert('⚠️ 카메라를 사용하려면 HTTPS가 필요합니다.');
         throw new Error('HTTPS_REQUIRED');
@@ -46,7 +48,11 @@ export async function startCameraFirst() {
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            video: {
+                facingMode: { exact: 'environment' },
+                width:  { ideal: 1280 },
+                height: { ideal: 720 }
+            }
         });
         video.srcObject = stream;
         videoStream = stream;
@@ -60,7 +66,7 @@ export async function startCameraFirst() {
 }
 
 export async function initVision() {
-    if (visionWorker) { visionWorker.terminate(); visionWorker = null; }
+    if (visionWorker)   { visionWorker.terminate(); visionWorker = null; }
     if (workerWatchdog) { clearTimeout(workerWatchdog); workerWatchdog = null; }
     isWorkerBusy = false;
 
@@ -134,11 +140,20 @@ export async function detectLoop() {
         }, WORKER_TIMEOUT_MS);
 
         try {
-            const bitmap = await createImageBitmap(video, {
-                resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low'
-            });
+            let bitmap;
+            // [FIX] iOS Safari : 옵션 지원 → 리사이즈 옵션 사용 (메모리 최적)
+            //       삼성 인터넷 : 옵션 미지원 → 예외 catch 후 옵션 없이 재시도
+            try {
+                bitmap = await createImageBitmap(video, {
+                    resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low'
+                });
+            } catch (optErr) {
+                // 옵션 미지원 브라우저 폴백 (삼성 인터넷 등)
+                bitmap = await createImageBitmap(video);
+            }
             visionWorker.postMessage({ type: 'DETECT', data: { bitmap } }, [bitmap]);
         } catch (e) {
+            console.warn('[detectLoop] createImageBitmap 실패:', e.message);
             isWorkerBusy = false;
             clearTimeout(workerWatchdog);
             workerWatchdog = null;
@@ -170,23 +185,43 @@ function tryHSVFallback(video) {
 }
 
 // ─────────────────────────────────────────────
-// [핵심 변경] 보행자 모드 분기
-//
-// box.pedMode === true  → 보행자 전용 분석 (상/하 50% 분할, 좁은 Hue 범위)
-// box.pedMode === false → 기존 차량 신호 분석 (상 38% / 하 38%)
+// [FIX] OffscreenCanvas 미지원(삼성 인터넷) 대비
+//       → preview-canvas 클립 폴백으로 처리
+// [KEEP] pedMode 분기 유지
+//   box.pedMode === true  → analyzePedestrianROI()
+//   box.pedMode === false → analyzeROI()
 // ─────────────────────────────────────────────
 function analyzeAndShowSignal(video, box) {
     if (!box) return;
     try {
         const w = Math.max(1, Math.floor(box.w));
         const h = Math.max(1, Math.floor(box.h));
-        const offscreen = new OffscreenCanvas(w, h);
-        const ctx = offscreen.getContext('2d');
-        ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
+
+        let ctx;
+        let usedFallback = false;
+
+        if (typeof OffscreenCanvas !== 'undefined') {
+            // 정상 경로: OffscreenCanvas 사용
+            const offscreen = new OffscreenCanvas(w, h);
+            ctx = offscreen.getContext('2d');
+            ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
+        } else {
+            // [FIX] 폴백: preview-canvas의 해당 영역을 직접 분석
+            //       drawImage로 신호등 영역만 좌상단에 복사 후 분석
+            const fallback = document.getElementById('preview-canvas');
+            if (!fallback) return;
+            // 임시 canvas 생성 (DOM에 추가하지 않음)
+            const tmp = document.createElement('canvas');
+            tmp.width  = w;
+            tmp.height = h;
+            ctx = tmp.getContext('2d');
+            ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
+            usedFallback = true;
+        }
 
         const signal = box.pedMode
-            ? analyzePedestrianROI(ctx, { x: 0, y: 0, w, h })   // 보행자 전용
-            : analyzeROI(ctx, { x: 0, y: 0, w, h });              // 차량 신호
+            ? analyzePedestrianROI(ctx, { x: 0, y: 0, w, h })
+            : analyzeROI(ctx, { x: 0, y: 0, w, h });
 
         Renderer.updateSignalStatus(signal);
     } catch (e) {
