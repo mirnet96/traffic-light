@@ -39,6 +39,11 @@ export async function startCameraFirst() {
 }
 
 export async function initVision() {
+
+    // 기존 스트림 중지 로직 추가
+    if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+    }
     if (visionWorker) visionWorker.terminate();
     visionWorker = new Worker('./vision-worker.js');
     visionWorker.postMessage({ type: 'LOAD' });

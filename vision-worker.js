@@ -5,7 +5,7 @@ importScripts("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.
 tf.setBackend('webgl');
 
 const CONFIG = {
-    CONF_THRESHOLD:       0.25, 
+    CONF_THRESHOLD:       0.20, 
     TRAFFIC_LIGHT_CLASS:  9,    
     NMS_IOU_THRESHOLD:    0.45,
     USE_SHARPENING:       true,
