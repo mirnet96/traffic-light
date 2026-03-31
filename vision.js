@@ -274,54 +274,38 @@ export function setVisionActive(active) {
     isVisionActive = active;
 }
 
+
+// vision.js 내의 detectLoop 함수 부분 수정
 async function detectLoop() {
+    if (!isVisionActive || !visionWorker) return;
+
     const video = document.getElementById('webcam');
-
-    if (!isVisionActive || !video || video.readyState < 2) {
+    if (video.readyState < 2) {
         requestAnimationFrame(detectLoop);
         return;
     }
 
-    if (isWorkerBusy) {
-        if (lastKnownBox) Renderer.drawUI(video, lastKnownBox);
-        else Renderer.drawPreview(video);
-        requestAnimationFrame(detectLoop);
-        return;
-    }
-
-    isWorkerBusy = true;
-
-    clearTimeout(workerWatchdog);
-    workerWatchdog = setTimeout(() => {
-        console.warn('[Watchdog] Worker 응답 없음 → busy 강제 해제');
-        isWorkerBusy = false;
-    }, WORKER_TIMEOUT_MS);
-
-    const vW = video.videoWidth;
-    const vH = video.videoHeight;
-    if (!vW || !vH) {
-        isWorkerBusy = false;
-        clearTimeout(workerWatchdog);
-        requestAnimationFrame(detectLoop);
-        return;
-    }
-
-    const zone = Detector.getScanZone(vW, vH);
-
-    try {
+    if (!isWorkerBusy) {
+        isWorkerBusy = true;
         const bitmap = await createImageBitmap(video);
-
-        visionWorker.postMessage({
-            type: 'DETECT',
-            data: { bitmap, vW, vH, zone, lastBox: lastKnownBox } // ★ 추가
-        }, [bitmap]);
-
-
-    } catch (e) {
-        console.error("[Bitmap 생성 에러]:", e);
-        isWorkerBusy = false;
-        clearTimeout(workerWatchdog);
+        visionWorker.postMessage({ type: 'DETECT', data: { bitmap } }, [bitmap]);
     }
+
+    // Worker로부터 결과를 받았을 때 (기존 onmessage 핸들러 내)
+    visionWorker.onmessage = (e) => {
+        const { type, boxes, currentZoom } = e.data;
+        if (type === 'RESULT') {
+            isWorkerBusy = false;
+            // Renderer에 현재 줌 정보와 박스 전달
+            Renderer.drawUI(video, boxes, currentZoom);
+            
+            if (boxes.length > 0) {
+                analyzeAndShowSignal(video, boxes[0]);
+            } else {
+                tryHSVFallback(video);
+            }
+        }
+    };
 
     requestAnimationFrame(detectLoop);
 }
