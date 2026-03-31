@@ -155,6 +155,7 @@ function handleWorkerResult(boxes) {
         } else {
             lastKnownBox = null;
             kalman.reset();
+            signalVoter.reset(); // ★
             tryHSVFallback(video);
         }
     }
