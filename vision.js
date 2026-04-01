@@ -22,7 +22,9 @@ let detectLoopRunning = false;
 let renderLoopRunning = false;
 
 const MAX_LOCK_FRAMES   = 30;
-const WORKER_TIMEOUT_MS = 3000;
+// [FIX] 모바일 추론 속도 대응: 3초 → 15초로 확대
+// 안드로이드/iOS에서 YOLO 첫 추론은 10초 이상 걸릴 수 있음
+const WORKER_TIMEOUT_MS = 15000;
 
 export async function startCameraFirst() {
     const video = document.getElementById('webcam');

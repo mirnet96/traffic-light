@@ -22,14 +22,17 @@ import('./api-data.js')
     })
     .catch(e => console.warn('[api-data.js] 로드 실패:', e.message));
 
+let _systemStarted = false;  // 시스템 시작 후 에러를 부트화면으로 보내지 않기 위한 플래그
+
 // ── 전역 에러 → 화면에 표시 ─────────────────────────────────
 window.addEventListener('error', (e) => {
     console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
-    _showError('JS오류: ' + e.message);
+    // [FIX] 시스템 시작 후 Worker 관련 에러는 부트화면 복귀 안 함
+    if (!_systemStarted) _showError('JS오류: ' + e.message);
 });
 window.addEventListener('unhandledrejection', (e) => {
     console.error('[UNHANDLED PROMISE]', e.reason);
-    _showError('Promise오류: ' + (e.reason?.message || String(e.reason)));
+    if (!_systemStarted) _showError('Promise오류: ' + (e.reason?.message || String(e.reason)));
 });
 
 function _showError(msg) {
@@ -102,6 +105,7 @@ async function handleStart() {
         ]);
 
         if (statusSub) statusSub.innerText = '개선된 필터로 신호등을 찾고 있습니다';
+        _systemStarted = true;  // [FIX] 이후 전역 에러는 부트화면 복귀 안 함
         speak("울트라 비전 시스템을 시작합니다.");
         startVision();
 

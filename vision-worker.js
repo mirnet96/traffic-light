@@ -180,7 +180,9 @@ self.onmessage = async (e) => {
         frameCount++;
         const bitmap = data.bitmap;
 
-        if (frameCount % 2 !== 0) {
+        // [FIX] 모바일 성능 대응: 2프레임 중 1개 → 4프레임 중 1개 처리
+        // 안드로이드/iOS에서 매 2프레임 처리 시 추론이 쌓여 타임아웃 발생
+        if (frameCount % 4 !== 0) {
             bitmap.close();
             self.postMessage({ type: 'SKIP' });
             return;
