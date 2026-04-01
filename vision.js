@@ -7,9 +7,9 @@
  *  4. isWorkerBusy 고착 방지: 모든 경로에서 busy 해제 보장
  *  5. renderLoop / detectLoop 분리 유지
  */
-import * as Detector from './vision-detector.js';
-import * as Renderer from './vision-renderer.js';
-import { analyzeROI, analyzePedestrianROI, detectByHSV as analyzeByHSV } from './vision-analyzer.js';
+import * as Detector from './vision-detector.js?v=2';
+import * as Renderer from './vision-renderer.js?v=2';
+import { analyzeROI, analyzePedestrianROI, detectByHSV as analyzeByHSV } from './vision-analyzer.js?v=2';
 
 let visionWorker      = null;
 let isWorkerBusy      = false;

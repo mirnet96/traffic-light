@@ -4,8 +4,8 @@
  *  → 정적 import 제거, 동적 import + 안전 폴백으로 교체
  *  → api-data.js에 export가 없어도 앱 전체가 죽지 않음
  */
-import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js';
-import { speak } from './utils.js';
+import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js?v=2';
+import { speak } from './utils.js?v=2';
 
 const improvedFilter = 'contrast(1.4) saturate(1.2) brightness(1.1)';
 
