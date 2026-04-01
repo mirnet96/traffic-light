@@ -1,9 +1,11 @@
 /** [ULTRA VISION AI] - vision.js
- *  [FIX] 안드로이드 호환성 최종 수정
- *  - createImageBitmap 옵션: iOS 지원, 삼성/크롬 폴백 이중 구조
- *  - OffscreenCanvas → createElement('canvas') 폴백
- *  [개선 대안3] 보행자 탐지율 향상
- *  - analyzeAndShowSignal: 보행자 모드 시 HSV 임계값 완화 적용
+ *  [FIX] 안드로이드 검은 화면 해결
+ *  1. startCameraFirst(): facingMode exact → ideal 로 변경
+ *     exact는 후면 카메라 없으면 에러, ideal은 없으면 전면으로 폴백
+ *  2. startCameraFirst(): video.play() 완료를 Promise로 보장
+ *  3. renderLoop(): video.readyState >= 2 (HAVE_ENOUGH_DATA) 확인 후 렌더링
+ *  4. isWorkerBusy 고착 방지: 모든 경로에서 busy 해제 보장
+ *  5. renderLoop / detectLoop 분리 유지
  */
 import * as Detector from './vision-detector.js';
 import * as Renderer from './vision-renderer.js';
@@ -17,6 +19,7 @@ let isVisionActive    = true;
 let videoStream       = null;
 let workerWatchdog    = null;
 let detectLoopRunning = false;
+let renderLoopRunning = false;
 
 const MAX_LOCK_FRAMES   = 30;
 const WORKER_TIMEOUT_MS = 3000;
@@ -40,23 +43,62 @@ export async function startCameraFirst() {
         video.srcObject = null;
     }
 
+    // [FIX] exact → ideal: 후면 카메라 없는 기기에서 에러 대신 폴백 허용
+    // exact는 조건 불충족 시 OverconstrainedError 발생
+    // ideal은 최대한 맞추되 없으면 가용 카메라 사용
+    const constraints = {
+        video: {
+            facingMode: { ideal: 'environment' },
+            width:  { ideal: 1280 },
+            height: { ideal: 720 }
+        }
+    };
+
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: { exact: 'environment' },
-                width:  { ideal: 1280 },
-                height: { ideal: 720 }
-            }
-        });
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
         videoStream = stream;
-        return new Promise(resolve => {
-            video.onloadedmetadata = () => { video.play(); resolve(); };
+
+        // [FIX] loadedmetadata + play() 완료를 모두 기다림
+        await new Promise((resolve, reject) => {
+            video.onloadedmetadata = async () => {
+                try {
+                    await video.play();
+                    resolve();
+                } catch (playErr) {
+                    // 일부 브라우저에서 play()가 실패해도 스트림은 유효
+                    console.warn('[video.play() 실패]', playErr.message);
+                    resolve();
+                }
+            };
+            // 10초 타임아웃
+            setTimeout(() => reject(new Error('카메라 메타데이터 타임아웃')), 10000);
         });
+
+        // [FIX] play() 이후 실제로 프레임이 들어오는지 확인
+        // readyState가 충분히 오를 때까지 최대 3초 대기
+        await _waitForVideoReady(video, 3000);
+
     } catch (err) {
         console.error("Camera Error:", err);
         throw err;
     }
+}
+
+// video.readyState >= 2 가 될 때까지 폴링
+function _waitForVideoReady(video, timeoutMs) {
+    return new Promise(resolve => {
+        if (video.readyState >= 2) { resolve(); return; }
+        const start = Date.now();
+        const check = () => {
+            if (video.readyState >= 2 || Date.now() - start > timeoutMs) {
+                resolve();
+            } else {
+                setTimeout(check, 100);
+            }
+        };
+        check();
+    });
 }
 
 export async function initVision() {
@@ -77,7 +119,7 @@ export async function initVision() {
 
             if (type === 'RESULT') {
                 const video = document.getElementById('webcam');
-                Renderer.drawUI(video, boxes || [], currentZoom, srApplied, edgeSR);
+                Renderer.drawBoxes(video, boxes || [], currentZoom, srApplied, edgeSR);
 
                 if (boxes && boxes.length > 0) {
                     lastKnownBox = boxes[0];
@@ -96,6 +138,7 @@ export async function initVision() {
             Renderer.updateStatusText('SYSTEM READY');
         } else if (type === 'ERROR') {
             console.error('[Worker Error]:', e.data.message);
+            isWorkerBusy = false;
             Renderer.updateStatusText('MODEL ERROR');
         }
     };
@@ -107,12 +150,37 @@ export async function initVision() {
 }
 
 export function startVision() {
+    if (!renderLoopRunning) {
+        renderLoopRunning = true;
+        renderLoop();
+    }
     if (!detectLoopRunning) {
         detectLoopRunning = true;
         detectLoop();
     }
 }
 
+// ─────────────────────────────────────────────
+// renderLoop: Worker와 무관하게 매 프레임 video → canvas
+// ─────────────────────────────────────────────
+function renderLoop() {
+    if (!isVisionActive) {
+        renderLoopRunning = false;
+        return;
+    }
+
+    const video = document.getElementById('webcam');
+    // [FIX] readyState >= 2: 실제 프레임 데이터가 있을 때만 렌더링
+    if (video && video.readyState >= 2) {
+        Renderer.drawVideo(video);
+    }
+
+    requestAnimationFrame(renderLoop);
+}
+
+// ─────────────────────────────────────────────
+// detectLoop: AI 탐지 전용
+// ─────────────────────────────────────────────
 export async function detectLoop() {
     if (!isVisionActive || !visionWorker) {
         detectLoopRunning = false;
@@ -129,14 +197,18 @@ export async function detectLoop() {
         isWorkerBusy = true;
         if (workerWatchdog) clearTimeout(workerWatchdog);
         workerWatchdog = setTimeout(() => {
-            console.warn("Worker Timeout - Restarting...");
-            initVision().then(() => { isWorkerBusy = false; });
+            console.warn("Worker Timeout - busy 강제 해제");
+            isWorkerBusy   = false;
+            workerWatchdog = null;
+            if (visionWorker) {
+                visionWorker.terminate();
+                visionWorker = null;
+                initVision();
+            }
         }, WORKER_TIMEOUT_MS);
 
         try {
             let bitmap;
-            // [FIX] iOS Safari  : 옵션 지원 → resizeWidth/Height 사용 (메모리 최적)
-            //       삼성/크롬   : 옵션 미지원 시 예외 catch → 옵션 없이 재시도
             try {
                 bitmap = await createImageBitmap(video, {
                     resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low'
@@ -177,11 +249,6 @@ function tryHSVFallback(video) {
     }
 }
 
-// ─────────────────────────────────────────────
-// analyzeAndShowSignal
-// [FIX] OffscreenCanvas 미지원 → createElement('canvas') 폴백
-// [KEEP] pedMode 분기 유지
-// ─────────────────────────────────────────────
 function analyzeAndShowSignal(video, box) {
     if (!box) return;
     try {
@@ -193,7 +260,6 @@ function analyzeAndShowSignal(video, box) {
             const offscreen = new OffscreenCanvas(w, h);
             ctx = offscreen.getContext('2d');
         } else {
-            // [FIX] 삼성인터넷/구형 안드로이드 폴백
             const tmp = document.createElement('canvas');
             tmp.width  = w;
             tmp.height = h;
@@ -215,8 +281,10 @@ function analyzeAndShowSignal(video, box) {
 export function setVisionActive(active) {
     isVisionActive = active;
     if (active) {
+        if (!renderLoopRunning) { renderLoopRunning = true; renderLoop(); }
         if (!detectLoopRunning) { detectLoopRunning = true; detectLoop(); }
     } else {
+        renderLoopRunning = false;
         detectLoopRunning = false;
     }
 }
