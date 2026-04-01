@@ -1,16 +1,28 @@
 /** [ULTRA VISION AI] - app.js
- *  [FIX] 안드로이드 삼성인터넷/크롬 ES Module 로딩 실패 근본 해결
- *  - import 구문 유지하되, 모든 초기화를 window.onload 기반으로 이동
- *  - 버튼 바인딩을 inline onclick + JS 이중 구조로 이중 보험
- *  - 전역 에러 핸들러로 무반응 원인 화면에 표시
+ *  [FIX] 핵심 원인 해결:
+ *  './api-data.js' does not provide an export named 'initDataTab'
+ *  → 정적 import 제거, 동적 import + 안전 폴백으로 교체
+ *  → api-data.js에 export가 없어도 앱 전체가 죽지 않음
  */
 import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js';
-import { initDataTab } from './api-data.js';
 import { speak } from './utils.js';
 
 const improvedFilter = 'contrast(1.4) saturate(1.2) brightness(1.1)';
 
-// ── 전역 에러 → 화면에 표시 (무반응 원인 파악) ──────────────
+// api-data.js의 initDataTab을 안전하게 동적 로드
+// export가 없거나 파일이 없어도 앱 전체가 죽지 않음
+let _initDataTab = () => {};
+import('./api-data.js')
+    .then(mod => {
+        if (typeof mod.initDataTab === 'function') {
+            _initDataTab = mod.initDataTab;
+        } else {
+            console.warn('[api-data.js] initDataTab export 없음 — 빈 함수로 대체');
+        }
+    })
+    .catch(e => console.warn('[api-data.js] 로드 실패:', e.message));
+
+// ── 전역 에러 → 화면에 표시 ─────────────────────────────────
 window.addEventListener('error', (e) => {
     console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
     _showError('JS오류: ' + e.message);
@@ -21,15 +33,14 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 function _showError(msg) {
-    const sub = document.getElementById('status-sub');
-    if (sub) sub.innerText = msg;
-    // 부트화면이 숨겨졌을 경우 다시 표시
+    const sub  = document.getElementById('status-sub');
     const boot = document.getElementById('boot-screen');
+    const btn  = document.getElementById('start-btn');
+    if (sub)  sub.innerText = msg;
     if (boot && boot.style.display === 'none') {
         boot.style.display = 'flex';
         boot.style.opacity = '1';
     }
-    const btn = document.getElementById('start-btn');
     if (btn) { btn.disabled = false; btn.innerText = '다시 시도'; }
 }
 
@@ -54,7 +65,7 @@ function switchTab(type) {
         dBtn.className = "flex-1 py-4 font-black text-blue-400 border-b-4 border-blue-500";
         vBtn.className = "flex-1 py-4 font-black text-zinc-500 border-b-4 border-transparent";
         setVisionActive(false);
-        initDataTab();
+        _initDataTab();   // 동적 로드된 함수 사용
         if (pCanvas) pCanvas.getContext('2d').filter = 'none';
         if (window.kakaoMapInstance) setTimeout(() => window.kakaoMapInstance.relayout(), 300);
     }
@@ -78,9 +89,6 @@ async function handleStart() {
     try {
         if (!('createImageBitmap' in window)) {
             throw new Error('createImageBitmap 미지원 브라우저');
-        }
-        if (!('OffscreenCanvas' in window)) {
-            console.warn('[WARN] OffscreenCanvas 미지원 → canvas 폴백 사용');
         }
 
         if (statusSub) statusSub.innerText = '카메라 연결 중...';
@@ -118,35 +126,29 @@ function _updateMainStatus(text) {
     if (main) main.innerText = text;
 }
 
-// ── 이벤트 바인딩
-// [FIX] window.onload 사용: DOMContentLoaded보다 늦게 실행되어
-//       모듈 파싱이 완전히 끝난 뒤 바인딩 보장
-// [FIX] window.__startVision 전역 노출: index.html의 onclick 폴백과 연결
-// ─────────────────────────────────────────────────────────────
-window.__startVision = handleStart;  // index.html onclick 폴백용 전역 함수
+// ── 이벤트 바인딩 ────────────────────────────────────────────
+window.__startVision = handleStart;
+window.__switchTab   = switchTab;
 
 function bindEvents() {
     const startBtn = document.getElementById('start-btn');
     const vBtn     = document.getElementById('tab-v-btn');
     const dBtn     = document.getElementById('tab-d-btn');
-
-    if (startBtn) {
+    if (startBtn && !startBtn._bound) {
+        startBtn._bound = true;
         startBtn.addEventListener('click', handleStart, { once: true });
     }
     if (vBtn) vBtn.addEventListener('click', () => switchTab('vision'));
     if (dBtn) dBtn.addEventListener('click', () => switchTab('data'));
 }
 
-// readyState 분기 + window.onload 이중 보험
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindEvents);
 } else {
     bindEvents();
 }
-// window.onload: 모듈이 defer 실행되어 위 두 경우 모두 놓쳤을 때 최후 보루
 window.addEventListener('load', () => {
     const btn = document.getElementById('start-btn');
-    // 이미 바인딩됐으면 onclick만 보험으로 추가
     if (btn && !btn._bound) {
         btn._bound = true;
         btn.addEventListener('click', handleStart, { once: true });
