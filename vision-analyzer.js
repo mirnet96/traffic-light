@@ -1,15 +1,14 @@
 /** [ULTRA VISION AI] - vision-analyzer.js
- *  [개선 대안3] 보행자 신호등 HSV 분석 임계값 개선
- *  - analyzePedestrianROI()
- *    · 초록 Hue 범위 확장: 100~155° → 88~165° (연두·청록 포함)
- *    · 채도 기준 완화: s > 0.35 → s > 0.22 (역광·야간 대응)
- *    · scoreThreshold 완화: 0.06 → 0.04
- *  - _getAdaptiveThresholds() 야간/직사광 기준 완화
- *  [KEEP] analyzeROI(), detectByHSV(), rgbToHSV() 기존 유지
+ *  [기존] 차량/보행자 ROI 분석, HSV Fallback
+ *  [FIX] detectByHSV — findDenseCluster 최소 픽셀 수 8 → 20으로 강화
+ *        클러스터 종횡비 검증 추가 (신호등 형태: 세로 >= 가로)
+ *  [FIX] _getAdaptiveThresholds — 야간 RED Hue 상한 10°로 축소
+ *        가로등·오렌지 조명(15~30°) 오탐 방지
+ *  [KEEP] analyzeROI(), analyzePedestrianROI(), rgbToHSV() 기존 유지
  */
 
 // ─────────────────────────────────────────────
-// 차량용 신호등 분석 (기존 유지)
+// 차량용 신호등 분석
 // ─────────────────────────────────────────────
 export function analyzeROI(ctx, box) {
     if (box.w < 1 || box.h < 1) return 'UNKNOWN';
@@ -64,14 +63,6 @@ export function analyzeROI(ctx, box) {
 
 // ─────────────────────────────────────────────
 // 보행자 신호등 전용 분석
-// [대안3] HSV 임계값 완화로 탐지율 향상
-//
-// 구조:
-//   ┌──────────┐
-//   │  [빨강]  │  상단 절반 (h * 0 ~ h * 0.5)
-//   ├──────────┤
-//   │  [초록]  │  하단 절반 (h * 0.5 ~ h * 1.0)
-//   └──────────┘
 // ─────────────────────────────────────────────
 export function analyzePedestrianROI(ctx, box) {
     if (box.w < 1 || box.h < 1) return 'UNKNOWN';
@@ -84,7 +75,7 @@ export function analyzePedestrianROI(ctx, box) {
     if (w < 4 || h < 8) return 'UNKNOWN';
 
     const { data } = ctx.getImageData(x, y, w, h);
-    const midLine   = Math.floor(h * 0.5);
+    const midLine    = Math.floor(h * 0.5);
     const thresholds = _getAdaptiveThresholds(data);
 
     let rScore = 0, gScore = 0;
@@ -102,15 +93,14 @@ export function analyzePedestrianROI(ctx, box) {
 
         if (py < midLine) {
             rTotal++;
-            // 빨간 사람 실루엣: Hue 0~12° / 348~360°
-            if ((hue <= 12 || hue >= 348) && s > 0.45) {
+            // [FIX] 야간 모드에서는 redHueMax를 좁게 적용 (오렌지 배제)
+            const redHueMax = thresholds.isNight ? 10 : 12;
+            if ((hue <= redHueMax || hue >= 348) && s > 0.45) {
                 rCount++;
                 rScore += brightness;
             }
         } else {
             gTotal++;
-            // [대안3] 초록 사람 실루엣 Hue 범위 확장: 100~155° → 88~165°
-            //         채도 기준 완화: s > 0.35 → s > 0.22
             if (hue >= 88 && hue <= 165 && s > 0.22) {
                 gCount++;
                 gScore += brightness;
@@ -121,7 +111,6 @@ export function analyzePedestrianROI(ctx, box) {
     const rRatio = rTotal > 8 ? rCount / rTotal : 0;
     const gRatio = gTotal > 8 ? gCount / gTotal : 0;
 
-    // [대안3] scoreThreshold 완화: 0.06 → 0.04
     const isRed   = rRatio > thresholds.scoreThreshold && rScore > 30;
     const isGreen = gRatio > thresholds.scoreThreshold && gScore > 30;
 
@@ -134,7 +123,7 @@ export function analyzePedestrianROI(ctx, box) {
 
 // ─────────────────────────────────────────────
 // 조도 적응형 임계값 계산
-// [대안3] 각 구간 임계값 소폭 완화
+// [FIX] isNight 플래그 추가 → analyzePedestrianROI에서 Hue 범위 분기에 활용
 // ─────────────────────────────────────────────
 function _getAdaptiveThresholds(pixelData) {
     let vSum = 0, count = 0;
@@ -145,23 +134,19 @@ function _getAdaptiveThresholds(pixelData) {
     const avgV = count > 0 ? vSum / count : 0.5;
 
     if (avgV < 0.25) {
-        // 야간: 신호등이 주변 대비 매우 밝음
-        // [대안3] minS: 0.18 → 0.14, scoreThreshold: 0.04 → 0.03
-        return { minV: 0.25, minS: 0.14, scoreThreshold: 0.03 };
+        return { minV: 0.25, minS: 0.14, scoreThreshold: 0.03, isNight: true };
     } else if (avgV > 0.70) {
-        // 직사광선: 채도 낮아짐
-        // [대안3] minS: 0.16 → 0.12, scoreThreshold: 0.08 → 0.06
-        return { minV: 0.48, minS: 0.12, scoreThreshold: 0.06 };
+        return { minV: 0.48, minS: 0.12, scoreThreshold: 0.06, isNight: false };
     } else {
-        // 일반 주간
-        // [대안3] minS: 0.26 → 0.20, scoreThreshold: 0.06 → 0.04
-        return { minV: 0.35, minS: 0.20, scoreThreshold: 0.04 };
+        return { minV: 0.35, minS: 0.20, scoreThreshold: 0.04, isNight: false };
     }
 }
 
 
 // ─────────────────────────────────────────────
 // HSV Fallback — YOLO 탐지 실패 시 전체 스캔
+// [FIX] findDenseCluster 최소 픽셀/클러스터 조건 강화
+// [FIX] 클러스터 종횡비 검증으로 비신호 오탐 방지
 // ─────────────────────────────────────────────
 export function detectByHSV(ctx, zone) {
     const canvasW = ctx.canvas.width;
@@ -219,28 +204,62 @@ function rgbToHSV(r, g, b) {
     return { h, s, v };
 }
 
+// ─────────────────────────────────────────────
+// [FIX] findDenseCluster 강화
+//   - 최소 픽셀 수: 8 → 20 (비신호 소규모 색상 덩어리 무시)
+//   - 최소 셀 밀도: 6 → 12 (단일 셀 당 더 많은 픽셀 요구)
+//   - 클러스터 분포 통계(bboxW/H) 반환 → 종횡비 검증에 사용
+// ─────────────────────────────────────────────
 function findDenseCluster(pixels, canvasW) {
-    if (pixels.length < 8) return null;
+    if (pixels.length < 20) return null;  // [FIX] 8 → 20
+
     const CELL = 16;
     const cellMap = new Map();
+
     for (const { x, y } of pixels) {
         const key = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
         cellMap.set(key, (cellMap.get(key) || 0) + 1);
     }
+
     let bestKey = null, bestCount = 0;
     for (const [key, count] of cellMap) {
         if (count > bestCount) { bestCount = count; bestKey = key; }
     }
-    if (bestCount < 6) return null;
+
+    if (bestCount < 12) return null;  // [FIX] 6 → 12
+
     const [gx, gy] = bestKey.split(',').map(Number);
-    return { cx: (gx + 0.5) * CELL, cy: (gy + 0.5) * CELL, count: bestCount };
+    const cx = (gx + 0.5) * CELL;
+    const cy = (gy + 0.5) * CELL;
+
+    // [FIX] 클러스터 인근 픽셀만 모아 실제 분포 계산
+    const RADIUS = CELL * 3;
+    const nearby = pixels.filter(p =>
+        Math.abs(p.x - cx) < RADIUS && Math.abs(p.y - cy) < RADIUS
+    );
+
+    if (nearby.length < 10) return null;
+
+    const xs = nearby.map(p => p.x);
+    const ys = nearby.map(p => p.y);
+    const bboxW = Math.max(...xs) - Math.min(...xs);
+    const bboxH = Math.max(...ys) - Math.min(...ys);
+
+    // [FIX] 종횡비 검증: 신호등은 세로가 더 길거나 비슷한 형태
+    // 가로가 세로의 2배 이상이면 신호등이 아닐 가능성이 높음 (가로등, 간판 등)
+    if (bboxW > bboxH * 2) return null;
+
+    return { cx, cy, count: bestCount, bboxW, bboxH };
 }
 
 function clusterToBBox(cluster, padding) {
     const size = Math.max(padding * 2, 20);
     return {
-        x: cluster.cx - size / 2, y: cluster.cy - size / 2,
-        w: size, h: size * 2.5,
-        score: 0.5, fromHSV: true
+        x: cluster.cx - size / 2,
+        y: cluster.cy - size / 2,
+        w: size,
+        h: size * 2.5,
+        score: 0.5,
+        fromHSV: true
     };
 }

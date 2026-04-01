@@ -1,159 +1,160 @@
-/** [ULTRA VISION AI] - vision-analyzer.js
- *  버그 수정:
- *  - [BUG FIX] _rgbToHSV / rgbToHSV 중복 정의 제거 → 단일 함수 rgbToHSV로 통일
+/** [ULTRA VISION AI] - api-data.js
+ *  [FIX] 기존 파일에 vision-analyzer.js 내용이 잘못 포함되어 있던 문제 수정
+ *        analyzeROI / detectByHSV / rgbToHSV 데드 코드 전면 제거
+ *  [FIX] initDataTab export 구현 → app.js 동적 import 정상 동작
+ *  V2X DATA 탭: GPS 위치 추적, 카카오맵 표시, 주소 역지오코딩
  */
 
-/**
- * YOLO가 탐지한 박스 내부 색상 분석 (RGB → HSV 기반)
- * 상단 35% = 빨간불 영역, 하단 35% = 초록불 영역
- */
-export function analyzeROI(ctx, box) {
-    if (box.w < 1 || box.h < 1) return 'UNKNOWN';
+let _mapInitialized  = false;
+let _watchId         = null;
+let _kakaoMap        = null;
+let _kakaoMarker     = null;
+let _geocoder        = null;
 
-    const canvas = ctx.canvas;
-    const x = Math.max(0, Math.floor(box.x));
-    const y = Math.max(0, Math.floor(box.y));
-    const w = Math.min(Math.floor(box.w), canvas.width  - x);
-    const h = Math.min(Math.floor(box.h), canvas.height - y);
-    if (w < 2 || h < 4) return 'UNKNOWN';
-
-    const { data } = ctx.getImageData(x, y, w, h);
-
-    const topEnd   = Math.floor(h * 0.38);
-    const botStart = Math.floor(h * 0.62);
-
-    let rScore = 0, gScore = 0, rCount = 0, gCount = 0;
-    let rTotal = 0, gTotal = 0;
-
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        // [BUG FIX] _rgbToHSV → rgbToHSV (중복 함수 제거 후 단일 함수 사용)
-        const { h: hue, s, v } = rgbToHSV(r, g, b);
-
-        if (v < 0.4 || s < 0.3) continue;
-
-        const py = Math.floor((i / 4) / w);
-        const brightness = v * 255;
-
-        if (py < topEnd) {
-            rTotal++;
-            const isRed = (hue <= 15 || hue >= 345) && s > 0.5;
-            if (isRed) { rCount++; rScore += brightness; }
-        } else if (py >= botStart) {
-            gTotal++;
-            const isGreen = (hue >= 85 && hue <= 170) && s > 0.4;
-            if (isGreen) { gCount++; gScore += brightness; }
-        }
+// ─────────────────────────────────────────────
+// initDataTab: app.js에서 DATA 탭 활성화 시 호출
+// ─────────────────────────────────────────────
+export function initDataTab() {
+    if (_mapInitialized) {
+        // 이미 초기화됐으면 GPS만 재시작
+        _startGPS();
+        return;
     }
-
-    const rRatio  = rTotal > 10 ? rCount / rTotal : 0;
-    const gRatio  = gTotal > 10 ? gCount / gTotal : 0;
-    const isRed   = rRatio > 0.12 && rScore > 60;
-    const isGreen = gRatio > 0.12 && gScore > 60;
-
-    if (isRed  && !isGreen) return 'RED';
-    if (isGreen && !isRed)  return 'GREEN';
-    if (isRed  && isGreen)  return rScore > gScore * 1.2 ? 'RED' : 'GREEN';
-    return 'UNKNOWN';
-}
-
-/**
- * [HSV Fallback] YOLO 탐지 실패 시 화면 스캔존 전체를 HSV로 직접 스캔
- */
-export function detectByHSV(ctx, zone) {
-    const canvasW = ctx.canvas.width;
-    const scanY   = Math.max(0, zone.yMin);
-    const scanH   = Math.min(zone.yMax, ctx.canvas.height) - scanY;
-    if (scanH < 4) return { signal: 'UNKNOWN', box: null };
-
-    const { data } = ctx.getImageData(0, scanY, canvasW, scanH);
-
-    const redPixels   = [];
-    const greenPixels = [];
-
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        const { h, s, v } = rgbToHSV(r, g, b);
-
-        if (v < 0.45 || s < 0.35) continue;
-
-        const pixIdx = Math.floor(i / 4);
-        const px = pixIdx % canvasW;
-        const py = Math.floor(pixIdx / canvasW) + scanY;
-
-        if (h <= 18 || h >= 342) {
-            redPixels.push({ x: px, y: py });
-        } else if (h >= 88 && h <= 165) {
-            greenPixels.push({ x: px, y: py });
-        }
-    }
-
-    const redCluster   = findDenseCluster(redPixels,   canvasW);
-    const greenCluster = findDenseCluster(greenPixels, canvasW);
-
-    if (!redCluster && !greenCluster) return { signal: 'UNKNOWN', box: null };
-    if (redCluster  && !greenCluster) return { signal: 'RED',   box: clusterToBBox(redCluster,   20) };
-    if (greenCluster && !redCluster)  return { signal: 'GREEN', box: clusterToBBox(greenCluster, 20) };
-
-    return redCluster.count >= greenCluster.count
-        ? { signal: 'RED',   box: clusterToBBox(redCluster,   20) }
-        : { signal: 'GREEN', box: clusterToBBox(greenCluster, 20) };
+    _initKakaoMap();
+    _startGPS();
+    _bindRefreshButton();
+    _mapInitialized = true;
 }
 
 // ─────────────────────────────────────────────
-// [BUG FIX] 중복 함수(_rgbToHSV, rgbToHSV) → 단일 함수 rgbToHSV로 통일
+// 카카오맵 초기화
 // ─────────────────────────────────────────────
-function rgbToHSV(r, g, b) {
-    const rn = r / 255, gn = g / 255, bn = b / 255;
-    const max = Math.max(rn, gn, bn);
-    const min = Math.min(rn, gn, bn);
-    const delta = max - min;
-    const v = max;
-    const s = max > 0 ? delta / max : 0;
-    let h = 0;
-    if (delta > 0) {
-        if      (max === rn) h = 60 * (((gn - bn) / delta) % 6);
-        else if (max === gn) h = 60 * (((bn - rn) / delta) + 2);
-        else                 h = 60 * (((rn - gn) / delta) + 4);
-        if (h < 0) h += 360;
+function _initKakaoMap() {
+    const mapEl = document.getElementById('map');
+    if (!mapEl || typeof kakao === 'undefined') {
+        console.warn('[api-data] 카카오맵 SDK 없음');
+        return;
     }
-    return { h, s, v };
+
+    try {
+        const options = {
+            center: new kakao.maps.LatLng(37.5665, 126.9780),
+            level: 3
+        };
+        _kakaoMap = new kakao.maps.Map(mapEl, options);
+        window.kakaoMapInstance = _kakaoMap;
+
+        _kakaoMarker = new kakao.maps.Marker({
+            position: _kakaoMap.getCenter()
+        });
+        _kakaoMarker.setMap(_kakaoMap);
+
+        _geocoder = new kakao.maps.services.Geocoder();
+        console.log('[api-data] 카카오맵 초기화 완료');
+    } catch (e) {
+        console.error('[api-data] 카카오맵 초기화 실패:', e.message);
+    }
 }
 
-function findDenseCluster(pixels, canvasW) {
-    if (pixels.length < 8) return null;
-
-    const CELL = 16;
-    const cellMap = new Map();
-
-    for (const { x, y } of pixels) {
-        const key = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
-        cellMap.set(key, (cellMap.get(key) || 0) + 1);
+// ─────────────────────────────────────────────
+// GPS 위치 추적
+// ─────────────────────────────────────────────
+function _startGPS() {
+    if (!navigator.geolocation) {
+        _setAddress('위치 서비스를 지원하지 않는 환경입니다.');
+        return;
     }
 
-    let bestKey = null, bestCount = 0;
-    for (const [key, count] of cellMap) {
-        if (count > bestCount) { bestCount = count; bestKey = key; }
+    // 기존 watch 중단
+    if (_watchId !== null) {
+        navigator.geolocation.clearWatch(_watchId);
+        _watchId = null;
     }
 
-    if (bestCount < 6) return null;
-
-    const [gx, gy] = bestKey.split(',').map(Number);
-    return {
-        cx: (gx + 0.5) * CELL,
-        cy: (gy + 0.5) * CELL,
-        count: bestCount
-    };
+    _watchId = navigator.geolocation.watchPosition(
+        _onPositionUpdate,
+        _onPositionError,
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
 }
 
-function clusterToBBox(cluster, padding) {
-    const size = Math.max(padding * 2, 20);
-    return {
-        x: cluster.cx - size / 2,
-        y: cluster.cy - size / 2,
-        w: size,
-        h: size * 2.5,
-        score: 0.5,
-        fromHSV: true
-    };
+function _onPositionUpdate(pos) {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+
+    // 좌표 텍스트 업데이트
+    const locEl = document.getElementById('location-text');
+    if (locEl) locEl.innerText = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+    // 카카오맵 마커/중심 이동
+    if (_kakaoMap && _kakaoMarker && typeof kakao !== 'undefined') {
+        try {
+            const latlng = new kakao.maps.LatLng(lat, lng);
+            _kakaoMap.setCenter(latlng);
+            _kakaoMarker.setPosition(latlng);
+        } catch (e) {
+            console.warn('[api-data] 지도 갱신 실패:', e.message);
+        }
+    }
+
+    // 역지오코딩 (주소 표시)
+    if (_geocoder) {
+        try {
+            _geocoder.coord2Address(lng, lat, (result, status) => {
+                if (status === kakao.maps.services.Status.OK && result[0]) {
+                    const addr = result[0].road_address
+                        ? result[0].road_address.address_name
+                        : result[0].address.address_name;
+                    _setAddress(addr);
+                } else {
+                    _setAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+                }
+            });
+        } catch (e) {
+            _setAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        }
+    } else {
+        _setAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    }
+
+    // API 상태 카드 갱신
+    _updateApiCard('ACTIVE', '위치 추적 중');
+}
+
+function _onPositionError(err) {
+    console.warn('[api-data] GPS 오류:', err.message);
+    _setAddress('위치 정보를 가져올 수 없습니다.');
+    _updateApiCard('ERROR', err.message);
+}
+
+// ─────────────────────────────────────────────
+// UI 헬퍼
+// ─────────────────────────────────────────────
+function _setAddress(text) {
+    const el = document.getElementById('address-text');
+    if (el) el.innerText = text;
+}
+
+function _updateApiCard(status, detail) {
+    const statusEl  = document.getElementById('api-status-text-data');
+    const detailEl  = document.getElementById('api-detailed-status');
+    const nameEl    = document.getElementById('cross-name');
+
+    if (statusEl) statusEl.innerText = status;
+    if (detailEl) detailEl.innerText = detail || '';
+    if (nameEl && status === 'ACTIVE') nameEl.innerText = 'GPS LIVE';
+}
+
+// ─────────────────────────────────────────────
+// 수동 새로고침 버튼
+// ─────────────────────────────────────────────
+function _bindRefreshButton() {
+    const btn = document.getElementById('refresh-api');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        _updateApiCard('LOADING', '갱신 중...');
+        _setAddress('주소를 불러오는 중...');
+        // GPS 재시작
+        _startGPS();
+    });
 }
