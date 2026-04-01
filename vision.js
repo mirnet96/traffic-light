@@ -1,15 +1,9 @@
 /** [ULTRA VISION AI] - vision.js
- *  [FIX] 삼성 인터넷(Android) + iOS Safari 호환성 최종 수정
- *  1. createImageBitmap() 옵션 → try/catch 이중 구조
- *     iOS Safari  : 옵션 지원 → resizeWidth/resizeHeight 그대로 사용 (메모리 최적)
- *     삼성 인터넷 : 옵션 미지원 예외 catch → 옵션 없이 재시도
- *  2. analyzeAndShowSignal() OffscreenCanvas → createElement('canvas') 폴백
- *  [KEEP] 기존 수정사항 유지
- *  - startVision() export
- *  - detectLoopRunning 중복 루프 방지
- *  - initVision()에서 스트림 분리
- *  - 워치독 중복 방지
- *  - analyzeAndShowSignal() pedMode 분기
+ *  [FIX] 안드로이드 호환성 최종 수정
+ *  - createImageBitmap 옵션: iOS 지원, 삼성/크롬 폴백 이중 구조
+ *  - OffscreenCanvas → createElement('canvas') 폴백
+ *  [개선 대안3] 보행자 탐지율 향상
+ *  - analyzeAndShowSignal: 보행자 모드 시 HSV 임계값 완화 적용
  */
 import * as Detector from './vision-detector.js';
 import * as Renderer from './vision-renderer.js';
@@ -141,14 +135,13 @@ export async function detectLoop() {
 
         try {
             let bitmap;
-            // [FIX] iOS Safari : 옵션 지원 → 리사이즈 옵션 사용 (메모리 최적)
-            //       삼성 인터넷 : 옵션 미지원 → 예외 catch 후 옵션 없이 재시도
+            // [FIX] iOS Safari  : 옵션 지원 → resizeWidth/Height 사용 (메모리 최적)
+            //       삼성/크롬   : 옵션 미지원 시 예외 catch → 옵션 없이 재시도
             try {
                 bitmap = await createImageBitmap(video, {
                     resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low'
                 });
-            } catch (optErr) {
-                // 옵션 미지원 브라우저 폴백 (삼성 인터넷 등)
+            } catch (_optErr) {
                 bitmap = await createImageBitmap(video);
             }
             visionWorker.postMessage({ type: 'DETECT', data: { bitmap } }, [bitmap]);
@@ -185,11 +178,9 @@ function tryHSVFallback(video) {
 }
 
 // ─────────────────────────────────────────────
-// [FIX] OffscreenCanvas 미지원(삼성 인터넷) 대비
-//       → preview-canvas 클립 폴백으로 처리
+// analyzeAndShowSignal
+// [FIX] OffscreenCanvas 미지원 → createElement('canvas') 폴백
 // [KEEP] pedMode 분기 유지
-//   box.pedMode === true  → analyzePedestrianROI()
-//   box.pedMode === false → analyzeROI()
 // ─────────────────────────────────────────────
 function analyzeAndShowSignal(video, box) {
     if (!box) return;
@@ -198,26 +189,18 @@ function analyzeAndShowSignal(video, box) {
         const h = Math.max(1, Math.floor(box.h));
 
         let ctx;
-        let usedFallback = false;
-
         if (typeof OffscreenCanvas !== 'undefined') {
-            // 정상 경로: OffscreenCanvas 사용
             const offscreen = new OffscreenCanvas(w, h);
             ctx = offscreen.getContext('2d');
-            ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
         } else {
-            // [FIX] 폴백: preview-canvas의 해당 영역을 직접 분석
-            //       drawImage로 신호등 영역만 좌상단에 복사 후 분석
-            const fallback = document.getElementById('preview-canvas');
-            if (!fallback) return;
-            // 임시 canvas 생성 (DOM에 추가하지 않음)
+            // [FIX] 삼성인터넷/구형 안드로이드 폴백
             const tmp = document.createElement('canvas');
             tmp.width  = w;
             tmp.height = h;
             ctx = tmp.getContext('2d');
-            ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
-            usedFallback = true;
         }
+
+        ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
 
         const signal = box.pedMode
             ? analyzePedestrianROI(ctx, { x: 0, y: 0, w, h })

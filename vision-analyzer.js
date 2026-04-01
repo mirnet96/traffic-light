@@ -1,26 +1,15 @@
 /** [ULTRA VISION AI] - vision-analyzer.js
- *  변경사항:
- *  - [NEW] analyzePedestrianROI(): 보행자 신호등 전용 색상 분석
- *      보행자 신호등 구조:
- *        ┌──────────┐
- *        │  [빨강]  │  ← 상단 절반: 빨간 사람 실루엣 (정지)
- *        │          │
- *        ├──────────┤
- *        │  [초록]  │  ← 하단 절반: 초록 사람 실루엣 (보행)
- *        │          │
- *        └──────────┘
- *      - 구분 기준: 정확히 h * 0.5 (차량용 0.38/0.62 와 다름)
- *      - 빨간 Hue 범위: 0~12° / 348~360° (사람 실루엣 선명한 적색)
- *      - 초록 Hue 범위: 100~155° (사람 실루엣 연두빛 포함)
- *      - 동적 임계값: 평균 밝기 기반 조도 자동 적응
- *  - [NEW] getAdaptiveThresholds(): 조도 적응형 임계값 계산
- *  - [KEEP] analyzeROI(): 차량용 신호 분석 (기존 로직 유지)
- *  - [FIX] _rgbToHSV / rgbToHSV 중복 → rgbToHSV 단일 함수로 통일 (이전 수정 유지)
+ *  [개선 대안3] 보행자 신호등 HSV 분석 임계값 개선
+ *  - analyzePedestrianROI()
+ *    · 초록 Hue 범위 확장: 100~155° → 88~165° (연두·청록 포함)
+ *    · 채도 기준 완화: s > 0.35 → s > 0.22 (역광·야간 대응)
+ *    · scoreThreshold 완화: 0.06 → 0.04
+ *  - _getAdaptiveThresholds() 야간/직사광 기준 완화
+ *  [KEEP] analyzeROI(), detectByHSV(), rgbToHSV() 기존 유지
  */
 
 // ─────────────────────────────────────────────
-// 차량용 신호등 분석 (기존 로직 유지)
-// 상단 38% = 빨강 / 하단 38% = 초록 (3구 기준)
+// 차량용 신호등 분석 (기존 유지)
 // ─────────────────────────────────────────────
 export function analyzeROI(ctx, box) {
     if (box.w < 1 || box.h < 1) return 'UNKNOWN';
@@ -74,20 +63,15 @@ export function analyzeROI(ctx, box) {
 
 
 // ─────────────────────────────────────────────
-// [NEW] 보행자 신호등 전용 분석
+// 보행자 신호등 전용 분석
+// [대안3] HSV 임계값 완화로 탐지율 향상
 //
-// 보행자 신호등 구조:
+// 구조:
 //   ┌──────────┐
 //   │  [빨강]  │  상단 절반 (h * 0 ~ h * 0.5)
 //   ├──────────┤
 //   │  [초록]  │  하단 절반 (h * 0.5 ~ h * 1.0)
 //   └──────────┘
-//
-// 차량용과의 차이점:
-//   1. 분할 기준 h*0.5 (차량용: 0.38 / 0.62)
-//   2. 켜진 구 전체가 균일하게 빛남 → 픽셀 밀도 높음
-//   3. 사람 실루엣 Hue: 빨강 0~12°, 초록 100~155°
-//   4. 꺼진 구도 박스 안에 포함되므로 분할 후 해당 절반만 분석
 // ─────────────────────────────────────────────
 export function analyzePedestrianROI(ctx, box) {
     if (box.w < 1 || box.h < 1) return 'UNKNOWN';
@@ -100,11 +84,7 @@ export function analyzePedestrianROI(ctx, box) {
     if (w < 4 || h < 8) return 'UNKNOWN';
 
     const { data } = ctx.getImageData(x, y, w, h);
-
-    // 보행자 신호등: 상단 절반 = 빨강 구 / 하단 절반 = 초록 구
-    const midLine = Math.floor(h * 0.5);
-
-    // 조도 적응형 임계값
+    const midLine   = Math.floor(h * 0.5);
     const thresholds = _getAdaptiveThresholds(data);
 
     let rScore = 0, gScore = 0;
@@ -115,26 +95,23 @@ export function analyzePedestrianROI(ctx, box) {
         const r = data[i], g = data[i + 1], b = data[i + 2];
         const { h: hue, s, v } = rgbToHSV(r, g, b);
 
-        // 조도 조건에 따라 동적으로 조정된 임계값 적용
         if (v < thresholds.minV || s < thresholds.minS) continue;
 
-        const py = Math.floor((i / 4) / w);
+        const py         = Math.floor((i / 4) / w);
         const brightness = v * 255;
 
         if (py < midLine) {
-            // 상단 절반: 빨간 사람 실루엣 구간
             rTotal++;
-            // 보행자 빨강: 선명한 적색 (차량보다 Hue 범위 좁음)
+            // 빨간 사람 실루엣: Hue 0~12° / 348~360°
             if ((hue <= 12 || hue >= 348) && s > 0.45) {
                 rCount++;
                 rScore += brightness;
             }
         } else {
-            // 하단 절반: 초록 사람 실루엣 구간
             gTotal++;
-            // 보행자 초록: 연두빛 포함 (100~155°)
-            // 차량용(85~170°)보다 실루엣 색상에 맞게 범위 조정
-            if (hue >= 100 && hue <= 155 && s > 0.35) {
+            // [대안3] 초록 사람 실루엣 Hue 범위 확장: 100~155° → 88~165°
+            //         채도 기준 완화: s > 0.35 → s > 0.22
+            if (hue >= 88 && hue <= 165 && s > 0.22) {
                 gCount++;
                 gScore += brightness;
             }
@@ -144,50 +121,47 @@ export function analyzePedestrianROI(ctx, box) {
     const rRatio = rTotal > 8 ? rCount / rTotal : 0;
     const gRatio = gTotal > 8 ? gCount / gTotal : 0;
 
+    // [대안3] scoreThreshold 완화: 0.06 → 0.04
     const isRed   = rRatio > thresholds.scoreThreshold && rScore > 30;
     const isGreen = gRatio > thresholds.scoreThreshold && gScore > 30;
 
     if (isRed  && !isGreen) return 'RED';
     if (isGreen && !isRed)  return 'GREEN';
-    // 둘 다 감지 시 더 강한 신호 선택 (점멸 상황 등)
     if (isRed  && isGreen)  return rScore > gScore ? 'RED' : 'GREEN';
     return 'UNKNOWN';
 }
 
 
 // ─────────────────────────────────────────────
-// [NEW] 조도 적응형 임계값 계산
-//
-// ImageData로부터 평균 밝기를 측정해 환경을 추정:
-//   - 야간 (avgV < 0.25)  : 신호가 눈부심 → v/s 기준 낮춤
-//   - 직사광 (avgV > 0.70): 채도 낮음    → s 기준 낮추고 v 높임
-//   - 일반                : 기본값 사용
+// 조도 적응형 임계값 계산
+// [대안3] 각 구간 임계값 소폭 완화
 // ─────────────────────────────────────────────
 function _getAdaptiveThresholds(pixelData) {
     let vSum = 0, count = 0;
-    // 1/8 샘플링으로 평균 밝기 빠르게 계산
     for (let i = 0; i < pixelData.length; i += 32) {
-        const r = pixelData[i], g = pixelData[i+1], b = pixelData[i+2];
-        vSum += Math.max(r, g, b) / 255;
+        vSum += Math.max(pixelData[i], pixelData[i+1], pixelData[i+2]) / 255;
         count++;
     }
     const avgV = count > 0 ? vSum / count : 0.5;
 
     if (avgV < 0.25) {
         // 야간: 신호등이 주변 대비 매우 밝음
-        return { minV: 0.28, minS: 0.18, scoreThreshold: 0.04 };
+        // [대안3] minS: 0.18 → 0.14, scoreThreshold: 0.04 → 0.03
+        return { minV: 0.25, minS: 0.14, scoreThreshold: 0.03 };
     } else if (avgV > 0.70) {
-        // 직사광선: 전반적으로 밝아 채도 낮아짐
-        return { minV: 0.50, minS: 0.16, scoreThreshold: 0.08 };
+        // 직사광선: 채도 낮아짐
+        // [대안3] minS: 0.16 → 0.12, scoreThreshold: 0.08 → 0.06
+        return { minV: 0.48, minS: 0.12, scoreThreshold: 0.06 };
     } else {
         // 일반 주간
-        return { minV: 0.38, minS: 0.26, scoreThreshold: 0.06 };
+        // [대안3] minS: 0.26 → 0.20, scoreThreshold: 0.06 → 0.04
+        return { minV: 0.35, minS: 0.20, scoreThreshold: 0.04 };
     }
 }
 
 
 // ─────────────────────────────────────────────
-// [HSV Fallback] YOLO 탐지 실패 시 화면 스캔존 HSV 직접 스캔
+// HSV Fallback — YOLO 탐지 실패 시 전체 스캔
 // ─────────────────────────────────────────────
 export function detectByHSV(ctx, zone) {
     const canvasW = ctx.canvas.width;
@@ -208,8 +182,8 @@ export function detectByHSV(ctx, zone) {
         const px = pixIdx % canvasW;
         const py = Math.floor(pixIdx / canvasW) + scanY;
 
-        if (h <= 18 || h >= 342)          redPixels.push({ x: px, y: py });
-        else if (h >= 88 && h <= 165)     greenPixels.push({ x: px, y: py });
+        if (h <= 18 || h >= 342)      redPixels.push({ x: px, y: py });
+        else if (h >= 88 && h <= 165) greenPixels.push({ x: px, y: py });
     }
 
     const redCluster   = findDenseCluster(redPixels,   canvasW);
@@ -226,7 +200,7 @@ export function detectByHSV(ctx, zone) {
 
 
 // ─────────────────────────────────────────────
-// 공통 유틸: RGB → HSV 변환 (단일 함수)
+// 공통 유틸
 // ─────────────────────────────────────────────
 function rgbToHSV(r, g, b) {
     const rn = r / 255, gn = g / 255, bn = b / 255;

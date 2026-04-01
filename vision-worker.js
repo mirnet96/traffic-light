@@ -1,32 +1,34 @@
 /** [ULTRA VISION AI] - vision-worker.js
- *  [FIX] 삼성 인터넷(Android) 호환성 수정
- *  1. tf.setBackend('webgl') 동기 호출 → initBackend() 비동기 함수로 교체
- *     Worker 내 WebGL 초기화 실패 시 cpu 백엔드로 자동 폴백
- *  2. loadModel() 첫 줄에 await initBackend() 추가
- *  [KEEP] 기존 수정사항 유지
- *  - applyEdgeAwareSR(): Sobel 엣지맵 기반 4x 업스케일 (PED_LEFT/PED_RIGHT)
- *  - applySuperResolution(): SRCNN-lite 2x (WIDE/MID/TELE)
- *  - applySharpening() kernel tf.tidy 내부 생성 (메모리 누수 수정)
- *  - 보행자 줌 레벨 3개 (PED_LEFT / PED_RIGHT / PED_NEAR)
+ *  [FIX] 안드로이드 호환성
+ *  - tf.setBackend 동기 제거 → initBackend() 비동기 (webgl → cpu 폴백)
+ *  [개선 대안3] 보행자 탐지율 향상
+ *  - 보행자 줌 cy 위치: 0.38 → 0.58 (화면 하단 커버)
+ *  - 보행자 전용 신뢰도 임계값: 0.20 → 0.12 (작은 신호등 탐지)
+ *  - 보행자 줌 레벨 2개 추가: PED_LEFT2 / PED_RIGHT2 (초근거리)
  */
 importScripts("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js");
 
-// [FIX] 동기 setBackend 제거 → loadModel() 내 initBackend()로 대체
-
 const CONFIG = {
-    CONF_THRESHOLD:      0.20,
+    CONF_THRESHOLD:      0.20,   // 차량용 기본 임계값
+    PED_CONF_THRESHOLD:  0.12,   // [대안3] 보행자 전용 임계값 (낮춰서 작은 신호등 탐지)
     TRAFFIC_LIGHT_CLASS: 9,
     NMS_IOU_THRESHOLD:   0.45,
     USE_SHARPENING:      true,
     SR_ENABLED:          true,
 
     ZOOM_LEVELS: [
-        { scale: 1.0,  cx: 0.5,  cy: 0.35, label: 'WIDE',      sr: false, pedMode: false },
-        { scale: 0.5,  cx: 0.5,  cy: 0.40, label: 'MID',       sr: true,  pedMode: false },
-        { scale: 0.25, cx: 0.5,  cy: 0.45, label: 'TELE',      sr: true,  pedMode: false },
-        { scale: 0.30, cx: 0.10, cy: 0.38, label: 'PED_LEFT',  sr: true,  pedMode: true  },
-        { scale: 0.30, cx: 0.90, cy: 0.38, label: 'PED_RIGHT', sr: true,  pedMode: true  },
-        { scale: 0.40, cx: 0.50, cy: 0.72, label: 'PED_NEAR',  sr: false, pedMode: true  },
+        // ── 차량 신호 줌 ──────────────────────────────────────
+        { scale: 1.0,  cx: 0.50, cy: 0.35, label: 'WIDE',       sr: false, pedMode: false },
+        { scale: 0.5,  cx: 0.50, cy: 0.40, label: 'MID',        sr: true,  pedMode: false },
+        { scale: 0.25, cx: 0.50, cy: 0.45, label: 'TELE',       sr: true,  pedMode: false },
+        // ── 보행자 신호 줌 ────────────────────────────────────
+        // [대안3] cy: 0.38 → 0.58 로 하향 조정 (보행자 신호등 실제 위치 반영)
+        { scale: 0.30, cx: 0.10, cy: 0.58, label: 'PED_LEFT',   sr: true,  pedMode: true  },
+        { scale: 0.30, cx: 0.90, cy: 0.58, label: 'PED_RIGHT',  sr: true,  pedMode: true  },
+        { scale: 0.40, cx: 0.50, cy: 0.72, label: 'PED_NEAR',   sr: false, pedMode: true  },
+        // [대안3] 초근거리 보행자 신호등 (코앞 기둥, scale 좁게)
+        { scale: 0.20, cx: 0.10, cy: 0.70, label: 'PED_LEFT2',  sr: true,  pedMode: true  },
+        { scale: 0.20, cx: 0.90, cy: 0.70, label: 'PED_RIGHT2', sr: true,  pedMode: true  },
     ]
 };
 
@@ -36,8 +38,6 @@ let frameCount = 0;
 
 // ─────────────────────────────────────────────
 // [FIX] WebGL → cpu 폴백 백엔드 초기화
-// 삼성 인터넷 Worker 컨텍스트에서 WebGL context 생성이
-// 차단되는 경우가 있어 silent하게 cpu로 폴백
 // ─────────────────────────────────────────────
 async function initBackend() {
     try {
@@ -57,7 +57,7 @@ async function initBackend() {
 }
 
 // ─────────────────────────────────────────────
-// SRCNN-lite SR 모델 초기화 (기존 유지)
+// SRCNN-lite SR 모델 초기화
 // ─────────────────────────────────────────────
 async function initSuperResolution() {
     try {
@@ -84,7 +84,7 @@ async function initSuperResolution() {
 }
 
 // ─────────────────────────────────────────────
-// [KEEP] 기존 SRCNN-lite 2x SR (WIDE/MID/TELE 용)
+// SRCNN-lite 2x SR (WIDE/MID/TELE 용)
 // ─────────────────────────────────────────────
 function applySuperResolution(tensor) {
     return tf.tidy(() => {
@@ -98,12 +98,11 @@ function applySuperResolution(tensor) {
 }
 
 // ─────────────────────────────────────────────
-// [KEEP] Edge-aware 4x SR (PED_LEFT / PED_RIGHT 전용)
+// Edge-aware 4x SR (PED_LEFT / PED_RIGHT 전용)
 // ─────────────────────────────────────────────
 function applyEdgeAwareSR(tensor) {
     return tf.tidy(() => {
         const [, h, w] = tensor.shape;
-
         const up4x = tensor.resizeBilinear([h * 4, w * 4]);
 
         const gray   = up4x.mean(3, true);
@@ -114,10 +113,10 @@ function applyEdgeAwareSR(tensor) {
         const edgeMap = eX.square().add(eY.square())
             .sqrt().div(4.0).clipByValue(0, 1);
 
-        const lapKernel    = tf.tensor4d([0, -1, 0, -1, 5, -1, 0, -1, 0], [3, 3, 1, 1]);
-        const channels     = tf.split(up4x, 3, 3);
+        const lapKernel     = tf.tensor4d([0, -1, 0, -1, 5, -1, 0, -1, 0], [3, 3, 1, 1]);
+        const channels      = tf.split(up4x, 3, 3);
         const sharpChannels = channels.map(ch => tf.conv2d(ch, lapKernel, 1, 'same'));
-        const sharpened    = tf.concat(sharpChannels, 3);
+        const sharpened     = tf.concat(sharpChannels, 3);
 
         const edgeMask = edgeMap.tile([1, 1, 1, 3]);
         const weight   = edgeMask.mul(0.6);
@@ -127,9 +126,6 @@ function applyEdgeAwareSR(tensor) {
     });
 }
 
-// ─────────────────────────────────────────────
-// Adaptive Sharpening (SR fallback)
-// ─────────────────────────────────────────────
 function applyAdaptiveSharpening(tensor) {
     return tf.tidy(() => {
         const gaussKernel = tf.tensor4d(
@@ -142,10 +138,7 @@ function applyAdaptiveSharpening(tensor) {
     });
 }
 
-// ─────────────────────────────────────────────
-// Laplacian Sharpening (YOLO 전처리용)
-// [FIX] kernel을 tf.tidy 내부에서 생성 → 메모리 누수 방지
-// ─────────────────────────────────────────────
+// [FIX] kernel tf.tidy 내부 생성 → 메모리 누수 방지
 function applySharpening(tensor) {
     return tf.tidy(() => {
         const kernel = tf.tensor4d([0, -1, 0, -1, 5, -1, 0, -1, 0], [3, 3, 1, 1]);
@@ -165,11 +158,8 @@ function getZoomRect(imgW, imgH, zoom) {
     };
 }
 
-// ─────────────────────────────────────────────
-// [FIX] loadModel() 첫 줄에 await initBackend() 추가
-// ─────────────────────────────────────────────
 async function loadModel() {
-    await initBackend();   // [FIX] WebGL → cpu 폴백 처리
+    await initBackend();  // [FIX] webgl → cpu 폴백
 
     if (model) { model.dispose(); model = null; }
     try {
@@ -201,8 +191,15 @@ self.onmessage = async (e) => {
 
         const useSR     = CONFIG.SR_ENABLED && currentZoom.sr;
         const useEdgeSR = useSR && currentZoom.pedMode &&
-                          (currentZoom.label === 'PED_LEFT' ||
-                           currentZoom.label === 'PED_RIGHT');
+                          (currentZoom.label === 'PED_LEFT'  ||
+                           currentZoom.label === 'PED_RIGHT' ||
+                           currentZoom.label === 'PED_LEFT2' ||
+                           currentZoom.label === 'PED_RIGHT2');
+
+        // [대안3] 보행자 줌은 낮은 신뢰도 임계값 사용
+        const confThreshold = currentZoom.pedMode
+            ? CONFIG.PED_CONF_THRESHOLD
+            : CONFIG.CONF_THRESHOLD;
 
         try {
             const result = tf.tidy(() => {
@@ -241,7 +238,8 @@ self.onmessage = async (e) => {
 
             const detected = [];
             for (let i = 0; i < result.scores.length; i++) {
-                if (result.scores[i] > CONFIG.CONF_THRESHOLD) {
+                // [대안3] 보행자/차량 임계값 분기 적용
+                if (result.scores[i] > confThreshold) {
                     const [cx, cy, w, h] = result.boxes[i];
                     const localX = (cx - w / 2) * (zoomRect.w / 640);
                     const localY = (cy - h / 2) * (zoomRect.h / 640);
@@ -261,11 +259,11 @@ self.onmessage = async (e) => {
             }
 
             self.postMessage({
-                type: 'RESULT',
-                boxes:     nms(detected),
+                type:       'RESULT',
+                boxes:      nms(detected),
                 currentZoom,
-                srApplied: useSR,
-                edgeSR:    useEdgeSR
+                srApplied:  useSR,
+                edgeSR:     useEdgeSR
             });
 
         } catch (err) {
@@ -292,8 +290,8 @@ function nms(boxes) {
 }
 
 function iou(a, b) {
-    const x1 = Math.max(a.x, b.x),           y1 = Math.max(a.y, b.y);
-    const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+    const x1 = Math.max(a.x, b.x),              y1 = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.w, b.x + b.w),  y2 = Math.min(a.y + a.h, b.y + b.h);
     const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
     const union = a.w * a.h + b.w * b.h - inter;
     return union > 0 ? inter / union : 0;

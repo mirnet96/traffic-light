@@ -1,9 +1,8 @@
 /** [ULTRA VISION AI] - app.js
- *  [FIX] 삼성 인터넷(Android) 호환성 수정
- *  1. DOMContentLoaded 대신 readyState 체크 후 즉시 바인딩
- *  2. startBtn.onclick → addEventListener 방식으로 변경
- *  3. 전역 에러 핸들러 추가 (무반응 원인 콘솔 노출)
- *  4. createImageBitmap / OffscreenCanvas 사전 지원 여부 체크
+ *  [FIX] 안드로이드 삼성인터넷/크롬 ES Module 로딩 실패 근본 해결
+ *  - import 구문 유지하되, 모든 초기화를 window.onload 기반으로 이동
+ *  - 버튼 바인딩을 inline onclick + JS 이중 구조로 이중 보험
+ *  - 전역 에러 핸들러로 무반응 원인 화면에 표시
  */
 import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js';
 import { initDataTab } from './api-data.js';
@@ -11,18 +10,30 @@ import { speak } from './utils.js';
 
 const improvedFilter = 'contrast(1.4) saturate(1.2) brightness(1.1)';
 
-// ── 전역 에러 캐치: 삼성 인터넷에서 무반응 원인 파악용 ──
+// ── 전역 에러 → 화면에 표시 (무반응 원인 파악) ──────────────
 window.addEventListener('error', (e) => {
     console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
-    const sub = document.getElementById('status-sub');
-    if (sub) sub.innerText = '오류: ' + e.message;
+    _showError('JS오류: ' + e.message);
 });
 window.addEventListener('unhandledrejection', (e) => {
     console.error('[UNHANDLED PROMISE]', e.reason);
-    const sub = document.getElementById('status-sub');
-    if (sub) sub.innerText = '오류: ' + (e.reason?.message || e.reason);
+    _showError('Promise오류: ' + (e.reason?.message || String(e.reason)));
 });
 
+function _showError(msg) {
+    const sub = document.getElementById('status-sub');
+    if (sub) sub.innerText = msg;
+    // 부트화면이 숨겨졌을 경우 다시 표시
+    const boot = document.getElementById('boot-screen');
+    if (boot && boot.style.display === 'none') {
+        boot.style.display = 'flex';
+        boot.style.opacity = '1';
+    }
+    const btn = document.getElementById('start-btn');
+    if (btn) { btn.disabled = false; btn.innerText = '다시 시도'; }
+}
+
+// ── switchTab ────────────────────────────────────────────────
 function switchTab(type) {
     const vTab    = document.getElementById('vision-tab');
     const dTab    = document.getElementById('data-tab');
@@ -49,44 +60,36 @@ function switchTab(type) {
     }
 }
 
+// ── handleStart ──────────────────────────────────────────────
 async function handleStart() {
     const startBtn   = document.getElementById('start-btn');
     const bootScreen = document.getElementById('boot-screen');
     const statusSub  = document.getElementById('status-sub');
 
-    // 중복 클릭 방지
     if (startBtn) startBtn.disabled = true;
 
     bootScreen.style.opacity = '0';
     setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
 
     switchTab('vision');
-
-    Renderer_updateStatus('LOADING');
+    _updateMainStatus('LOADING');
     if (statusSub) statusSub.innerText = '카메라 초기화 중...';
 
     try {
-        // [FIX] createImageBitmap 지원 여부 사전 확인
         if (!('createImageBitmap' in window)) {
-            throw new Error('이 브라우저는 createImageBitmap을 지원하지 않습니다.');
+            throw new Error('createImageBitmap 미지원 브라우저');
         }
-
-        // [FIX] OffscreenCanvas 미지원 시 경고만 출력 후 계속 진행
-        //       (vision.js analyzeAndShowSignal 에서 폴백 처리)
         if (!('OffscreenCanvas' in window)) {
-            console.warn('[WARN] OffscreenCanvas 미지원 → preview-canvas 폴백 사용');
+            console.warn('[WARN] OffscreenCanvas 미지원 → canvas 폴백 사용');
         }
 
         if (statusSub) statusSub.innerText = '카메라 연결 중...';
 
-        const [cameraReady] = await Promise.all([
+        await Promise.all([
             startCameraFirst(),
             (async () => {
                 if (statusSub) statusSub.innerText = 'AI 모델 로딩 중... (최초 1회)';
-                await initVision({
-                    minDetectionConfidence: 0.35,
-                    minTrackingConfidence:  0.4
-                });
+                await initVision();
             })()
         ]);
 
@@ -96,11 +99,7 @@ async function handleStart() {
 
     } catch (err) {
         console.error("[초기 구동 에러]:", err);
-
-        if (startBtn) {
-            startBtn.disabled  = false;
-            startBtn.innerText = '다시 시도';
-        }
+        if (startBtn) { startBtn.disabled = false; startBtn.innerText = '다시 시도'; }
         bootScreen.style.display = 'flex';
         bootScreen.style.opacity = '1';
 
@@ -114,29 +113,42 @@ async function handleStart() {
     }
 }
 
-// ── [FIX] DOMContentLoaded 대신 readyState 즉시 체크 ──────────
-// type="module" 스크립트는 defer처럼 동작하므로 DOMContentLoaded가
-// 이미 지난 뒤 실행될 수 있음 → readyState로 분기 처리
+function _updateMainStatus(text) {
+    const main = document.getElementById('status-main');
+    if (main) main.innerText = text;
+}
+
+// ── 이벤트 바인딩
+// [FIX] window.onload 사용: DOMContentLoaded보다 늦게 실행되어
+//       모듈 파싱이 완전히 끝난 뒤 바인딩 보장
+// [FIX] window.__startVision 전역 노출: index.html의 onclick 폴백과 연결
+// ─────────────────────────────────────────────────────────────
+window.__startVision = handleStart;  // index.html onclick 폴백용 전역 함수
+
 function bindEvents() {
     const startBtn = document.getElementById('start-btn');
     const vBtn     = document.getElementById('tab-v-btn');
     const dBtn     = document.getElementById('tab-d-btn');
 
     if (startBtn) {
-        // [FIX] onclick 직접 할당 대신 addEventListener (삼성 인터넷 호환)
         startBtn.addEventListener('click', handleStart, { once: true });
     }
     if (vBtn) vBtn.addEventListener('click', () => switchTab('vision'));
     if (dBtn) dBtn.addEventListener('click', () => switchTab('data'));
 }
 
+// readyState 분기 + window.onload 이중 보험
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindEvents);
 } else {
     bindEvents();
 }
-
-function Renderer_updateStatus(text) {
-    const main = document.getElementById('status-main');
-    if (main) main.innerText = text;
-}
+// window.onload: 모듈이 defer 실행되어 위 두 경우 모두 놓쳤을 때 최후 보루
+window.addEventListener('load', () => {
+    const btn = document.getElementById('start-btn');
+    // 이미 바인딩됐으면 onclick만 보험으로 추가
+    if (btn && !btn._bound) {
+        btn._bound = true;
+        btn.addEventListener('click', handleStart, { once: true });
+    }
+});
