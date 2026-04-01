@@ -1,18 +1,14 @@
 /** [ULTRA VISION AI] - app.js
- *  [FIX] 핵심 원인 해결:
- *  './api-data.js' does not provide an export named 'initDataTab'
- *  → 정적 import 제거, 동적 import + 안전 폴백으로 교체
- *  → api-data.js에 export가 없어도 앱 전체가 죽지 않음
+ *  [FIX] import 버전 쿼리 v2 → v3 (캐시 무효화)
+ *  [KEEP] api-data.js 동적 import 안전 폴백 유지
  */
-import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js?v=2';
-import { speak } from './utils.js?v=2';
+import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js?v=3';
+import { speak } from './utils.js?v=3';
 
 const improvedFilter = 'contrast(1.4) saturate(1.2) brightness(1.1)';
 
-// api-data.js의 initDataTab을 안전하게 동적 로드
-// export가 없거나 파일이 없어도 앱 전체가 죽지 않음
 let _initDataTab = () => {};
-import('./api-data.js')
+import('./api-data.js?v=3')
     .then(mod => {
         if (typeof mod.initDataTab === 'function') {
             _initDataTab = mod.initDataTab;
@@ -22,12 +18,10 @@ import('./api-data.js')
     })
     .catch(e => console.warn('[api-data.js] 로드 실패:', e.message));
 
-let _systemStarted = false;  // 시스템 시작 후 에러를 부트화면으로 보내지 않기 위한 플래그
+let _systemStarted = false;
 
-// ── 전역 에러 → 화면에 표시 ─────────────────────────────────
 window.addEventListener('error', (e) => {
     console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
-    // [FIX] 시스템 시작 후 Worker 관련 에러는 부트화면 복귀 안 함
     if (!_systemStarted) _showError('JS오류: ' + e.message);
 });
 window.addEventListener('unhandledrejection', (e) => {
@@ -47,7 +41,6 @@ function _showError(msg) {
     if (btn) { btn.disabled = false; btn.innerText = '다시 시도'; }
 }
 
-// ── switchTab ────────────────────────────────────────────────
 function switchTab(type) {
     const vTab    = document.getElementById('vision-tab');
     const dTab    = document.getElementById('data-tab');
@@ -68,13 +61,12 @@ function switchTab(type) {
         dBtn.className = "flex-1 py-4 font-black text-blue-400 border-b-4 border-blue-500";
         vBtn.className = "flex-1 py-4 font-black text-zinc-500 border-b-4 border-transparent";
         setVisionActive(false);
-        _initDataTab();   // 동적 로드된 함수 사용
+        _initDataTab();
         if (pCanvas) pCanvas.getContext('2d').filter = 'none';
         if (window.kakaoMapInstance) setTimeout(() => window.kakaoMapInstance.relayout(), 300);
     }
 }
 
-// ── handleStart ──────────────────────────────────────────────
 async function handleStart() {
     const startBtn   = document.getElementById('start-btn');
     const bootScreen = document.getElementById('boot-screen');
@@ -105,12 +97,12 @@ async function handleStart() {
         ]);
 
         if (statusSub) statusSub.innerText = '개선된 필터로 신호등을 찾고 있습니다';
-        _systemStarted = true;  // [FIX] 이후 전역 에러는 부트화면 복귀 안 함
-        speak("울트라 비전 시스템을 시작합니다.");
+        _systemStarted = true;
+        speak('울트라 비전 시스템을 시작합니다.');
         startVision();
 
     } catch (err) {
-        console.error("[초기 구동 에러]:", err);
+        console.error('[초기 구동 에러]:', err);
         if (startBtn) { startBtn.disabled = false; startBtn.innerText = '다시 시도'; }
         bootScreen.style.display = 'flex';
         bootScreen.style.opacity = '1';
@@ -130,7 +122,6 @@ function _updateMainStatus(text) {
     if (main) main.innerText = text;
 }
 
-// ── 이벤트 바인딩 ────────────────────────────────────────────
 window.__startVision = handleStart;
 window.__switchTab   = switchTab;
 
