@@ -1,10 +1,9 @@
 /** [ULTRA VISION AI] - vision.js
- *  [NEW] MediaPipe ImageClassifier 2단계 파이프라인 통합
- *    - YOLO 탐지 → ROI를 MP 분류기에 전달 → RED/GREEN 판정
- *    - MP 미준비 시 기존 HSV 분석(analyzeROI / analyzePedestrianROI)으로 자동 폴백
- *  [FIX] analyzePedestrianROI import 추가
- *  [FIX] isWorkerReady 플래그로 Worker 재초기화 중 DETECT 차단
- *  [NEW] 신호 스무딩: 최근 5프레임 과반수 투표
+ *  [FIX] startCameraFirst — onloadedmetadata 타임아웃 10s → 15s
+ *  [FIX] video.play() 실패해도 진행 (Android 일부 브라우저 호환)
+ *  [FIX] _waitForVideoReady 타임아웃 3s → 8s, readyState >= 1 도 허용
+ *  [FIX] getUserMedia constraints 단순화 — 일부 기기에서 ideal 조건이 카메라 오픈 실패 유발
+ *  [FIX] initVision에서 Worker 로드 완료를 기다리지 않고 반환 (UI 블로킹 제거)
  */
 import * as Detector  from './vision-detector.js?v=3';
 import * as Renderer  from './vision-renderer.js?v=3';
@@ -32,18 +31,17 @@ let detectLoopRunning = false;
 let renderLoopRunning = false;
 
 const SIGNAL_HISTORY_SIZE = 5;
-const signalHistory = [];
+const signalHistory     = [];
 const MAX_LOCK_FRAMES   = 30;
 const WORKER_TIMEOUT_MS = 15000;
 
 // ─────────────────────────────────────────────
-// 신호 스무딩 (최근 N프레임 과반수 투표)
+// 신호 스무딩
 // ─────────────────────────────────────────────
 function smoothSignal(raw) {
     signalHistory.push(raw);
     if (signalHistory.length > SIGNAL_HISTORY_SIZE) signalHistory.shift();
     if (signalHistory.length < 3) return raw;
-
     const counts = { RED: 0, GREEN: 0, UNKNOWN: 0 };
     for (const s of signalHistory) counts[s] = (counts[s] || 0) + 1;
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -53,6 +51,7 @@ function smoothSignal(raw) {
 
 // ─────────────────────────────────────────────
 // 카메라 초기화
+// [FIX] constraints 단순화 + 타임아웃 연장 + play() 실패 허용
 // ─────────────────────────────────────────────
 export async function startCameraFirst() {
     const video = document.getElementById('webcam');
@@ -67,45 +66,78 @@ export async function startCameraFirst() {
         throw new Error('HTTPS_REQUIRED');
     }
 
+    // 기존 스트림 정리
     if (videoStream) {
         videoStream.getTracks().forEach(t => t.stop());
         videoStream = null;
         video.srcObject = null;
     }
 
-    const constraints = {
-        video: {
-            facingMode: { ideal: 'environment' },
-            width:  { ideal: 1280 },
-            height: { ideal: 720 }
+    // [FIX] 단순화된 constraints — 복잡한 ideal 조건이 일부 Android에서 실패 유발
+    let stream = null;
+    const constraintsList = [
+        // 1순위: 후면 카메라 HD
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        // 2순위: 후면 카메라만 (해상도 제한 없음)
+        { video: { facingMode: 'environment' } },
+        // 3순위: 아무 카메라
+        { video: true },
+    ];
+
+    for (const constraints of constraintsList) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+        } catch (err) {
+            console.warn('[Camera] constraints 실패, 다음 시도:', JSON.stringify(constraints.video), err.message);
+            if (err.name === 'NotAllowedError') throw err;  // 권한 거부는 즉시 throw
         }
-    };
-
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
-        videoStream = stream;
-
-        await new Promise((resolve, reject) => {
-            video.onloadedmetadata = async () => {
-                try { await video.play(); resolve(); }
-                catch (e) { console.warn('[video.play()]', e.message); resolve(); }
-            };
-            setTimeout(() => reject(new Error('카메라 메타데이터 타임아웃')), 10000);
-        });
-        await _waitForVideoReady(video, 3000);
-    } catch (err) {
-        console.error('Camera Error:', err);
-        throw err;
     }
+
+    if (!stream) throw new Error('카메라를 열 수 없습니다. 모든 constraints 실패');
+
+    video.srcObject = stream;
+    videoStream = stream;
+
+    // [FIX] onloadedmetadata 타임아웃 15초, play() 실패해도 계속 진행
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            console.warn('[Camera] onloadedmetadata 타임아웃 — 강제 진행');
+            resolve();  // [FIX] reject 대신 resolve로 변경 — 타임아웃이어도 진행 시도
+        }, 15000);
+
+        video.onloadedmetadata = async () => {
+            clearTimeout(timer);
+            try {
+                await video.play();
+            } catch (e) {
+                console.warn('[video.play() 실패 — 무시하고 진행]', e.message);
+            }
+            resolve();
+        };
+
+        // [FIX] oncanplay도 폴백으로 추가
+        video.oncanplay = () => {
+            if (video.readyState >= 2) {
+                clearTimeout(timer);
+                video.play().catch(() => {});
+                resolve();
+            }
+        };
+    });
+
+    // [FIX] readyState >= 1(HAVE_METADATA) 도 허용, 타임아웃 8초
+    await _waitForVideoReady(video, 8000);
+    console.log('[Camera] 준비 완료, readyState:', video.readyState, 'size:', video.videoWidth, 'x', video.videoHeight);
 }
 
 function _waitForVideoReady(video, timeoutMs) {
     return new Promise(resolve => {
-        if (video.readyState >= 2) { resolve(); return; }
+        // [FIX] readyState >= 1 도 통과 허용 (HAVE_METADATA 이상이면 충분)
+        if (video.readyState >= 1) { resolve(); return; }
         const start = Date.now();
         const check = () => {
-            if (video.readyState >= 2 || Date.now() - start > timeoutMs) resolve();
+            if (video.readyState >= 1 || Date.now() - start > timeoutMs) resolve();
             else setTimeout(check, 100);
         };
         check();
@@ -113,16 +145,22 @@ function _waitForVideoReady(video, timeoutMs) {
 }
 
 // ─────────────────────────────────────────────
-// Vision 초기화 (YOLO Worker + MP Classifier 병렬 기동)
+// Vision 초기화
+// [FIX] Worker 로드를 기다리지 않고 즉시 반환 — UI 블로킹 제거
 // ─────────────────────────────────────────────
 export async function initVision() {
-    // Worker 초기화
     _initWorker();
 
-    // [NEW] MediaPipe ImageClassifier 비동기 초기화 (실패해도 앱 계속 동작)
+    // MediaPipe 비동기 초기화 (실패해도 HSV 폴백으로 동작)
     initClassifier().then(ok => {
         console.log('[Vision] MP Classifier:', ok ? '준비 완료' : 'HSV 폴백 모드');
+    }).catch(() => {
+        console.warn('[Vision] MP Classifier 초기화 예외 — HSV 폴백');
     });
+
+    // [FIX] Worker LOADED 신호를 기다리지 않고 바로 반환
+    // detectLoop에서 isWorkerReady 플래그로 안전하게 대기함
+    return Promise.resolve();
 }
 
 function _initWorker() {
@@ -188,7 +226,8 @@ export function startVision() {
 function renderLoop() {
     if (!isVisionActive) { renderLoopRunning = false; return; }
     const video = document.getElementById('webcam');
-    if (video && video.readyState >= 2) Renderer.drawVideo(video);
+    // [FIX] readyState >= 1 도 허용
+    if (video && video.readyState >= 1) Renderer.drawVideo(video);
     requestAnimationFrame(renderLoop);
 }
 
@@ -199,7 +238,7 @@ export async function detectLoop() {
     if (!isVisionActive || !visionWorker) { detectLoopRunning = false; return; }
 
     const video = document.getElementById('webcam');
-    if (!video || video.readyState < 2) { requestAnimationFrame(detectLoop); return; }
+    if (!video || video.readyState < 1) { requestAnimationFrame(detectLoop); return; }
     if (!isWorkerReady)                  { requestAnimationFrame(detectLoop); return; }
 
     if (!isWorkerBusy) {
@@ -264,9 +303,6 @@ function tryHSVFallback(video) {
 
 // ─────────────────────────────────────────────
 // ROI 분석 — 2단계 파이프라인
-//
-//   1순위: MediaPipe ImageClassifier
-//   2순위: HSV 분석 (MP 미준비 또는 UNKNOWN 반환 시)
 // ─────────────────────────────────────────────
 async function analyzeAndShowSignal(video, box) {
     if (!box) return;
@@ -274,7 +310,6 @@ async function analyzeAndShowSignal(video, box) {
         const w = Math.max(1, Math.floor(box.w));
         const h = Math.max(1, Math.floor(box.h));
 
-        // ROI 캔버스 생성 (CSS filter 영향 배제 — video에서 직접 읽기)
         let roiCanvas;
         let ctx;
         if (typeof OffscreenCanvas !== 'undefined') {
@@ -290,13 +325,10 @@ async function analyzeAndShowSignal(video, box) {
 
         let signal = 'UNKNOWN';
 
-        // ── 1순위: MediaPipe 분류기 ──────────────────
         if (isMPReady()) {
             signal = await classifyROIAsync(roiCanvas, box.pedMode);
         }
 
-        // ── 2순위: HSV 분석 폴백 ─────────────────────
-        // MP가 준비 안 됐거나 UNKNOWN을 반환한 경우
         if (signal === 'UNKNOWN') {
             signal = box.pedMode
                 ? analyzePedestrianROI(ctx, { x: 0, y: 0, w, h })

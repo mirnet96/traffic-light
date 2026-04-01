@@ -1,6 +1,7 @@
 /** [ULTRA VISION AI] - app.js
- *  [FIX] import 버전 쿼리 v2 → v3 (캐시 무효화)
- *  [KEEP] api-data.js 동적 import 안전 폴백 유지
+ *  [FIX] handleStart 중복 호출 방지 — _started 플래그로 재진입 차단
+ *  [FIX] { once: true } 제거 → 수동으로 리스너 해제하여 인라인 onclick과 충돌 방지
+ *  [FIX] 다시 시도 버튼 재활성화 시 이벤트 재등록
  */
 import { initVision, startCameraFirst, startVision, setVisionActive } from './vision.js?v=3';
 import { speak } from './utils.js?v=3';
@@ -18,7 +19,8 @@ import('./api-data.js?v=3')
     })
     .catch(e => console.warn('[api-data.js] 로드 실패:', e.message));
 
-let _systemStarted = false;
+let _systemStarted  = false;
+let _handleStarting = false;  // [FIX] 중복 호출 방지 플래그
 
 window.addEventListener('error', (e) => {
     console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
@@ -38,7 +40,11 @@ function _showError(msg) {
         boot.style.display = 'flex';
         boot.style.opacity = '1';
     }
-    if (btn) { btn.disabled = false; btn.innerText = '다시 시도'; }
+    if (btn) {
+        btn.disabled  = false;
+        btn.innerText = '다시 시도';
+        _bindStartBtn(btn);  // [FIX] 실패 후 버튼 재등록
+    }
 }
 
 function switchTab(type) {
@@ -68,11 +74,19 @@ function switchTab(type) {
 }
 
 async function handleStart() {
+    // [FIX] 중복 호출 차단 (인라인 onclick + addEventListener 동시 실행 방지)
+    if (_handleStarting) return;
+    _handleStarting = true;
+
     const startBtn   = document.getElementById('start-btn');
     const bootScreen = document.getElementById('boot-screen');
     const statusSub  = document.getElementById('status-sub');
 
-    if (startBtn) startBtn.disabled = true;
+    if (startBtn) {
+        startBtn.disabled = true;
+        // [FIX] 인라인 onclick 제거 — 이 시점부터 클릭 이벤트는 JS에서만 관리
+        startBtn.onclick = null;
+    }
 
     bootScreen.style.opacity = '0';
     setTimeout(() => { bootScreen.style.display = 'none'; }, 500);
@@ -103,6 +117,8 @@ async function handleStart() {
 
     } catch (err) {
         console.error('[초기 구동 에러]:', err);
+        _handleStarting = false;  // [FIX] 실패 시 플래그 해제 → 재시도 가능
+
         if (startBtn) { startBtn.disabled = false; startBtn.innerText = '다시 시도'; }
         bootScreen.style.display = 'flex';
         bootScreen.style.opacity = '1';
@@ -122,6 +138,15 @@ function _updateMainStatus(text) {
     if (main) main.innerText = text;
 }
 
+// [FIX] 버튼 이벤트 등록 헬퍼 — 중복 등록 방지 + 인라인 onclick 제거
+function _bindStartBtn(btn) {
+    if (!btn) return;
+    btn.onclick = null;          // 인라인 onclick 완전 제거
+    btn.removeEventListener('click', handleStart);
+    btn.addEventListener('click', handleStart);
+    btn._bound = true;
+}
+
 window.__startVision = handleStart;
 window.__switchTab   = switchTab;
 
@@ -129,10 +154,9 @@ function bindEvents() {
     const startBtn = document.getElementById('start-btn');
     const vBtn     = document.getElementById('tab-v-btn');
     const dBtn     = document.getElementById('tab-d-btn');
-    if (startBtn && !startBtn._bound) {
-        startBtn._bound = true;
-        startBtn.addEventListener('click', handleStart, { once: true });
-    }
+
+    _bindStartBtn(startBtn);  // [FIX] 통합 헬퍼 사용
+
     if (vBtn) vBtn.addEventListener('click', () => switchTab('vision'));
     if (dBtn) dBtn.addEventListener('click', () => switchTab('data'));
 }
@@ -144,8 +168,5 @@ if (document.readyState === 'loading') {
 }
 window.addEventListener('load', () => {
     const btn = document.getElementById('start-btn');
-    if (btn && !btn._bound) {
-        btn._bound = true;
-        btn.addEventListener('click', handleStart, { once: true });
-    }
+    if (btn && !btn._bound) _bindStartBtn(btn);
 });
