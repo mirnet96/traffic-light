@@ -6,7 +6,7 @@
 ════════════════════════════════════ */
 
 const MP_MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/latest/efficientdet_lite2.tflite';
+  'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/1/efficientdet_lite2.tflite';
 
 const MP_COCO_TRAFFIC_LIGHT = 9;
 const MP_COCO_PERSON        = 0;
@@ -23,19 +23,18 @@ let mpTimestamp = 0;
 /* ── 로드 ── */
 async function loadMediaPipe() {
   try {
-    const vision = await window.MediaPipeTasksVision.FilesetResolver
-      .forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-      );
-    mpDetector = await window.MediaPipeTasksVision.ObjectDetector.createFromOptions(
-      vision,
-      {
-        baseOptions: { modelAssetPath: MP_MODEL_URL, delegate: 'GPU' },
-        scoreThreshold: 0.25,
-        categoryAllowlist: ['traffic light', 'person'],
-        runningMode: 'VIDEO',
-      }
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
+    mpDetector = await ObjectDetector.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: MP_MODEL_URL,
+        delegate: 'GPU',
+      },
+      scoreThreshold: 0.25,
+      categoryAllowlist: ['traffic light', 'person'],
+      runningMode: 'VIDEO',
+    });
     return true;
   } catch (e) {
     console.warn('MediaPipe load failed', e);
