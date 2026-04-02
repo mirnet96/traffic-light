@@ -105,13 +105,7 @@
 
   <!-- TensorFlow.js (YOLOv8s 폴백용) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-  <!-- MediaPipe Tasks Vision (1차 감지) -->
-  <script type="module">
-    import { FilesetResolver, ObjectDetector }
-      from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-    window.FilesetResolver = FilesetResolver;
-    window.ObjectDetector  = ObjectDetector;
-  </script>
+  <!-- MediaPipe: detector.mediapipe.js 내부에서 동적 import -->
   <!-- 감지 모듈 — 의존 순서 준수 -->
   <script src="detector.mediapipe.js"></script>
   <script src="detector.yolo.js"></script>
