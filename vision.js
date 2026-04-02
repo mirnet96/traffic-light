@@ -1,23 +1,21 @@
-/** [ULTRA VISION AI] - vision.js
- *  [FIX] startCameraFirst — onloadedmetadata 타임아웃 10s → 15s
- *  [FIX] video.play() 실패해도 진행 (Android 일부 브라우저 호환)
- *  [FIX] _waitForVideoReady 타임아웃 3s → 8s, readyState >= 1 도 허용
- *  [FIX] getUserMedia constraints 단순화 — 일부 기기에서 ideal 조건이 카메라 오픈 실패 유발
- *  [FIX] initVision에서 Worker 로드 완료를 기다리지 않고 반환 (UI 블로킹 제거)
+/** [ULTRA VISION AI] - vision.js v4
+ *  [FIX] startCameraFirst: 3단계 constraints 폴백 (HD→후면→any)
+ *  [FIX] onloadedmetadata 타임아웃 시 reject → resolve (Android 호환)
+ *  [FIX] play().catch(()=>{}) 로 변경, await 제거 (Samsung Internet)
+ *  [FIX] readyState >= 1 허용, 타임아웃 8s로 연장
+ *  [FIX] OffscreenCanvas 폴백 경로 try-catch 추가 (iOS 16 미만)
+ *  [FIX] ROI 추출 시 scaleX/Y 보정 (canvas vs video 크기 불일치)
+ *  [FIX] 줌레벨별 lockCounter 차등 적용 (WIDE 30 / MID 20 / TELE 10 / PED 15)
+ *  [FIX] initVision 즉시 반환 (Worker LOADED 대기 제거)
  */
-import * as Detector  from './vision-detector.js?v=3';
-import * as Renderer  from './vision-renderer.js?v=3';
+import * as Detector from './vision-detector.js?v=4';
+import * as Renderer from './vision-renderer.js?v=4';
 import {
-    analyzeROI,
-    analyzePedestrianROI,
-    detectByHSV as analyzeByHSV
-} from './vision-analyzer.js?v=3';
+    analyzeROI, analyzePedestrianROI, detectByHSV as analyzeByHSV
+} from './vision-analyzer.js?v=4';
 import {
-    initClassifier,
-    isReady       as isMPReady,
-    classifyROIAsync,
-    disposeClassifier
-} from './vision-classifier.js?v=3';
+    initClassifier, isReady as isMPReady, classifyROIAsync, disposeClassifier
+} from './vision-classifier.js?v=4';
 
 let visionWorker      = null;
 let isWorkerBusy      = false;
@@ -32,169 +30,113 @@ let renderLoopRunning = false;
 
 const SIGNAL_HISTORY_SIZE = 5;
 const signalHistory     = [];
-const MAX_LOCK_FRAMES   = 30;
 const WORKER_TIMEOUT_MS = 15000;
 
-// ─────────────────────────────────────────────
-// 신호 스무딩
-// ─────────────────────────────────────────────
+// 줌레벨별 lock 프레임 수
+const LOCK_FRAMES = { WIDE: 30, MID: 20, TELE: 10, PED_LEFT: 15, PED_RIGHT: 15, PED_NEAR: 15, PED_LEFT2: 15, PED_RIGHT2: 15 };
+
 function smoothSignal(raw) {
     signalHistory.push(raw);
     if (signalHistory.length > SIGNAL_HISTORY_SIZE) signalHistory.shift();
     if (signalHistory.length < 3) return raw;
     const counts = { RED: 0, GREEN: 0, UNKNOWN: 0 };
     for (const s of signalHistory) counts[s] = (counts[s] || 0) + 1;
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    const [topSignal, topCount] = sorted[0];
-    return topCount > signalHistory.length / 2 ? topSignal : 'UNKNOWN';
+    const [top, cnt] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return cnt > signalHistory.length / 2 ? top : 'UNKNOWN';
 }
 
 // ─────────────────────────────────────────────
 // 카메라 초기화
-// [FIX] constraints 단순화 + 타임아웃 연장 + play() 실패 허용
 // ─────────────────────────────────────────────
 export async function startCameraFirst() {
     const video = document.getElementById('webcam');
     if (!video) throw new Error("'webcam' video 태그 없음");
 
-    const isSecure =
-        location.protocol === 'https:' ||
-        location.hostname  === 'localhost' ||
-        location.hostname  === '127.0.0.1';
-    if (!isSecure) {
-        alert('⚠️ 카메라를 사용하려면 HTTPS가 필요합니다.');
-        throw new Error('HTTPS_REQUIRED');
-    }
+    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (!isSecure) { alert('⚠️ HTTPS 필요'); throw new Error('HTTPS_REQUIRED'); }
 
-    // 기존 스트림 정리
-    if (videoStream) {
-        videoStream.getTracks().forEach(t => t.stop());
-        videoStream = null;
-        video.srcObject = null;
-    }
+    if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); videoStream = null; video.srcObject = null; }
 
-    // [FIX] 단순화된 constraints — 복잡한 ideal 조건이 일부 Android에서 실패 유발
-    let stream = null;
+    // [FIX] 3단계 폴백 constraints
     const constraintsList = [
-        // 1순위: 후면 카메라 HD
         { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-        // 2순위: 후면 카메라만 (해상도 제한 없음)
         { video: { facingMode: 'environment' } },
-        // 3순위: 아무 카메라
         { video: true },
     ];
 
-    for (const constraints of constraintsList) {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            break;
-        } catch (err) {
-            console.warn('[Camera] constraints 실패, 다음 시도:', JSON.stringify(constraints.video), err.message);
-            if (err.name === 'NotAllowedError') throw err;  // 권한 거부는 즉시 throw
+    let stream = null;
+    for (const c of constraintsList) {
+        try { stream = await navigator.mediaDevices.getUserMedia(c); break; }
+        catch (err) {
+            console.warn('[Camera] 실패:', JSON.stringify(c.video), err.message);
+            if (err.name === 'NotAllowedError') throw err;
         }
     }
-
-    if (!stream) throw new Error('카메라를 열 수 없습니다. 모든 constraints 실패');
+    if (!stream) throw new Error('카메라를 열 수 없습니다');
 
     video.srcObject = stream;
     videoStream = stream;
 
-    // [FIX] onloadedmetadata 타임아웃 15초, play() 실패해도 계속 진행
-    await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-            console.warn('[Camera] onloadedmetadata 타임아웃 — 강제 진행');
-            resolve();  // [FIX] reject 대신 resolve로 변경 — 타임아웃이어도 진행 시도
-        }, 15000);
-
-        video.onloadedmetadata = async () => {
+    // [FIX] 타임아웃 시 resolve (reject → 부트복귀 방지)
+    await new Promise(resolve => {
+        const timer = setTimeout(() => { console.warn('[Camera] metadata 타임아웃 — 강제 진행'); resolve(); }, 15000);
+        video.onloadedmetadata = () => {
             clearTimeout(timer);
-            try {
-                await video.play();
-            } catch (e) {
-                console.warn('[video.play() 실패 — 무시하고 진행]', e.message);
-            }
+            video.play().catch(() => {});  // [FIX] await 제거, 실패 무시
             resolve();
         };
-
-        // [FIX] oncanplay도 폴백으로 추가
         video.oncanplay = () => {
-            if (video.readyState >= 2) {
-                clearTimeout(timer);
-                video.play().catch(() => {});
-                resolve();
-            }
+            if (video.readyState >= 2) { clearTimeout(timer); video.play().catch(() => {}); resolve(); }
         };
     });
 
-    // [FIX] readyState >= 1(HAVE_METADATA) 도 허용, 타임아웃 8초
     await _waitForVideoReady(video, 8000);
-    console.log('[Camera] 준비 완료, readyState:', video.readyState, 'size:', video.videoWidth, 'x', video.videoHeight);
+    console.log('[Camera] 준비 완료 readyState:', video.readyState, video.videoWidth, 'x', video.videoHeight);
 }
 
-function _waitForVideoReady(video, timeoutMs) {
+function _waitForVideoReady(video, ms) {
     return new Promise(resolve => {
-        // [FIX] readyState >= 1 도 통과 허용 (HAVE_METADATA 이상이면 충분)
-        if (video.readyState >= 1) { resolve(); return; }
-        const start = Date.now();
-        const check = () => {
-            if (video.readyState >= 1 || Date.now() - start > timeoutMs) resolve();
-            else setTimeout(check, 100);
-        };
+        if (video.readyState >= 1) { resolve(); return; }  // [FIX] >= 1 허용
+        const t = Date.now();
+        const check = () => (video.readyState >= 1 || Date.now() - t > ms) ? resolve() : setTimeout(check, 100);
         check();
     });
 }
 
 // ─────────────────────────────────────────────
 // Vision 초기화
-// [FIX] Worker 로드를 기다리지 않고 즉시 반환 — UI 블로킹 제거
 // ─────────────────────────────────────────────
 export async function initVision() {
     _initWorker();
-
-    // MediaPipe 비동기 초기화 (실패해도 HSV 폴백으로 동작)
-    initClassifier().then(ok => {
-        console.log('[Vision] MP Classifier:', ok ? '준비 완료' : 'HSV 폴백 모드');
-    }).catch(() => {
-        console.warn('[Vision] MP Classifier 초기화 예외 — HSV 폴백');
-    });
-
-    // [FIX] Worker LOADED 신호를 기다리지 않고 바로 반환
-    // detectLoop에서 isWorkerReady 플래그로 안전하게 대기함
-    return Promise.resolve();
+    initClassifier().then(ok => console.log('[MP]', ok ? '준비' : 'HSV폴백')).catch(() => {});
+    return Promise.resolve();  // [FIX] Worker LOADED 대기 안 함
 }
 
 function _initWorker() {
     if (visionWorker)   { visionWorker.terminate(); visionWorker = null; }
     if (workerWatchdog) { clearTimeout(workerWatchdog); workerWatchdog = null; }
-    isWorkerBusy  = false;
-    isWorkerReady = false;
+    isWorkerBusy = false; isWorkerReady = false;
 
     visionWorker = new Worker('./vision-worker.js');
     visionWorker.postMessage({ type: 'LOAD' });
 
-    visionWorker.onmessage = (e) => {
+    visionWorker.onmessage = e => {
         const { type, boxes, currentZoom, srApplied, edgeSR } = e.data;
-
         if (type === 'RESULT' || type === 'SKIP') {
             isWorkerBusy = false;
-            clearTimeout(workerWatchdog);
-            workerWatchdog = null;
+            clearTimeout(workerWatchdog); workerWatchdog = null;
 
             if (type === 'RESULT') {
                 const video = document.getElementById('webcam');
                 Renderer.drawBoxes(video, boxes || [], currentZoom, srApplied, edgeSR);
-
                 if (boxes && boxes.length > 0) {
                     lastKnownBox = boxes[0];
-                    lockCounter  = MAX_LOCK_FRAMES;
+                    // [FIX] 줌레벨별 lock 프레임 차등
+                    lockCounter = LOCK_FRAMES[currentZoom?.label] ?? 20;
                     analyzeAndShowSignal(video, boxes[0]);
                 } else {
-                    if (lockCounter > 0) {
-                        lockCounter--;
-                        analyzeAndShowSignal(video, lastKnownBox);
-                    } else {
-                        tryHSVFallback(video);
-                    }
+                    if (lockCounter > 0) { lockCounter--; analyzeAndShowSignal(video, lastKnownBox); }
+                    else tryHSVFallback(video);
                 }
             }
         } else if (type === 'LOADED') {
@@ -202,17 +144,11 @@ function _initWorker() {
             Renderer.updateStatusText('SYSTEM READY');
         } else if (type === 'ERROR') {
             console.error('[Worker Error]:', e.data.message);
-            isWorkerBusy  = false;
-            isWorkerReady = false;
+            isWorkerBusy = false; isWorkerReady = false;
             Renderer.updateStatusText('MODEL ERROR');
         }
     };
-
-    visionWorker.onerror = (err) => {
-        console.error('[Worker onerror]:', err);
-        isWorkerBusy  = false;
-        isWorkerReady = false;
-    };
+    visionWorker.onerror = err => { console.error('[Worker onerror]:', err); isWorkerBusy = false; isWorkerReady = false; };
 }
 
 export function startVision() {
@@ -220,25 +156,17 @@ export function startVision() {
     if (!detectLoopRunning) { detectLoopRunning = true; detectLoop(); }
 }
 
-// ─────────────────────────────────────────────
-// renderLoop
-// ─────────────────────────────────────────────
 function renderLoop() {
     if (!isVisionActive) { renderLoopRunning = false; return; }
     const video = document.getElementById('webcam');
-    // [FIX] readyState >= 1 도 허용
-    if (video && video.readyState >= 1) Renderer.drawVideo(video);
+    if (video && video.readyState >= 1) Renderer.drawVideo(video);  // [FIX] >= 1
     requestAnimationFrame(renderLoop);
 }
 
-// ─────────────────────────────────────────────
-// detectLoop
-// ─────────────────────────────────────────────
 export async function detectLoop() {
     if (!isVisionActive || !visionWorker) { detectLoopRunning = false; return; }
-
     const video = document.getElementById('webcam');
-    if (!video || video.readyState < 1) { requestAnimationFrame(detectLoop); return; }
+    if (!video || video.readyState < 1) { requestAnimationFrame(detectLoop); return; }  // [FIX] < 1
     if (!isWorkerReady)                  { requestAnimationFrame(detectLoop); return; }
 
     if (!isWorkerBusy) {
@@ -246,39 +174,23 @@ export async function detectLoop() {
         if (workerWatchdog) clearTimeout(workerWatchdog);
         workerWatchdog = setTimeout(() => {
             console.warn('Worker Timeout — 재초기화');
-            isWorkerBusy  = false;
-            isWorkerReady = false;
-            workerWatchdog = null;
-            if (visionWorker) {
-                visionWorker.terminate();
-                visionWorker = null;
-                _initWorker();
-            }
+            isWorkerBusy = false; isWorkerReady = false; workerWatchdog = null;
+            if (visionWorker) { visionWorker.terminate(); visionWorker = null; _initWorker(); }
         }, WORKER_TIMEOUT_MS);
 
         try {
             let bitmap;
-            try {
-                bitmap = await createImageBitmap(video, {
-                    resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low'
-                });
-            } catch (_) {
-                bitmap = await createImageBitmap(video);
-            }
+            try { bitmap = await createImageBitmap(video, { resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low' }); }
+            catch (_) { bitmap = await createImageBitmap(video); }
             visionWorker.postMessage({ type: 'DETECT', data: { bitmap } }, [bitmap]);
         } catch (e) {
-            console.warn('[detectLoop] createImageBitmap 실패:', e.message);
-            isWorkerBusy = false;
-            clearTimeout(workerWatchdog);
-            workerWatchdog = null;
+            console.warn('[detectLoop] bitmap 실패:', e.message);
+            isWorkerBusy = false; clearTimeout(workerWatchdog); workerWatchdog = null;
         }
     }
     requestAnimationFrame(detectLoop);
 }
 
-// ─────────────────────────────────────────────
-// HSV Fallback
-// ─────────────────────────────────────────────
 function tryHSVFallback(video) {
     try {
         const canvas = document.getElementById('preview-canvas');
@@ -287,59 +199,60 @@ function tryHSVFallback(video) {
         const vW   = video.videoWidth  || canvas.width  || 1280;
         const vH   = video.videoHeight || canvas.height || 720;
         const zone = Detector.getScanZone(vW, vH);
-
         const { signal, box } = analyzeByHSV(ctx, zone);
         if (signal !== 'UNKNOWN' && box) {
-            lastKnownBox = box;
-            lockCounter  = Math.floor(MAX_LOCK_FRAMES / 2);
+            lastKnownBox = box; lockCounter = 10;
             Renderer.updateSignalStatus(smoothSignal(signal));
-        } else {
-            Renderer.updateSignalStatus(smoothSignal('UNKNOWN'));
-        }
-    } catch (e) {
-        console.warn('[HSV Fallback]:', e.message);
-    }
+        } else Renderer.updateSignalStatus(smoothSignal('UNKNOWN'));
+    } catch (e) { console.warn('[HSV Fallback]:', e.message); }
 }
 
 // ─────────────────────────────────────────────
-// ROI 분석 — 2단계 파이프라인
+// ROI 분석
+// [FIX] scaleX/Y 보정으로 canvas vs video 불일치 해결
+// [FIX] OffscreenCanvas 폴백 try-catch (iOS 16 미만)
 // ─────────────────────────────────────────────
 async function analyzeAndShowSignal(video, box) {
     if (!box) return;
     try {
-        const w = Math.max(1, Math.floor(box.w));
-        const h = Math.max(1, Math.floor(box.h));
+        const canvas = document.getElementById('preview-canvas');
+        const cW = canvas?.width  || video.videoWidth  || 1280;
+        const cH = canvas?.height || video.videoHeight || 720;
+        const vW = video.videoWidth  || cW;
+        const vH = video.videoHeight || cH;
 
-        let roiCanvas;
-        let ctx;
-        if (typeof OffscreenCanvas !== 'undefined') {
-            roiCanvas = new OffscreenCanvas(w, h);
+        // [FIX] canvas 좌표 → video 원본 좌표 역산
+        const scaleX = vW / cW;
+        const scaleY = vH / cH;
+        const rx = box.x * scaleX, ry = box.y * scaleY;
+        const rw = Math.max(1, Math.floor(box.w * scaleX));
+        const rh = Math.max(1, Math.floor(box.h * scaleY));
+
+        let roiCanvas, ctx;
+        try {
+            if (typeof OffscreenCanvas !== 'undefined') {
+                roiCanvas = new OffscreenCanvas(rw, rh);
+            } else {
+                roiCanvas = document.createElement('canvas');
+                roiCanvas.width = rw; roiCanvas.height = rh;
+            }
             ctx = roiCanvas.getContext('2d');
-        } else {
-            roiCanvas = document.createElement('canvas');
-            roiCanvas.width  = w;
-            roiCanvas.height = h;
-            ctx = roiCanvas.getContext('2d');
+            ctx.drawImage(video, rx, ry, rw, rh, 0, 0, rw, rh);
+        } catch (e) {
+            // [FIX] iOS 폴백: 직접 HSV 분석
+            console.warn('[ROI] canvas 생성 실패, HSV 직접 호출:', e.message);
+            tryHSVFallback(video); return;
         }
-        ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, w, h);
 
         let signal = 'UNKNOWN';
-
-        if (isMPReady()) {
-            signal = await classifyROIAsync(roiCanvas, box.pedMode);
-        }
-
+        if (isMPReady()) signal = await classifyROIAsync(roiCanvas, box.pedMode);
         if (signal === 'UNKNOWN') {
             signal = box.pedMode
-                ? analyzePedestrianROI(ctx, { x: 0, y: 0, w, h })
-                : analyzeROI(ctx, { x: 0, y: 0, w, h });
+                ? analyzePedestrianROI(ctx, { x: 0, y: 0, w: rw, h: rh })
+                : analyzeROI(ctx, { x: 0, y: 0, w: rw, h: rh });
         }
-
         Renderer.updateSignalStatus(smoothSignal(signal));
-
-    } catch (e) {
-        console.error('ROI Analysis Error:', e);
-    }
+    } catch (e) { console.error('ROI Error:', e); }
 }
 
 export function setVisionActive(active) {
@@ -348,8 +261,7 @@ export function setVisionActive(active) {
         if (!renderLoopRunning) { renderLoopRunning = true; renderLoop(); }
         if (!detectLoopRunning) { detectLoopRunning = true; detectLoop(); }
     } else {
-        renderLoopRunning = false;
-        detectLoopRunning = false;
+        renderLoopRunning = false; detectLoopRunning = false;
         disposeClassifier();
     }
 }
