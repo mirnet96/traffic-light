@@ -1,162 +1,127 @@
-# [BETA] 신호등 알리미 Pro (Traffic Light Pro)
+# 신호등 확대기 (Traffic Light Magnifier)
 
-> **주의: 본 서비스는 현재 v0.5 테스트 및 개발 단계에 있습니다.**  
-> 8~10차선 대형 교차로 인식을 위한 멀티 스케일 줌 스캔 기능 및 보행자 신호등 전용 분석 기능이 포함되어 있습니다.
+> **베타 버전 (Beta)** — 현재 기능 검증 단계입니다. 실제 도로 횡단 시 반드시 육안으로 신호를 직접 확인하세요.
+
+[![Beta](https://img.shields.io/badge/status-beta-orange)](https://mirnet96.github.io/traffic-light)
+[![GitHub Pages](https://img.shields.io/badge/deploy-GitHub%20Pages-blue)](https://mirnet96.github.io/traffic-light)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
 
-## 1. 신호등 탐지 전체 흐름
+## 소개
+
+길 건너편 보행 신호등을 카메라로 자동 감지하고 전체화면으로 확대하여, 저시력자가 신호 색상을 쉽고 빠르게 확인할 수 있도록 돕는 웹 앱입니다.
+
+별도 설치 없이 브라우저에서 바로 사용할 수 있습니다.
+
+**[지금 사용해보기 →](https://mirnet96.github.io/traffic-light)**
+
+---
+
+## 베타 버전 안내
+
+> **이 앱은 현재 베타 테스트 단계입니다.**
+
+| 항목 | 내용 |
+|---|---|
+| 버전 | Beta v0.1 |
+| 감지 정확도 | 환경에 따라 상이 (역광·야간·소형 신호등에서 오감지 가능) |
+| 권장 용도 | 기능 체험 및 피드백 수집 |
+| 주의 사항 | 실제 횡단 시 육안 확인 병행 필수 |
+
+버그 및 개선 의견은 [Issues](https://github.com/mirnet96/traffic-light/issues)에 남겨주세요.
+
+---
+
+## 주요 기능
+
+- **실시간 감지** — TensorFlow.js SSD MobileNet v2로 2~10차선 건너편 신호등 자동 탐지
+- **전체화면 확대** — 감지된 신호등을 화면 전체에 크게 표시, 정지·보행 텍스트 병기
+- **야간 모드** — 주변 밝기 자동 측정 후 필터 적용, 수동 전환도 지원
+- **폴백 감지** — 모델 로드 실패 시 픽셀 색상 분석 모드로 자동 전환
+- **진동 피드백** — 신호 감지 시 햅틱 진동 (정지: 짧게 두 번 / 보행: 길게 한 번)
+- **카메라 전환** — 전·후면 카메라 전환 지원
+
+---
+
+## 사용 방법
+
+1. 브라우저에서 [https://mirnet96.github.io/traffic-light](https://mirnet96.github.io/traffic-light) 접속
+2. **카메라 시작** 버튼 탭 → 카메라 권한 허용
+3. 건너편 신호등에 카메라를 향하기
+4. 하단에 감지된 신호등 카드 탭 → 전체화면 확대
+5. 화면 아무 곳이나 탭하면 카메라 뷰로 복귀
+
+> HTTPS 환경에서만 카메라 API가 동작합니다. GitHub Pages는 기본 HTTPS 지원.
+
+---
+
+## 기술 스택
+
+| 분류 | 기술 |
+|---|---|
+| 마크업 | HTML5 |
+| 스타일 | Tailwind CSS (CDN) |
+| 아이콘 | Google Material Symbols Rounded |
+| ML 감지 | TensorFlow.js 4.17 — SSD MobileNet v2 |
+| 카메라 | getUserMedia API |
+| 배포 | GitHub Pages |
+
+---
+
+## 파일 구조
 
 ```
-[카메라 프레임 입력]
-        │
-        ▼
-[renderLoop]  ──────────────────────────────────────────►  preview-canvas에 매 프레임 렌더링
-        │
-        ▼
-[detectLoop]
-  createImageBitmap(video)
-        │
-        ▼
-[vision-worker.js]  ── 4프레임 중 1프레임 처리 (모바일 성능 최적화)
-        │
-        ├─► 줌 레벨 순환 (WIDE → MID → TELE → PED_LEFT → PED_RIGHT → PED_NEAR → ...)
-        │         │
-        │         ▼
-        │   [전처리]
-        │   - 줌 영역 크롭 (getZoomRect)
-        │   - SR 적용 여부 분기
-        │     · PED_LEFT / PED_RIGHT : Edge-aware 4x SR (Sobel 엣지맵 기반)
-        │     · MID / TELE           : SRCNN-lite 2x SR
-        │     · WIDE / PED_NEAR      : SR 없음
-        │   - Laplacian Sharpening (경계선 강화)
-        │   - 640×640 리사이즈
-        │         │
-        │         ▼
-        │   [YOLOv8n 추론]
-        │   - COCO class 9 (traffic light) 탐지
-        │   - 신뢰도 임계값: 차량 0.20 / 보행자 0.12
-        │   - NMS (IoU 0.45) 중복 박스 제거
-        │   - 로컬 좌표 → 원본 이미지 좌표 역매핑
-        │         │
-        │         ▼
-        │   [RESULT 메시지 → vision.js]
-        │
-        ├─► 탐지 성공 (boxes.length > 0)
-        │         │
-        │         ▼
-        │   [analyzeAndShowSignal]
-        │   - box.pedMode 분기
-        │     · pedMode = true  → analyzePedestrianROI()  보행자 전용 분석
-        │     · pedMode = false → analyzeROI()             차량 신호 분석
-        │         │
-        │         ▼
-        │   [HSV 색상 분석 (vision-analyzer.js)]
-        │   ┌─────────────────────────────────────────────┐
-        │   │  차량용 analyzeROI                           │
-        │   │  - 상단 38% : 빨간불 검사 (Hue 0~15°)       │
-        │   │  - 하단 38% : 초록불 검사 (Hue 85~170°)     │
-        │   │  - v ≥ 0.4, s ≥ 0.3 필터링                  │
-        │   ├─────────────────────────────────────────────┤
-        │   │  보행자용 analyzePedestrianROI               │
-        │   │  - 상단 50% : 빨간 사람 (Hue 0~12°)         │
-        │   │  - 하단 50% : 초록 사람 (Hue 88~165°)       │
-        │   │  - 조도 적응형 임계값 (_getAdaptiveThresholds)│
-        │   │    · 야간  : minV 0.25, minS 0.14           │
-        │   │    · 직사광: minV 0.48, minS 0.12           │
-        │   │    · 주간  : minV 0.35, minS 0.20           │
-        │   └─────────────────────────────────────────────┘
-        │         │
-        │         ▼
-        │   [신호 판정] RED / GREEN / UNKNOWN
-        │
-        └─► 탐지 실패
-                  │
-                  ├─► lockCounter > 0 : 이전 박스로 재분석 (최대 30프레임 유지)
-                  │
-                  └─► lockCounter = 0 : detectByHSV() HSV Fallback
-                            - 전체 스캔존 직접 HSV 스캔
-                            - 밀집 클러스터 탐지 (16px 셀 기반)
-                            - RED / GREEN 클러스터 비교 후 판정
-                                  │
-                                  ▼
-                          [updateSignalStatus()]
-                          - 화면 텍스트 색상 변경
-                          - TTS 음성 안내 (speak())
+traffic-light/
+├── index.html    — 구조 (DOM), CDN 로드
+├── style.css     — 커스텀 스타일 (Tailwind 보완)
+├── app.js        — 카메라 · ML · UI 로직
+├── README.md
+└── CLAUDE.md     — AI 개발 컨텍스트 문서
 ```
 
 ---
 
-## 2. 줌 레벨 구성
+## 로컬 실행
 
-| 레벨 | 배율 | 중심 위치 | SR 방식 | 대상 |
-|---|---|---|---|---|
-| WIDE | 1x | 화면 중앙 상단 | 없음 | 근거리 차량 신호 |
-| MID | 2x | 화면 중앙 | SRCNN-lite | 중거리 차량 신호 |
-| TELE | 4x | 화면 중앙 하단 | SRCNN-lite | 원거리 차량 신호 |
-| PED_LEFT | 3.3x | 좌측 가장자리 | Edge-aware 4x | 보행자 신호 (좌) |
-| PED_RIGHT | 3.3x | 우측 가장자리 | Edge-aware 4x | 보행자 신호 (우) |
-| PED_NEAR | 2.5x | 하단 전폭 | 없음 | 근거리 보행자 신호 |
-| PED_LEFT2 | 5x | 좌측 하단 | Edge-aware 4x | 초근거리 보행자 (좌) |
-| PED_RIGHT2 | 5x | 우측 하단 | Edge-aware 4x | 초근거리 보행자 (우) |
+카메라 API는 HTTPS 또는 `localhost`에서만 동작합니다.
 
----
+```bash
+git clone https://github.com/mirnet96/traffic-light
+cd traffic-light
 
-## 3. 멀티 스케일 줌 스캔 절차
+# Node.js
+npx serve .
 
-### [단계별 스캔 프로세스]
-1. **WIDE 스캔 (1x):** 화면 상단 전체 영역을 탐지하여 근거리 및 중거리 신호등을 포착합니다.
-2. **MID 스캔 (2x):** 화면 중앙부를 2배 확대하여 4~6차선 거리의 신호등 형태를 정밀하게 분석합니다.
-3. **TELE 스캔 (4x):** 소실점(도로 끝) 부근을 4배 확대하여 10차선 이상의 초원거리 신호등 후보지를 탐색합니다.
-4. **PED 스캔:** 화면 좌/우 가장자리 및 하단을 전용 줌으로 확대하여 보행자 신호등을 탐지합니다.
-
-### [좌표 역매핑 (Coordinate Mapping)]
-- 각 줌 레벨에서 탐지된 객체는 `vision-worker.js`에서 원본 이미지 좌표계로 즉시 역산됩니다.
-- 줌 영역에서 계산된 `(Local X, Y)`를 `(Global X, Y)`로 변환하여 화면 렌더링 및 색상 분석 엔진에 전달합니다.
-
----
-
-## 4. 핵심 알고리즘 및 기술 스택
-
-- **AI 엔진:** YOLOv8n (COCO pretrained, traffic light class 9)
-- **SR 엔진:** SRCNN-lite (차량용 2x) / Edge-aware Sobel SR (보행자용 4x)
-- **전처리:** Laplacian Sharpening 필터를 통한 원거리 객체 경계선 강화
-- **색상 분석:** HSV 색 공간 기반 신호 상태(RED/GREEN) 판별 + 조도 적응형 임계값
-- **폴백:** YOLO 탐지 실패 시 HSV 직접 스캔 + 밀집 클러스터 탐지
-- **최적화:** Web Worker 기반 비동기 처리 (4프레임 중 1프레임 추론, renderLoop 분리)
-
----
-
-## 5. 파일 구조
-
-```
-├── index.html          # 메인 UI, 부트 화면, 진단 배너
-├── app.js              # 탭 전환, 시스템 시작 흐름 관리
-├── vision.js           # 카메라 초기화, renderLoop / detectLoop 관리
-├── vision-worker.js    # YOLO 추론, SR 처리, 줌 스캔 (Web Worker)
-├── vision-analyzer.js  # HSV 색상 분석 (차량/보행자/Fallback)
-├── vision-renderer.js  # Canvas 렌더링 (drawVideo / drawBoxes 분리)
-├── vision-detector.js  # 스캔존 정의, 보행자 전용 스캔 영역
-├── api-data.js         # V2X DATA 탭 (카카오맵, GPS, 신호 API)
-└── utils.js            # TTS 음성 안내 (speak)
+# Python
+python -m http.server 8080
 ```
 
----
-
-## 6. 사용 가이드
-
-1. **접속 환경:** HTTPS 또는 localhost 환경 필수 (카메라 권한 요구)
-2. **카메라 각도:** 스마트폰을 지면과 수평이 되도록 들고 정면을 향하게 하십시오.
-3. **인식 범위:** 줌 스캔 기능을 통해 최대 50m 이상의 신호등까지 탐지가 가능합니다.
-4. **피드백:** 신호가 감지되면 화면 상태 텍스트 변경과 함께 TTS 음성 안내가 제공됩니다.
+브라우저에서 `http://localhost:8080` 접속.
 
 ---
 
-## 7. 브라우저 호환성
+## 로드맵
 
-| 브라우저 | 지원 여부 | 비고 |
-|---|---|---|
-| iOS Safari | ✅ | HTTPS 필수 |
-| Android Chrome | ✅ | |
-| Android 삼성 인터넷 | ✅ | |
-| PC Chrome / Edge | ✅ | |
+- [x] 실시간 카메라 감지
+- [x] TF.js AI 모델 통합
+- [x] 전체화면 확대
+- [x] 야간 모드 (자동/수동)
+- [x] 진동 피드백
+- [ ] TTS 음성 안내
+- [ ] 카운트다운 타이머
+- [ ] PWA 오프라인 지원
+- [ ] 경량 모델 교체 (YOLOv8n)
+
+---
+
+## 주의 및 면책
+
+이 앱은 저시력자의 보조 도구로 개발되었으며, **신호 인식을 100% 보장하지 않습니다.**
+횡단보도 이용 시 반드시 주변 상황을 직접 확인하고 안전하게 이용하십시오.
+
+---
+
+## 라이선스
+
+MIT License © 2025 mirnet96

@@ -1,0 +1,52 @@
+/* style.css — Tailwind 보완용 커스텀 스타일만 작성 */
+
+/* Material Symbols 렌더링 설정 */
+.material-symbols-rounded {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+}
+
+/* 스캔라인 애니메이션 */
+#scanline {
+  animation: scanline-anim 2s linear infinite;
+}
+
+@keyframes scanline-anim {
+  0%   { top: 10%; }
+  100% { top: 90%; }
+}
+
+/* 로딩 스피너 */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #333;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 비디오 야간 필터 클래스 */
+#video.night {
+  filter: brightness(1.6) contrast(1.4) saturate(1.3);
+}
+
+#video.day {
+  filter: brightness(1.05) contrast(1.1) saturate(1.1);
+}
+
+/* 야간 버튼 활성화 상태 */
+#btn-night.on {
+  background-color: #ffd700;
+  color: #000;
+}
+
+/* 전체화면 오버레이: 인라인 JS로 동적 스타일 적용되므로
+   기본 layout 구조만 보조 */
+#fs.show {
+  display: flex;
+}
