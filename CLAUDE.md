@@ -28,48 +28,82 @@
 | 카메라 | `getUserMedia` API (HTTPS 필수) |
 | 배포 | GitHub Pages |
 
-### CDN 출처 (허용 목록)
+## CDN 출처 (허용 목록)
 
 ```
 https://cdn.tailwindcss.com
-https://fonts.googleapis.com        (Material Symbols)
-https://cdn.jsdelivr.net            (TensorFlow.js, YOLOv8n 모델)
+https://fonts.googleapis.com                  (Material Symbols)
+https://cdn.jsdelivr.net                      (TensorFlow.js, YOLOv8s, MediaPipe)
+https://storage.googleapis.com/mediapipe-models  (EfficientDet-Lite2 모델)
 ```
 
 ---
 
-## 모델: YOLOv8n TFJS
+## 감지 모델: 폴백 체인 구조
 
-### SSD MobileNet v2 → YOLOv8n 교체 이유
+### 구조 개요
 
-| 항목 | SSD MobileNet v2 (이전) | YOLOv8n (현재) |
+```
+매 프레임
+  └─> 1차: MediaPipe EfficientDet-Lite2 (빠름)
+        ├─> score >= 0.50 신호등 감지 → 즉시 반환
+        └─> 실패 (미감지 / 저신뢰도)
+              └─> 2차: YOLOv8s TF.js (정밀)
+                    └─> 결과 반환
+```
+
+### 모델 비교
+
+| 항목 | MediaPipe EfficientDet-Lite2 | YOLOv8s TF.js |
 |---|---|---|
-| 모델 크기 | 67MB | 6MB |
-| 원거리 소형 객체 | 약함 | 강함 |
-| 추론 속도 | 보통 | 빠름 |
-| 입력 해상도 | 300×300 | 640×640 |
-| 보행 신호등 특화 | 없음 | NMS + 보행자 결합 판별 |
+| 역할 | 1차 (빠른 감지) | 2차 폴백 (정밀 감지) |
+| 입력 해상도 | 448×448 | 640×640 |
+| 모델 크기 | 7MB | 22MB |
+| 추론 속도 (모바일) | ~40ms | ~180ms |
+| 원거리 정확도 | 양호 | 좋음 |
+| COCO mAP | 35.8 | 44.9 |
+| 전처리 | 내장 | Letterbox 직접 구현 |
+| NMS | 내장 | 직접 구현 |
 
 ### 모델 URL
 
 ```
-https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json
+# MediaPipe EfficientDet-Lite2
+https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/latest/efficientdet_lite2.tflite
+
+# YOLOv8s TF.js
+https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8s_web_model/model.json
 ```
 
-### 입력 전처리 (Letterbox)
+### 폴백 판단 기준
+
+```js
+const MP_THRESHOLD = 0.50;   // 이 값 미만이면 YOLOv8s 폴백
+```
+
+### YOLOv8s 입력 전처리 (Letterbox)
 
 원본 프레임 → 640×640 letterbox 리사이즈 → float32 정규화 (÷255)
 
 - 회색(#808080) 패딩으로 비율 유지
-- `scaleX`, `scaleY`, `padX`, `padY` 역변환으로 원본 좌표 복원
+- `scale`, `padX`, `padY` 역변환으로 원본 좌표 복원
 
-### 출력 파싱
+### YOLOv8s 출력 파싱
 
-YOLOv8n 출력 shape: `[1, 84, 8400]`
+출력 shape: `[1, 84, 8400]`
 
 - `[0~3]` × 8400 → cx, cy, w, h (640 공간)
 - `[4~83]` × 8400 → 80개 COCO 클래스 점수
 - 사용 클래스: `9` (traffic light), `0` (person)
+
+### 감지 출처 태그
+
+각 감지 객체에 `src` 필드로 출처를 기록합니다.
+
+```js
+src: 'mp'    // MediaPipe 감지
+src: 'yolo'  // YOLOv8s 감지
+```
 
 ---
 
@@ -77,19 +111,12 @@ YOLOv8n 출력 shape: `[1, 84, 8400]`
 
 ```
 카메라 프레임 (120ms 간격)
-  └─> Letterbox 전처리 → [1, 640, 640, 3]
-        └─> YOLOv8n 추론
-              └─> traffic light (class 9) + person (class 0) 추출
-                    └─> 근거리 / 원거리 분류
-                          └─> NMS (IoU 0.45)
-                                └─> 보행 신호등 판별 (신호등 + 보행자 겹침)
-                                      └─> 전체화면 확대
+  └─> 1차: MediaPipe EfficientDet-Lite2
+        ├─> traffic light score >= 0.50 → classifySignals → 반환
+        └─> 미감지 / 저신뢰도
+              └─> 2차: YOLOv8s Letterbox → [1,640,640,3] → 추론 → NMS
+                    └─> classifySignals → 반환
 ```
-
-### 색상 감지 제거 이유
-
-픽셀 RGB 평균 방식은 역광·야간·소형 신호등 환경에서 오판 빈도가 높아 제거.
-대신 YOLOv8n의 객체 위치 + person 클래스 겹침으로 보행 신호 여부를 판별.
 
 ---
 
@@ -186,11 +213,13 @@ init
 
 ```
 traffic-light/
-├── index.html     — 구조 (DOM), CDN 로드
-├── style.css      — 커스텀 스타일 (Tailwind 보완)
-├── detector.js    — YOLOv8n 추론 · NMS · 보행신호 판별
-├── renderer.js    — 오버레이 박스 · 하단 카드 렌더
-├── app.js         — 카메라 · 스캔 루프 · 전체화면 · 이벤트
+├── index.html              — 구조 (DOM), CDN 로드
+├── style.css               — 커스텀 스타일 (Tailwind 보완)
+├── detector.js             — 폴백 체인 진입점 · classifySignals · iou
+├── detector.mediapipe.js   — MediaPipe EfficientDet-Lite2 로드 · 추론 · 파싱
+├── detector.yolo.js        — YOLOv8s 로드 · Letterbox · 추론 · NMS
+├── renderer.js             — 오버레이 박스 · 하단 카드 렌더
+├── app.js                  — 카메라 · 스캔 루프 · 전체화면 · 이벤트
 ├── README.md
 └── CLAUDE.md
 ```
@@ -198,29 +227,37 @@ traffic-light/
 ### 스크립트 로드 순서 (`index.html`)
 
 ```html
-<script src="tf.min.js"></script>   <!-- TensorFlow.js -->
-<script src="detector.js"></script> <!-- loadModel, runYolo, classifySignals -->
-<script src="renderer.js"></script> <!-- drawBoxes, renderCards -->
-<script src="app.js"></script>      <!-- 진입점 — 위 두 모듈 전역 참조 -->
+<!-- TensorFlow.js (YOLOv8s 폴백용) -->
+<script src="tf.min.js"></script>
+<!-- MediaPipe Tasks Vision (1차 감지) -->
+<script src="vision_bundle.js"></script>
+<!-- 감지 모듈 — 의존 순서 준수 -->
+<script src="detector.mediapipe.js"></script>  <!-- loadMediaPipe, runMediaPipeDetect -->
+<script src="detector.yolo.js"></script>       <!-- loadYolo, runYoloDetect -->
+<script src="detector.js"></script>            <!-- loadModel, runYolo(체인), classifySignals -->
+<script src="renderer.js"></script>            <!-- drawBoxes, renderCards -->
+<script src="app.js"></script>                 <!-- 진입점 -->
 ```
-
-app.js가 detector.js · renderer.js의 함수를 전역으로 참조하므로 반드시 마지막에 로드.
 
 ### 파일별 역할 및 라인 수 기준
 
 | 파일 | 역할 | 상한 |
 |---|---|---|
-| `detector.js` | `loadModel` · `runYolo` · `preprocessFrame` · `parseOutput` · `nms` · `classifySignals` | 150줄 |
+| `detector.js` | 폴백 체인 · `classifySignals` · `iou` | 80줄 |
+| `detector.mediapipe.js` | MediaPipe 로드 · 추론 · 출력 파싱 | 100줄 |
+| `detector.yolo.js` | YOLOv8s 로드 · Letterbox · 추론 · NMS | 130줄 |
 | `renderer.js` | `drawBoxes` · `renderCards` | 100줄 |
-| `app.js` | UI 상태 · 카메라 · 스캔 루프 · 야간 감지 · 전체화면 · 이벤트 | 300줄 |
+| `app.js` | UI · 카메라 · 스캔 루프 · 야간 · 전체화면 · 이벤트 | 300줄 |
 
 ### 역할 분리 원칙
 
-- `index.html`   — 구조와 Tailwind 유틸리티 클래스만. 인라인 스타일 금지.
-- `style.css`    — 애니메이션, 필터, `font-variation-settings` 등 Tailwind 불가 항목만.
-- `detector.js`  — 추론 및 감지 순수 로직. DOM 접근 금지.
-- `renderer.js`  — 캔버스 그리기 및 카드 HTML 생성. 추론 로직 포함 금지.
-- `app.js`       — 위 모듈을 조합하는 진입점. 파일당 300줄 이하 유지.
+- `index.html`             — 구조와 Tailwind 클래스만. 인라인 스타일 금지.
+- `style.css`              — Tailwind 불가 항목만 (애니메이션, 필터 등).
+- `detector.mediapipe.js`  — MediaPipe 전용. DOM 접근 금지.
+- `detector.yolo.js`       — YOLOv8s 전용. DOM 접근 금지.
+- `detector.js`            — 두 감지 모듈 조율만. 추론 로직 포함 금지.
+- `renderer.js`            — 그리기만. 추론 로직 포함 금지.
+- `app.js`                 — 위 모듈 조합 진입점. 300줄 이하 유지.
 
 ---
 
