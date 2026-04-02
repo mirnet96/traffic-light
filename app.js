@@ -1,4 +1,5 @@
-'use strict';
+import { loadModel, runYolo }     from './detector.js';
+import { drawBoxes, renderCards } from './renderer.js';
 
 /* ── 상수 ── */
 const SCAN_MS   = 120;
@@ -18,7 +19,7 @@ let camFacing = 'environment';
 let phase     = 'init';
 
 /* ════════════════════════════════════
-   UI
+   UI 헬퍼
 ════════════════════════════════════ */
 function setPhase(p) {
   phase = p;
@@ -64,7 +65,10 @@ async function startCamera(facing) {
     await new Promise(r => { video.onloadedmetadata = r; });
     video.play();
     setPhase('live');
-    await loadModel(t => document.getElementById('load-msg').textContent = t, setBadge);
+    await loadModel(
+      t  => document.getElementById('load-msg').textContent = t,
+      setBadge
+    );
     startScan();
     startNightCheck();
   } catch (e) {
@@ -90,8 +94,7 @@ function startScan() {
     overlay.width = W; overlay.height = H;
     proc.getContext('2d').drawImage(video, 0, 0, W, H);
 
-    const dets    = await runYolo(proc, W, H);
-    const signals = classifySignals(dets);
+    const signals = await runYolo(proc, W, H);
     drawBoxes(overlay.getContext('2d'), signals, W, H);
     renderCards(signals, showFullscreen);
     scanline.style.display = signals.length ? 'none' : 'block';
@@ -119,6 +122,21 @@ function startNightCheck() {
 /* ════════════════════════════════════
    전체화면
 ════════════════════════════════════ */
+const PERSON_SVG = {
+  walk: `<ellipse cx="50" cy="28" rx="16" ry="18" fill="#003311"/>
+    <ellipse cx="28" cy="62" rx="14" ry="20" fill="#003311"/>
+    <ellipse cx="72" cy="62" rx="14" ry="20" fill="#003311"/>
+    <rect x="36" y="55" width="28" height="28" rx="4" fill="#003311"/>
+    <rect x="42" y="80" width="8" height="18" rx="3" fill="#003311"/>
+    <rect x="50" y="80" width="8" height="18" rx="3" fill="#003311"/>`,
+  stop: `<ellipse cx="50" cy="28" rx="16" ry="18" fill="#330000"/>
+    <ellipse cx="28" cy="62" rx="14" ry="20" fill="#330000"/>
+    <ellipse cx="72" cy="62" rx="14" ry="20" fill="#330000"/>
+    <rect x="36" y="55" width="28" height="28" rx="4" fill="#330000"/>
+    <rect x="42" y="80" width="8" height="18" rx="3" fill="#330000"/>
+    <rect x="50" y="80" width="8" height="18" rx="3" fill="#330000"/>`,
+};
+
 function showFullscreen(sig) {
   const isPed  = sig.isPedestrian;
   const accent = isPed ? '#00ee44' : '#ffcc00';
@@ -136,8 +154,7 @@ function showFullscreen(sig) {
     width: sz, height: sz, background: accent, marginBottom: '6vh',
     boxShadow: `0 0 60px 20px ${accent}88, 0 0 120px 40px ${accent}44`,
   });
-
-  document.getElementById('fs-svg').innerHTML   = isPed ? PERSON_SVG.walk : PERSON_SVG.stop;
+  document.getElementById('fs-svg').innerHTML    = isPed ? PERSON_SVG.walk : PERSON_SVG.stop;
   document.getElementById('fs-svg').style.cssText = 'width:55%;height:55%';
 
   Object.assign(document.getElementById('fs-label').style, {
@@ -154,21 +171,6 @@ function showFullscreen(sig) {
 
   if (navigator.vibrate) navigator.vibrate(isPed ? [200] : [100, 50, 100]);
 }
-
-const PERSON_SVG = {
-  walk: `<ellipse cx="50" cy="28" rx="16" ry="18" fill="#003311"/>
-    <ellipse cx="28" cy="62" rx="14" ry="20" fill="#003311"/>
-    <ellipse cx="72" cy="62" rx="14" ry="20" fill="#003311"/>
-    <rect x="36" y="55" width="28" height="28" rx="4" fill="#003311"/>
-    <rect x="42" y="80" width="8" height="18" rx="3" fill="#003311"/>
-    <rect x="50" y="80" width="8" height="18" rx="3" fill="#003311"/>`,
-  stop: `<ellipse cx="50" cy="28" rx="16" ry="18" fill="#330000"/>
-    <ellipse cx="28" cy="62" rx="14" ry="20" fill="#330000"/>
-    <ellipse cx="72" cy="62" rx="14" ry="20" fill="#330000"/>
-    <rect x="36" y="55" width="28" height="28" rx="4" fill="#330000"/>
-    <rect x="42" y="80" width="8" height="18" rx="3" fill="#330000"/>
-    <rect x="50" y="80" width="8" height="18" rx="3" fill="#330000"/>`,
-};
 
 /* ════════════════════════════════════
    이벤트

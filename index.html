@@ -7,14 +7,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>신호등 확대기</title>
+  <title>보행 신호 알리미</title>
 
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Google Material Symbols -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0">
-
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-black text-white font-sans max-w-[480px] mx-auto min-h-screen flex flex-col overflow-hidden">
@@ -23,10 +19,10 @@
   <div id="topbar" class="flex items-center gap-2 px-3.5 py-2.5 bg-black/85 border-b border-white/10 shrink-0">
     <svg class="w-[22px] h-7 shrink-0" viewBox="0 0 22 28" fill="none">
       <rect x="3" y="0" width="16" height="28" rx="5" fill="#222"/>
-      <circle cx="11" cy="8" r="4" fill="#ff2200"/>
-      <circle cx="11" cy="20" r="4" fill="#00ee44"/>
+      <circle cx="11" cy="8" r="5" fill="#ff2200"/>
+      <circle cx="11" cy="20" r="5" fill="#00ee44"/>
     </svg>
-    <span class="text-[15px] font-medium flex-1">신호등 확대기</span>
+    <span class="text-[15px] font-medium flex-1">보행 신호 알리미</span>
     <span id="badge-ai" class="text-[11px] px-2 py-0.5 rounded-md bg-black/60 text-yellow-400">대기</span>
     <button id="btn-night"
       class="flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-neutral-800 text-neutral-400 transition-colors">
@@ -34,24 +30,35 @@
       <span id="night-label">야간 OFF</span>
     </button>
     <button id="btn-flip"
-      class="hidden flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-neutral-900 text-neutral-400 transition-colors">
+      class="hidden items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-neutral-900 text-neutral-400 transition-colors">
       <span class="material-symbols-rounded text-base leading-none">flip_camera_ios</span>
     </button>
   </div>
 
   <!-- 카메라 뷰 -->
   <div id="viewbox" class="relative flex-1 bg-black overflow-hidden">
-    <video id="video" class="w-full h-full object-cover block" playsinline muted autoplay></video>
+    <video id="video" class="w-full h-full object-cover block day" playsinline muted autoplay></video>
     <canvas id="proc" class="hidden"></canvas>
     <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none object-cover"></canvas>
     <div id="scanline" class="absolute left-0 right-0 h-0.5 bg-blue-400/50 hidden"></div>
 
     <!-- 초기 화면 -->
     <div id="init-screen" class="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6">
-      <div class="w-[72px] h-36 bg-neutral-900 rounded-xl flex flex-col items-center justify-around py-3.5">
-        <div class="w-9 h-9 rounded-full bg-[#ff2200] shadow-[0_0_16px_#ff2200]"></div>
-        <div class="w-9 h-9 rounded-full bg-neutral-700"></div>
-      </div>
+      <!-- 2구 보행 신호등 -->
+      <svg width="72" height="160" viewBox="0 0 72 160">
+        <rect x="4" y="0" width="64" height="160" rx="12" fill="#1a1a1a"/>
+        <rect x="4" y="0" width="64" height="160" rx="12" fill="none" stroke="#333" stroke-width="1.5"/>
+        <circle cx="36" cy="44"  r="22" fill="#ff2200"/>
+        <g transform="translate(36,44)" fill="#330000">
+          <ellipse cx="0" cy="-7" rx="5" ry="6"/>
+          <ellipse cx="-5" cy="2" rx="4" ry="6"/>
+          <ellipse cx="5"  cy="2" rx="4" ry="6"/>
+          <rect x="-3" y="2" width="6" height="8" rx="1"/>
+          <rect x="-1.5" y="9" width="3" height="5" rx="1"/>
+          <rect x="1.5"  y="9" width="3" height="5" rx="1"/>
+        </g>
+        <circle cx="36" cy="116" r="22" fill="#1a3a1a"/>
+      </svg>
       <button id="btn-start"
         class="bg-blue-600 hover:bg-blue-500 active:scale-95 transition-all rounded-xl px-9 py-3.5 text-base font-medium flex items-center gap-2">
         <span class="material-symbols-rounded text-xl leading-none">videocam</span>
@@ -65,7 +72,7 @@
     <!-- 로딩 화면 -->
     <div id="loading-screen" class="absolute inset-0 hidden flex-col items-center justify-center gap-4 bg-black/80">
       <div class="spinner"></div>
-      <p id="load-msg" class="text-neutral-400 text-sm">카메라 시작 중...</p>
+      <p id="load-msg" class="text-neutral-400 text-sm">로드 중...</p>
     </div>
 
     <!-- 오류 화면 -->
@@ -103,14 +110,8 @@
     </div>
   </div>
 
-  <!-- TensorFlow.js (YOLOv8s 폴백용) -->
+  <!-- TF.js + 진입점 (ES Module) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-  <!-- MediaPipe: detector.mediapipe.js 내부에서 동적 import -->
-  <!-- 감지 모듈 — 의존 순서 준수 -->
-  <script src="detector.mediapipe.js"></script>
-  <script src="detector.yolo.js"></script>
-  <script src="detector.js"></script>
-  <script src="renderer.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
