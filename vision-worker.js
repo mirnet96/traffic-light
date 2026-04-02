@@ -88,16 +88,40 @@ function getZoomRect(imgW, imgH, zoom) {
     };
 }
 
+
 async function loadModel() {
     await initBackend();
     initKernelCache();
     if (model) { model.dispose(); model = null; }
+
+    // [DEBUG] 모델 파일 존재 여부 먼저 확인
+    const MODEL_URL = './models/yolov8n_web_model/model.json';
     try {
-        model = await tf.loadGraphModel('./models/yolov8n_web_model/model.json');
-        await tf.tidy(() => model.execute(tf.zeros([1,640,640,3])));
+        const res = await fetch(MODEL_URL, { method: 'HEAD' });
+        if (!res.ok) {
+            const msg = `model.json 없음 (HTTP ${res.status}) — 경로: ${MODEL_URL}`;
+            console.error('[Worker]', msg);
+            self.postMessage({ type: 'ERROR', message: msg });
+            return;
+        }
+        console.log('[Worker] model.json 확인 OK');
+    } catch (fetchErr) {
+        const msg = `model.json fetch 실패: ${fetchErr.message}`;
+        console.error('[Worker]', msg);
+        self.postMessage({ type: 'ERROR', message: msg });
+        return;
+    }
+
+    try {
+        console.log('[Worker] 모델 로딩 시작...');
+        model = await tf.loadGraphModel(MODEL_URL);
+        console.log('[Worker] 모델 로딩 완료, 워밍업 중...');
+        await tf.tidy(() => model.execute(tf.zeros([1, 640, 640, 3])));
+        console.log('[Worker] 워밍업 완료');
         self.postMessage({ type: 'LOADED' });
     } catch (err) {
-        self.postMessage({ type: 'ERROR', message: err.message });
+        console.error('[Worker] 모델 로딩 실패:', err);
+        self.postMessage({ type: 'ERROR', message: `모델로드실패: ${err.message}` });
     }
 }
 
