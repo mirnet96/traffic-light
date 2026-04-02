@@ -1,21 +1,19 @@
-/** [ULTRA VISION AI] - vision.js v4
- *  [FIX] startCameraFirst: 3단계 constraints 폴백 (HD→후면→any)
- *  [FIX] onloadedmetadata 타임아웃 시 reject → resolve (Android 호환)
- *  [FIX] play().catch(()=>{}) 로 변경, await 제거 (Samsung Internet)
- *  [FIX] readyState >= 1 허용, 타임아웃 8s로 연장
- *  [FIX] OffscreenCanvas 폴백 경로 try-catch 추가 (iOS 16 미만)
- *  [FIX] ROI 추출 시 scaleX/Y 보정 (canvas vs video 크기 불일치)
- *  [FIX] 줌레벨별 lockCounter 차등 적용 (WIDE 30 / MID 20 / TELE 10 / PED 15)
- *  [FIX] initVision 즉시 반환 (Worker LOADED 대기 제거)
+/** [ULTRA VISION AI] - vision.js v5
+ *  [FIX] 신호 전환 감지 시 signalHistory 즉시 리셋 (스무딩 지연 제거)
+ *  [FIX] 동일 신호 시 analyzeAndShowSignal 재분석 스킵 (캐시 비교)
+ *  [FIX] cross-zoom NMS — WIDE/MID/TELE 중복 박스 전역 좌표 기준 제거
+ *  [FIX] createImageBitmap resize 옵션 제거 → Worker 내부에서만 resize
+ *  [KEEP] 3단계 카메라 폴백, readyState>=1, scaleX/Y ROI 보정
+ *  [KEEP] 줌레벨별 lockCounter 차등 적용
  */
-import * as Detector from './vision-detector.js?v=4';
-import * as Renderer from './vision-renderer.js?v=4';
+import * as Detector from './vision-detector.js?v=5';
+import * as Renderer from './vision-renderer.js?v=5';
 import {
     analyzeROI, analyzePedestrianROI, detectByHSV as analyzeByHSV
-} from './vision-analyzer.js?v=4';
+} from './vision-analyzer.js?v=5';
 import {
     initClassifier, isReady as isMPReady, classifyROIAsync, disposeClassifier
-} from './vision-classifier.js?v=4';
+} from './vision-classifier.js?v=5';
 
 let visionWorker      = null;
 let isWorkerBusy      = false;
@@ -27,22 +25,77 @@ let videoStream       = null;
 let workerWatchdog    = null;
 let detectLoopRunning = false;
 let renderLoopRunning = false;
+let _lastAnalyzedSig  = null;   // [NEW] 재분석 스킵용 캐시
 
 const SIGNAL_HISTORY_SIZE = 5;
 const signalHistory     = [];
 const WORKER_TIMEOUT_MS = 15000;
-
-// 줌레벨별 lock 프레임 수
 const LOCK_FRAMES = { WIDE: 30, MID: 20, TELE: 10, PED_LEFT: 15, PED_RIGHT: 15, PED_NEAR: 15, PED_LEFT2: 15, PED_RIGHT2: 15 };
 
+// ─────────────────────────────────────────────
+// 신호 스무딩
+// [FIX] 전환 감지 시 히스토리 즉시 리셋
+// ─────────────────────────────────────────────
 function smoothSignal(raw) {
+    const prev = signalHistory.length ? signalHistory[signalHistory.length - 1] : null;
+
+    // [FIX] 이전과 다른 신호가 2회 연속이면 히스토리 리셋 → 즉시 반영
+    if (prev && prev !== raw) {
+        const prevPrev = signalHistory.length >= 2 ? signalHistory[signalHistory.length - 2] : null;
+        if (prevPrev && prevPrev !== raw) {
+            // 이번이 2회 연속 전환 신호
+            signalHistory.length = 0;
+        }
+    }
+
     signalHistory.push(raw);
     if (signalHistory.length > SIGNAL_HISTORY_SIZE) signalHistory.shift();
     if (signalHistory.length < 3) return raw;
+
     const counts = { RED: 0, GREEN: 0, UNKNOWN: 0 };
     for (const s of signalHistory) counts[s] = (counts[s] || 0) + 1;
     const [top, cnt] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
     return cnt > signalHistory.length / 2 ? top : 'UNKNOWN';
+}
+
+// ─────────────────────────────────────────────
+// [NEW] Cross-zoom NMS — 전역 좌표 기준 중복 박스 제거
+// ─────────────────────────────────────────────
+function crossZoomNMS(boxes, iouThr = 0.45) {
+    if (!boxes || boxes.length <= 1) return boxes;
+    boxes.sort((a, b) => b.score - a.score);
+    const kept = [], sup = new Set();
+    for (let i = 0; i < boxes.length; i++) {
+        if (sup.has(i)) continue;
+        kept.push(boxes[i]);
+        for (let j = i + 1; j < boxes.length; j++) {
+            if (sup.has(j)) continue;
+            if (_iou(boxes[i], boxes[j]) > iouThr) sup.add(j);
+        }
+    }
+    return kept;
+}
+function _iou(a, b) {
+    const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+    const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    const union = a.w * a.h + b.w * b.h - inter;
+    return union > 0 ? inter / union : 0;
+}
+
+// 누적 박스 버퍼 (여러 줌레벨 결과를 모아 cross-zoom NMS)
+let _boxBuffer = [];
+let _boxBufferTimer = null;
+
+function _flushBoxBuffer(video) {
+    if (_boxBuffer.length === 0) return;
+    const merged = crossZoomNMS(_boxBuffer);
+    _boxBuffer = [];
+    if (merged.length > 0) {
+        lastKnownBox = merged[0];
+        lockCounter  = LOCK_FRAMES[merged[0].zoomLabel] ?? 20;
+        analyzeAndShowSignal(video, merged[0]);
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -57,7 +110,6 @@ export async function startCameraFirst() {
 
     if (videoStream) { videoStream.getTracks().forEach(t => t.stop()); videoStream = null; video.srcObject = null; }
 
-    // [FIX] 3단계 폴백 constraints
     const constraintsList = [
         { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
         { video: { facingMode: 'environment' } },
@@ -77,17 +129,10 @@ export async function startCameraFirst() {
     video.srcObject = stream;
     videoStream = stream;
 
-    // [FIX] 타임아웃 시 resolve (reject → 부트복귀 방지)
     await new Promise(resolve => {
         const timer = setTimeout(() => { console.warn('[Camera] metadata 타임아웃 — 강제 진행'); resolve(); }, 15000);
-        video.onloadedmetadata = () => {
-            clearTimeout(timer);
-            video.play().catch(() => {});  // [FIX] await 제거, 실패 무시
-            resolve();
-        };
-        video.oncanplay = () => {
-            if (video.readyState >= 2) { clearTimeout(timer); video.play().catch(() => {}); resolve(); }
-        };
+        video.onloadedmetadata = () => { clearTimeout(timer); video.play().catch(() => {}); resolve(); };
+        video.oncanplay = () => { if (video.readyState >= 2) { clearTimeout(timer); video.play().catch(() => {}); resolve(); } };
     });
 
     await _waitForVideoReady(video, 8000);
@@ -96,7 +141,7 @@ export async function startCameraFirst() {
 
 function _waitForVideoReady(video, ms) {
     return new Promise(resolve => {
-        if (video.readyState >= 1) { resolve(); return; }  // [FIX] >= 1 허용
+        if (video.readyState >= 1) { resolve(); return; }
         const t = Date.now();
         const check = () => (video.readyState >= 1 || Date.now() - t > ms) ? resolve() : setTimeout(check, 100);
         check();
@@ -109,7 +154,7 @@ function _waitForVideoReady(video, ms) {
 export async function initVision() {
     _initWorker();
     initClassifier().then(ok => console.log('[MP]', ok ? '준비' : 'HSV폴백')).catch(() => {});
-    return Promise.resolve();  // [FIX] Worker LOADED 대기 안 함
+    return Promise.resolve();
 }
 
 function _initWorker() {
@@ -122,6 +167,7 @@ function _initWorker() {
 
     visionWorker.onmessage = e => {
         const { type, boxes, currentZoom, srApplied, edgeSR } = e.data;
+
         if (type === 'RESULT' || type === 'SKIP') {
             isWorkerBusy = false;
             clearTimeout(workerWatchdog); workerWatchdog = null;
@@ -129,11 +175,12 @@ function _initWorker() {
             if (type === 'RESULT') {
                 const video = document.getElementById('webcam');
                 Renderer.drawBoxes(video, boxes || [], currentZoom, srApplied, edgeSR);
+
                 if (boxes && boxes.length > 0) {
-                    lastKnownBox = boxes[0];
-                    // [FIX] 줌레벨별 lock 프레임 차등
-                    lockCounter = LOCK_FRAMES[currentZoom?.label] ?? 20;
-                    analyzeAndShowSignal(video, boxes[0]);
+                    // [NEW] 박스를 버퍼에 쌓고 16ms 후 cross-zoom NMS 처리
+                    _boxBuffer.push(...boxes);
+                    clearTimeout(_boxBufferTimer);
+                    _boxBufferTimer = setTimeout(() => _flushBoxBuffer(video), 16);
                 } else {
                     if (lockCounter > 0) { lockCounter--; analyzeAndShowSignal(video, lastKnownBox); }
                     else tryHSVFallback(video);
@@ -159,14 +206,14 @@ export function startVision() {
 function renderLoop() {
     if (!isVisionActive) { renderLoopRunning = false; return; }
     const video = document.getElementById('webcam');
-    if (video && video.readyState >= 1) Renderer.drawVideo(video);  // [FIX] >= 1
+    if (video && video.readyState >= 1) Renderer.drawVideo(video);
     requestAnimationFrame(renderLoop);
 }
 
 export async function detectLoop() {
     if (!isVisionActive || !visionWorker) { detectLoopRunning = false; return; }
     const video = document.getElementById('webcam');
-    if (!video || video.readyState < 1) { requestAnimationFrame(detectLoop); return; }  // [FIX] < 1
+    if (!video || video.readyState < 1) { requestAnimationFrame(detectLoop); return; }
     if (!isWorkerReady)                  { requestAnimationFrame(detectLoop); return; }
 
     if (!isWorkerBusy) {
@@ -179,9 +226,8 @@ export async function detectLoop() {
         }, WORKER_TIMEOUT_MS);
 
         try {
-            let bitmap;
-            try { bitmap = await createImageBitmap(video, { resizeWidth: 1280, resizeHeight: 720, resizeQuality: 'low' }); }
-            catch (_) { bitmap = await createImageBitmap(video); }
+            // [FIX] resize 옵션 제거 → Worker 내부에서만 리사이즈
+            const bitmap = await createImageBitmap(video);
             visionWorker.postMessage({ type: 'DETECT', data: { bitmap } }, [bitmap]);
         } catch (e) {
             console.warn('[detectLoop] bitmap 실패:', e.message);
@@ -195,11 +241,10 @@ function tryHSVFallback(video) {
     try {
         const canvas = document.getElementById('preview-canvas');
         if (!canvas) return;
-        const ctx  = canvas.getContext('2d');
-        const vW   = video.videoWidth  || canvas.width  || 1280;
-        const vH   = video.videoHeight || canvas.height || 720;
-        const zone = Detector.getScanZone(vW, vH);
-        const { signal, box } = analyzeByHSV(ctx, zone);
+        const ctx = canvas.getContext('2d');
+        const vW  = video.videoWidth  || canvas.width  || 1280;
+        const vH  = video.videoHeight || canvas.height || 720;
+        const { signal, box } = analyzeByHSV(ctx, Detector.getScanZone(vW, vH));
         if (signal !== 'UNKNOWN' && box) {
             lastKnownBox = box; lockCounter = 10;
             Renderer.updateSignalStatus(smoothSignal(signal));
@@ -209,8 +254,7 @@ function tryHSVFallback(video) {
 
 // ─────────────────────────────────────────────
 // ROI 분석
-// [FIX] scaleX/Y 보정으로 canvas vs video 불일치 해결
-// [FIX] OffscreenCanvas 폴백 try-catch (iOS 16 미만)
+// [FIX] 동일 신호 시 재분석 스킵
 // ─────────────────────────────────────────────
 async function analyzeAndShowSignal(video, box) {
     if (!box) return;
@@ -221,9 +265,7 @@ async function analyzeAndShowSignal(video, box) {
         const vW = video.videoWidth  || cW;
         const vH = video.videoHeight || cH;
 
-        // [FIX] canvas 좌표 → video 원본 좌표 역산
-        const scaleX = vW / cW;
-        const scaleY = vH / cH;
+        const scaleX = vW / cW, scaleY = vH / cH;
         const rx = box.x * scaleX, ry = box.y * scaleY;
         const rw = Math.max(1, Math.floor(box.w * scaleX));
         const rh = Math.max(1, Math.floor(box.h * scaleY));
@@ -239,8 +281,7 @@ async function analyzeAndShowSignal(video, box) {
             ctx = roiCanvas.getContext('2d');
             ctx.drawImage(video, rx, ry, rw, rh, 0, 0, rw, rh);
         } catch (e) {
-            // [FIX] iOS 폴백: 직접 HSV 분석
-            console.warn('[ROI] canvas 생성 실패, HSV 직접 호출:', e.message);
+            console.warn('[ROI] canvas 실패:', e.message);
             tryHSVFallback(video); return;
         }
 
@@ -251,7 +292,14 @@ async function analyzeAndShowSignal(video, box) {
                 ? analyzePedestrianROI(ctx, { x: 0, y: 0, w: rw, h: rh })
                 : analyzeROI(ctx, { x: 0, y: 0, w: rw, h: rh });
         }
-        Renderer.updateSignalStatus(smoothSignal(signal));
+
+        const smoothed = smoothSignal(signal);
+
+        // [FIX] 이전과 동일한 결과면 renderer 호출 스킵
+        if (smoothed === _lastAnalyzedSig) return;
+        _lastAnalyzedSig = smoothed;
+        Renderer.updateSignalStatus(smoothed);
+
     } catch (e) { console.error('ROI Error:', e); }
 }
 
