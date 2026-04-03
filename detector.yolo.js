@@ -1,16 +1,16 @@
 /* ════════════════════════════════════
-   detector.yolo.js — YOLOv8s 입력 320×320
+   detector.yolo.js — YOLOv8s 640×640 고정 입력
 ════════════════════════════════════ */
 
 const YOLO_MODEL_URL = '/traffic-light/models/yolov8s/model.json';
 
-const INPUT_SIZE = 320;  // ★ 640→320으로 축소 (추론 속도 4배 향상)
+const INPUT_SIZE = 640;
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
-const SCORE_NEAR = 0.40;
-const SCORE_FAR  = 0.25;
+const SCORE_NEAR = 0.45;
+const SCORE_FAR  = 0.28;
 const NMS_IOU    = 0.45;
-const TILE_EVERY = 4;    // N프레임마다 상단 타일 추론
+const TILE_EVERY = 4;
 
 const CLS_LIGHT  = 9;
 const CLS_PERSON = 0;
@@ -29,7 +29,7 @@ function showDebug(msg) {
       background: 'rgba(0,0,0,0.82)', color: '#0f0',
       fontSize: '11px', fontFamily: 'monospace', padding: '8px',
       zIndex: '99999', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-      maxHeight: '40vh', overflowY: 'auto',
+      maxHeight: '35vh', overflowY: 'auto',
     });
     el.addEventListener('click', () => el.remove());
     document.body.appendChild(el);
@@ -48,13 +48,12 @@ export async function loadYolo() {
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
     showDebug('[yolo] model loaded');
 
-    // ★ 워밍업도 320×320으로
     const dummy  = tf.zeros([1, INPUT_SIZE, INPUT_SIZE, 3]);
     const warmup = await yoloModel.executeAsync(dummy);
     tf.dispose(dummy);
     const wo = Array.isArray(warmup) ? warmup[0] : warmup;
     showDebug(`[yolo] warmup shape: ${JSON.stringify(wo.shape)}`);
-    showDebug('(화면 탭하면 닫힘)');
+    showDebug('(탭하면 닫힘)');
     Array.isArray(warmup) ? tf.dispose(warmup) : tf.dispose(warmup);
     return true;
   } catch (e) {
@@ -70,7 +69,6 @@ export async function runYoloDetect(canvas, W, H) {
 
   const full = await inferCanvas(canvas, 0, 0, W, H, W, H);
 
-  // 상단 절반 타일: TILE_EVERY 프레임마다
   let tiled = [];
   if (frameCount % TILE_EVERY === 0) {
     const tileH = Math.floor(H / 2);
@@ -100,16 +98,16 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   const inferMs = (performance.now() - t0).toFixed(0);
 
   if (frameCount <= 3) {
-    showDebug(`[infer#${frameCount}] time:${inferMs}ms shape:${JSON.stringify(outTensor.shape)}`);
+    showDebug(`[infer#${frameCount}] time:${inferMs}ms`);
   }
 
   tf.dispose(tensor);
   Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
-  return parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H, outTensor.shape);
+  return parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H);
 }
 
-/* ── Letterbox 전처리 (INPUT_SIZE 기준) ── */
+/* ── Letterbox 전처리 ── */
 function preprocessRegion(canvas, sx, sy, sw, sh) {
   const T     = INPUT_SIZE;
   const scale = Math.min(T / sw, T / sh);
@@ -134,12 +132,9 @@ function preprocessRegion(canvas, sx, sy, sw, sh) {
   return { tensor, scale, padX, padY };
 }
 
-/* ── 출력 파싱 ── */
-function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H, shape) {
-  // shape[2] 가 앵커 수 (320입력: 2100, 640입력: 8400)
-  const N = shape[2];
-  const res = [];
-
+/* ── 출력 파싱 [1,84,8400] ── */
+function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
+  const N = 8400, res = [];
   for (let i = 0; i < N; i++) {
     const cx = data[0*N+i], cy = data[1*N+i];
     const bw = data[2*N+i], bh = data[3*N+i];
