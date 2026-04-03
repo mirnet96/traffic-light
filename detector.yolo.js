@@ -1,5 +1,5 @@
 /* ════════════════════════════════════
-   detector.yolo.js — YOLOv8s + 타일 분할 + shape 디버그
+   detector.yolo.js — YOLOv8s + 타일 분할 + 추론시간 디버그
 ════════════════════════════════════ */
 
 const YOLO_MODEL_URL = '/traffic-light/models/yolov8s/model.json';
@@ -16,7 +16,6 @@ const CLS_PERSON = 0;
 
 let yoloModel  = null;
 let frameCount = 0;
-let debugShown = false;  // shape 디버그는 최초 1회만
 
 /* ── 디버그 메시지를 화면에 표시 ── */
 function showDebug(msg) {
@@ -40,7 +39,6 @@ function showDebug(msg) {
       maxHeight:  '40vh',
       overflowY:  'auto',
     });
-    // 탭하면 닫기
     el.addEventListener('click', () => el.remove());
     document.body.appendChild(el);
   }
@@ -56,16 +54,14 @@ export async function loadYolo() {
     showDebug(`[tf] backend: ${tf.getBackend()}`);
 
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
-    showDebug(`[yolo] model loaded`);
+    showDebug('[yolo] model loaded');
 
     const dummy  = tf.zeros([1, 640, 640, 3]);
     const warmup = await yoloModel.executeAsync(dummy);
     tf.dispose(dummy);
 
-    // 워밍업 출력 shape 표시
     const wo = Array.isArray(warmup) ? warmup[0] : warmup;
     showDebug(`[yolo] warmup shape: ${JSON.stringify(wo.shape)}`);
-    showDebug(`[yolo] isArray: ${Array.isArray(warmup)}, len: ${Array.isArray(warmup) ? warmup.length : 1}`);
     showDebug('(화면 탭하면 닫힘)');
 
     Array.isArray(warmup) ? tf.dispose(warmup) : tf.dispose(warmup);
@@ -97,8 +93,8 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   const { tensor, scale, padX, padY } =
     preprocessRegion(canvas, sx, sy, sw, sh);
 
-  let raw;
   const t0 = performance.now();
+  let raw;
   try {
     raw = await yoloModel.executeAsync(tensor);
   } catch (e) {
@@ -111,10 +107,11 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   const data = await outTensor.data();
   const inferMs = (performance.now() - t0).toFixed(0);
 
-  // 최초 3회 추론 시간 화면 출력
-  if (!debugShown || frameCount <= 3) {
-    debugShown = true;
-    showDebug(`[infer#${frameCount}] shape:${JSON.stringify(outTensor.shape)} time:${inferMs}ms`);
+  // 최초 3프레임 추론 시간 표시
+  if (frameCount <= 3) {
+    showDebug(`[infer#${frameCount}] time:${inferMs}ms shape:${JSON.stringify(outTensor.shape)}`);
+  }
+
   tf.dispose(tensor);
   Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
@@ -146,7 +143,7 @@ function preprocessRegion(canvas, sx, sy, sw, sh) {
   return { tensor, scale, padX, padY };
 }
 
-/* ── 출력 파싱 (shape A: [1,84,8400] 기준) ── */
+/* ── 출력 파싱 [1,84,8400] 기준 ── */
 function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
   const N = 8400, res = [];
   for (let i = 0; i < N; i++) {
