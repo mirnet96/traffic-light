@@ -24,15 +24,18 @@
     </svg>
     <span class="text-[13px] font-medium whitespace-nowrap">보행 신호 알리미</span>
     <span id="badge-ai" class="text-[11px] px-2 py-0.5 rounded-md bg-black/60 text-yellow-400 whitespace-nowrap shrink-0">대기</span>
-    <span id="badge-scan" class="hidden text-[11px] px-2 py-0.5 rounded-md bg-blue-900/60 text-blue-300 whitespace-nowrap shrink-0 scan-pulse">탐색 중</span>
+    <!-- ★ hidden 제거 → style="display:none" 으로 통일 -->
+    <span id="badge-scan" style="display:none"
+      class="text-[11px] px-2 py-0.5 rounded-md bg-blue-900/60 text-blue-300 whitespace-nowrap shrink-0 scan-pulse">탐색 중</span>
     <div class="flex-1"></div>
     <button id="btn-night"
       class="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-neutral-800 text-neutral-400 transition-colors whitespace-nowrap shrink-0">
       <span class="material-symbols-rounded text-sm leading-none">dark_mode</span>
       <span id="night-label">야간</span>
     </button>
-    <button id="btn-flip"
-      class="hidden items-center justify-center w-8 h-8 rounded-md bg-neutral-900 text-neutral-400 transition-colors shrink-0">
+    <!-- ★ hidden 제거 → style="display:none" -->
+    <button id="btn-flip" style="display:none"
+      class="items-center justify-center w-8 h-8 rounded-md bg-neutral-900 text-neutral-400 transition-colors shrink-0">
       <span class="material-symbols-rounded text-sm leading-none">flip_camera_ios</span>
     </button>
   </div>
@@ -40,9 +43,11 @@
   <!-- 카메라 뷰 -->
   <div id="viewbox" class="relative flex-1 bg-black overflow-hidden">
     <video id="video" class="w-full h-full object-cover block day" playsinline muted autoplay></video>
-    <canvas id="proc" class="hidden"></canvas>
+    <canvas id="proc" style="display:none"></canvas>
     <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none object-cover"></canvas>
-    <div id="scanline" class="absolute left-0 right-0 h-0.5 bg-blue-400/50 hidden"></div>
+    <!-- ★ hidden 제거 → style="display:none" -->
+    <div id="scanline" style="display:none"
+      class="absolute left-0 right-0 h-0.5 bg-blue-400/50"></div>
 
     <!-- PiP 스캔 미리보기 -->
     <canvas id="pip" class="pip-canvas" style="display:none"></canvas>
@@ -74,13 +79,17 @@
     </div>
 
     <!-- 로딩 화면 -->
-    <div id="loading-screen" class="absolute inset-0 hidden flex-col items-center justify-center gap-4 bg-black/80">
+    <!-- ★ hidden 제거 → style="display:none" -->
+    <div id="loading-screen" style="display:none"
+      class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80">
       <div class="spinner"></div>
       <p id="load-msg" class="text-neutral-400 text-sm">로드 중...</p>
     </div>
 
     <!-- 오류 화면 -->
-    <div id="error-screen" class="absolute inset-0 hidden flex-col items-center justify-center gap-4 px-6">
+    <!-- ★ hidden 제거 → style="display:none" -->
+    <div id="error-screen" style="display:none"
+      class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6">
       <div class="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center">
         <span class="material-symbols-rounded text-white text-xl leading-none">error</span>
       </div>
@@ -94,22 +103,20 @@
   </div>
 
   <!-- 하단 감지 결과 -->
-  <div id="bottombar" class="hidden bg-black/90 border-t border-white/10 px-3.5 py-3 shrink-0">
-
-
-    <div id="det-empty" class="text-center text-neutral-600 text-[13px] py-1 flex items-center justify-center gap-1.5">
+  <!-- ★ hidden 제거 → style="display:none" -->
+  <div id="bottombar" style="display:none"
+    class="bg-black/90 border-t border-white/10 px-3.5 py-3 shrink-0">
+    <div id="det-empty"
+      class="text-center text-neutral-600 text-[13px] py-1 flex items-center justify-center gap-1.5">
       <span class="material-symbols-rounded text-base leading-none">radar</span>
-      신호등을 탐색 중입니다...
+      <span class="scan-msg-text">신호등을 탐색 중입니다...</span>
     </div>
     <div id="det-list" class="flex gap-2.5 overflow-x-auto"></div>
   </div>
 
-
-    <div id="det-list" class="flex gap-2.5 overflow-x-auto"></div>
-  </div>
-
   <!-- 전체화면 오버레이 -->
-  <div id="fs" class="fixed inset-0 z-[9999] hidden flex-col items-center justify-center cursor-pointer">
+  <div id="fs" class="fixed inset-0 z-[9999] flex-col items-center justify-center cursor-pointer"
+    style="display:none">
     <div id="fs-circle" class="rounded-full flex items-center justify-center">
       <svg id="fs-svg" viewBox="0 0 100 120"></svg>
     </div>

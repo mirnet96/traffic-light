@@ -51,13 +51,14 @@ const pipCtx  = pip.getContext('2d');
 ════════════════════════════════════ */
 function setPhase(p) {
   phase = p;
+  // ★ Tailwind hidden 클래스 충돌 방지 — style.display 로만 제어
   const show = (id, on, dtype = 'flex') =>
     document.getElementById(id).style.display = on ? dtype : 'none';
-  show('init-screen',    p === 'init');
-  show('loading-screen', p === 'loading');
-  show('error-screen',   p === 'error');
-  show('bottombar',      p === 'live', 'block');
-  show('btn-flip',       p === 'live', 'flex');
+  show('init-screen',    p === 'init',    'flex');
+  show('loading-screen', p === 'loading', 'flex');
+  show('error-screen',   p === 'error',   'flex');
+  show('bottombar',      p === 'live',    'block');
+  show('btn-flip',       p === 'live',    'flex');
   scanline.style.display = p === 'live' ? 'block' : 'none';
   pip.style.display      = p === 'live' ? 'block' : 'none';
 
