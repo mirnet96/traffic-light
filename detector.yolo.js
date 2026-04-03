@@ -2,8 +2,9 @@
    detector.yolo.js — YOLOv8n + 상단 타일 원거리 보완
 ════════════════════════════════════ */
 
-const YOLO_MODEL_URL =
-  'https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json';
+//  const YOLO_MODEL_URL = 'https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json';
+
+const YOLO_MODEL_URL = '/traffic-light/models/yolov8s/model.json';
 
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
