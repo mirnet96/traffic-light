@@ -1,26 +1,31 @@
 /* ════════════════════════════════════
-   detector.yolo.js — YOLOv8n TF.js
+   detector.yolo.js — YOLOv8n + 상단 타일 원거리 보완
 ════════════════════════════════════ */
 
-/* YOLOv8n: 6MB, 입력 640×640, 모바일 ~60ms */
 const YOLO_MODEL_URL =
   'https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json';
 
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
-const SCORE_NEAR = 0.40;  // n 모델은 s보다 정밀도 낮으므로 임계값 소폭 하향
+const SCORE_NEAR = 0.40;
 const SCORE_FAR  = 0.25;
 const NMS_IOU    = 0.45;
+const TILE_EVERY = 3;    // N프레임마다 타일 추론 1회
 
 const CLS_LIGHT  = 9;
 const CLS_PERSON = 0;
 
-let yoloModel = null;
+let yoloModel  = null;
+let frameCount = 0;
 
 /* ── 로드 + 워밍업 ── */
 export async function loadYolo() {
   if (!window.tf) return false;
   try {
+    await tf.setBackend('webgl');
+    await tf.ready();
+    console.log('[tf] backend:', tf.getBackend());
+
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
     const dummy  = tf.zeros([1, 640, 640, 3]);
     const warmup = await yoloModel.executeAsync(dummy);
@@ -36,7 +41,30 @@ export async function loadYolo() {
 /* ── 추론 진입점 ── */
 export async function runYoloDetect(canvas, W, H) {
   if (!yoloModel || !window.tf) return [];
-  const { tensor, scale, padX, padY } = preprocessFrame(canvas);
+  frameCount++;
+
+  // 1) 전체 프레임 추론
+  const full = await inferCanvas(canvas, 0, 0, W, H, W, H);
+
+  // 2) 상단 절반 타일 추론 (TILE_EVERY 프레임마다)
+  let tiled = [];
+  if (frameCount % TILE_EVERY === 0) {
+    const tileH = Math.floor(H / 2);  // 상단 50%
+    tiled = await inferCanvas(canvas, 0, 0, W, tileH, W, H);
+  }
+
+  // 3) 합산 후 NMS
+  return nms([...full, ...tiled]);
+}
+
+/* ── 단일 영역 추론 ──
+   sx,sy,sw,sh: 원본 canvas에서 잘라낼 영역
+   W,H:         원본 전체 해상도 (정규화 기준)
+── */
+async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
+  const { tensor, scale, padX, padY } =
+    preprocessRegion(canvas, sx, sy, sw, sh);
+
   let raw;
   try {
     raw = await yoloModel.executeAsync(tensor);
@@ -50,17 +78,16 @@ export async function runYoloDetect(canvas, W, H) {
   tf.dispose(tensor);
   Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
-  return parseYoloOutput(data, W, H, scale, padX, padY);
+  // 좌표를 원본 W/H 기준으로 역변환
+  return parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H);
 }
 
-/* ── Letterbox 전처리 ── */
-function preprocessFrame(canvas) {
+/* ── Letterbox 전처리 (지정 영역만) ── */
+function preprocessRegion(canvas, sx, sy, sw, sh) {
   const T     = 640;
-  const W     = canvas.width;
-  const H     = canvas.height;
-  const scale = Math.min(T / W, T / H);
-  const newW  = Math.round(W * scale);
-  const newH  = Math.round(H * scale);
+  const scale = Math.min(T / sw, T / sh);
+  const newW  = Math.round(sw * scale);
+  const newH  = Math.round(sh * scale);
   const padX  = (T - newW) / 2;
   const padY  = (T - newH) / 2;
 
@@ -69,7 +96,8 @@ function preprocessFrame(canvas) {
   const ctx  = tmp.getContext('2d');
   ctx.fillStyle = '#808080';
   ctx.fillRect(0, 0, T, T);
-  ctx.drawImage(canvas, 0, 0, W, H, padX, padY, newW, newH);
+  // 원본의 sx,sy,sw,sh 영역 → tmp의 letterbox 위치로
+  ctx.drawImage(canvas, sx, sy, sw, sh, padX, padY, newW, newH);
 
   const tensor = tf.tidy(() =>
     tf.expandDims(
@@ -80,27 +108,38 @@ function preprocessFrame(canvas) {
   return { tensor, scale, padX, padY };
 }
 
-/* ── 출력 파싱 ── */
-function parseYoloOutput(data, W, H, scale, padX, padY) {
+/* ── 출력 파싱 + 원본 좌표 역변환 ── */
+function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
   const N = 8400, res = [];
   for (let i = 0; i < N; i++) {
     const cx = data[0*N+i], cy = data[1*N+i];
     const bw = data[2*N+i], bh = data[3*N+i];
+
     for (const cls of [CLS_LIGHT, CLS_PERSON]) {
-      const score  = data[(4+cls)*N+i];
+      const score = data[(4+cls)*N+i];
+
+      // 640 공간에서 정규화된 박스 높이로 근/원 판별
       const normH  = bh / 640;
       const isNear = normH >= NEAR_THR;
       if (score < (isNear ? SCORE_NEAR : SCORE_FAR)) continue;
 
-      const x1 = ((cx-bw/2)-padX)/scale/W;
-      const y1 = ((cy-bh/2)-padY)/scale/H;
-      const x2 = ((cx+bw/2)-padX)/scale/W;
-      const y2 = ((cy+bh/2)-padY)/scale/H;
+      // 640 letterbox 좌표 → 잘라낸 영역(sw×sh) 내 픽셀 좌표
+      const rx1 = ((cx - bw/2) - padX) / scale;
+      const ry1 = ((cy - bh/2) - padY) / scale;
+      const rx2 = ((cx + bw/2) - padX) / scale;
+      const ry2 = ((cy + bh/2) - padY) / scale;
+
+      // 원본 W×H 기준 정규화
+      const x1 = (sx + rx1) / W;
+      const y1 = (sy + ry1) / H;
+      const x2 = (sx + rx2) / W;
+      const y2 = (sy + ry2) / H;
+
       if (x2<=0||y2<=0||x1>=1||y1>=1) continue;
-      if ((Math.min(y2,1)-Math.max(y1,0)) < FAR_MIN) continue;
+      if ((Math.min(y2,1) - Math.max(y1,0)) < FAR_MIN) continue;
 
       res.push({
-        id:    `yolo_${cls}_${i}`,
+        id:    `yolo_${cls}_${i}_${sx}_${sy}`,
         cls,   score,
         range: isNear ? 'near' : 'far',
         box:   [Math.max(y1,0), Math.max(x1,0), Math.min(y2,1), Math.min(x2,1)],
@@ -108,7 +147,7 @@ function parseYoloOutput(data, W, H, scale, padX, padY) {
       });
     }
   }
-  return nms(res);
+  return res;  // NMS는 runYoloDetect에서 합산 후 일괄 처리
 }
 
 /* ── NMS ── */

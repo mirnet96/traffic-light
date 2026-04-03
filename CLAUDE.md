@@ -80,26 +80,46 @@ traffic-light/
 
 ---
 
-## 감지 모델: 단일 YOLOv8n
+## 감지 모델: YOLOv8n + 타일 분할 원거리 보완
 
-MediaPipe EfficientDet-Lite2는 모바일(Android 삼성 인터넷/크롬)에서
-CPU 폴백 시 400ms 이상 소요되어 1~2fps 수준으로 실사용 불가.
-→ **MediaPipe 완전 제거, YOLOv8n 단일 모델로 교체.**
+MediaPipe는 모바일에서 1~2fps로 실사용 불가 → 완전 제거.
+YOLOv8n 단일 모델 + 상단 타일 분할로 속도와 원거리 감지를 동시에 확보.
 
-| 항목 | YOLOv8n |
+| 항목 | YOLOv8s |
 |---|---|
-| 모델 크기 | 6MB |
+| 모델 크기 | 22MB |
 | 입력 해상도 | 640×640 |
-| 추론 속도 (모바일) | ~60ms |
-| COCO mAP | 37.3 |
-| URL | `https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json` |
+| 추론 속도 (Galaxy 실측) | 미측정 |
+| URL | `https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8s_web_model/model.json` |
 
-`detector.mediapipe.js`는 파일만 보존, import 및 호출 없음.
-`detector.js`는 `detector.yolo.js`만 import.
+YOLOv8n CDN URL은 존재하지 않음 — 사용 금지.
+확인된 모델 URL은 yolov8s_web_model만 유효.
+
+### 추론 흐름
 
 ```
-매 프레임 (setTimeout 재귀, SCAN_MS=120ms 이상)
-  └─> YOLOv8n Letterbox → [1,640,640,3] → 추론 → NMS → classifySignals → 반환
+매 프레임:
+  └─> 전체(W×H) → Letterbox 640×640 → 추론 → 파싱
+매 3프레임 추가:
+  └─> 상단 절반(W×H/2) → Letterbox 640×640 → 추론 → 파싱
+        (원거리 신호등 2배 확대 효과)
+두 결과 합산 → 전체 NMS → classifySignals → 반환
+```
+
+### 타일 전략 근거
+
+- 신호등은 항상 화면 상단에 위치 → 하단 절반 추론 불필요
+- 원거리 신호등(전체 화면 2~5%) → 상단 절반 기준 4~10%로 확대
+- TILE_EVERY=3: 3프레임에 1회 타일 추론 → 평균 fps 영향 최소화
+
+### 좌표 역변환
+
+타일 추론 결과는 잘라낸 영역(sx,sy,sw,sh) 기준이므로
+원본 W×H 정규화 좌표로 역변환 후 전체 NMS 일괄 처리.
+
+```js
+const x1 = (sx + rx1) / W;
+const y1 = (sy + ry1) / H;
 ```
 
 ---
