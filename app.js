@@ -188,22 +188,47 @@ async function startCamera(facing) {
   if (facing) camFacing = facing;
   setPhase('loading');
   document.getElementById('load-msg').textContent = '카메라 시작 중...';
+
+  // ★ 디버그: 진입 확인
+  const dbg = (m) => {
+    let el = document.getElementById('debug-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'debug-overlay';
+      Object.assign(el.style, {
+        position:'fixed', top:'60px', left:'0', right:'0',
+        background:'rgba(0,0,0,0.82)', color:'#0f0',
+        fontSize:'11px', fontFamily:'monospace', padding:'8px',
+        zIndex:'99999', whiteSpace:'pre-wrap', wordBreak:'break-all',
+        maxHeight:'40vh', overflowY:'auto',
+      });
+      el.addEventListener('click', () => el.remove());
+      document.body.appendChild(el);
+    }
+    el.textContent += m + '\n';
+  };
+
   try {
+    dbg('[cam] startCamera');
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: camFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
     });
+    dbg('[cam] getUserMedia OK');
     video.srcObject = stream;
     await new Promise(r => { video.onloadedmetadata = r; });
     video.play();
+    dbg('[cam] video playing');
     await loadModel(
-      t => document.getElementById('load-msg').textContent = t,
+      t => { document.getElementById('load-msg').textContent = t; dbg('[cam] ' + t); },
       setBadge
     );
+    dbg('[cam] model loaded → setPhase live');
     setPhase('live');
     startScan();
     startNightCheck();
   } catch (e) {
+    dbg(`[cam] ERROR: ${e.name} ${e.message}`);
     setPhase('error');
     document.getElementById('err-msg').textContent =
       e.name === 'NotAllowedError'

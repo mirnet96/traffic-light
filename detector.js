@@ -1,17 +1,14 @@
 import { loadYolo, runYoloDetect } from './detector.yolo.js';
 
-/* ── 상수 ── */
 const CLS_LIGHT  = 9;
 const CLS_PERSON = 0;
 
-/* ── 모델 초기화 ── */
 export async function loadModel(onMsg, onBadge) {
-  onMsg('YOLOv8n 로드 중...');
+  onMsg('YOLOv8s 로드 중...');
   const ok = await loadYolo();
   onBadge(ok ? 'YOLOv8s' : '모델 오류', ok ? 'text-green-400' : 'text-red-400');
 }
 
-/* ── 추론 ── */
 export async function runYolo(canvas, W, H) {
   const dets = await runYoloDetect(canvas, W, H);
   return classifySignals(
@@ -20,7 +17,6 @@ export async function runYolo(canvas, W, H) {
   );
 }
 
-/* ── 보행 신호등 판별 ── */
 function classifySignals(lights, allDets) {
   const persons = allDets.filter(d => d.cls === CLS_PERSON);
   return lights
@@ -33,7 +29,6 @@ function classifySignals(lights, allDets) {
     .sort((a, b) => b.priority - a.priority || b.score - a.score);
 }
 
-/* ── IoU ── */
 export function iou(a, b) {
   const iy1 = Math.max(a[0], b[0]), ix1 = Math.max(a[1], b[1]);
   const iy2 = Math.min(a[2], b[2]), ix2 = Math.min(a[3], b[3]);
