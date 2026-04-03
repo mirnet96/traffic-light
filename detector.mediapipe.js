@@ -24,10 +24,11 @@ export async function loadMediaPipe() {
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
     mpDetector = await ObjectDetector.createFromOptions(vision, {
-      baseOptions:       { modelAssetPath: MP_MODEL_URL, delegate: 'GPU' },
+      baseOptions:       { modelAssetPath: MP_MODEL_URL, delegate: 'CPU' }, // ★ GPU→CPU (모바일 GPU 위임 실패 방지)
       scoreThreshold:    0.25,
       categoryAllowlist: ['traffic light', 'person'],
       runningMode:       'VIDEO',
+      maxResults:        5,  // ★ 결과 수 제한으로 후처리 부하 감소
     });
     return true;
   } catch (e) {

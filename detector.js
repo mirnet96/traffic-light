@@ -21,7 +21,7 @@ export async function loadModel(onMsg, onBadge) {
   else                  onBadge('모델 오류', 'text-red-400');
 }
 
-/* ── 폴백 체인 추론 ── */
+/* ── 폴백 체인 추론 — canvas는 448×448 축소본, W/H는 원본 해상도 ── */
 export async function runYolo(canvas, W, H) {
   // 1차: MediaPipe
   const mpDets    = await runMediaPipeDetect(canvas, W, H);

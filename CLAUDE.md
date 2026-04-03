@@ -122,18 +122,34 @@ const hasPerson = persons.some(p => iou(l.box, p.box) > 0.1);
 
 ```js
 // app.js
-SCAN_MS   = 120        // 감지 루프 주기 (ms)
-NIGHT_THR = 60         // 야간 전환 밝기 기준
+SCAN_MS   = 120        // 감지 루프 최소 대기 (ms) — setTimeout 재귀
+NIGHT_THR = 60
+PROC_W    = 448        // 추론용 축소 캔버스 너비
+PROC_H    = 448        // 추론용 축소 캔버스 높이
 PIP_SM    = { w:120, h:80  }
 PIP_LG    = { w:200, h:130 }
-SCAN_MSGS = [...]      // 탐색 중 순환 텍스트 4종, 3.5초 간격
+SCAN_MSGS = [...]
+
+// detector.mediapipe.js
+delegate     = 'CPU'   // GPU 위임 사용 금지 (모바일 GPU 위임 실패 방지)
+maxResults   = 5
 
 // detector.js
 MP_THRESHOLD = 0.50
-
-// detector.yolo.js
-NEAR_THR=0.12  FAR_MIN=0.02  SCORE_NEAR=0.45  SCORE_FAR=0.28  NMS_IOU=0.45
+MP_ANY_MIN   = 0.25
 ```
+
+## 추론용 캔버스 구조
+
+```
+video (원본 1280×720)
+  ├── proc (원본 크기) — PiP 합성, 야간 측광용
+  └── small (448×448) — MediaPipe / YOLO 추론 입력용
+```
+
+- `runYolo(small, W, H)` 로 호출 — canvas는 축소본, W/H는 원본 해상도
+- 좌표 정규화(0~1)는 원본 W/H 기준이므로 박스 위치 정확도 유지
+- `small`은 모듈 상단에서 한 번 생성 후 재사용 (매 프레임 createElement 금지)
 
 ---
 
