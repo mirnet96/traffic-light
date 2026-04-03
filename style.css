@@ -10,7 +10,6 @@
 #scanline {
   animation: scanline-anim 2s linear infinite;
 }
-
 @keyframes scanline-anim {
   0%   { top: 10%; }
   100% { top: 90%; }
@@ -25,19 +24,13 @@
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
 /* 비디오 야간 필터 클래스 */
-#video.night {
-  filter: brightness(1.6) contrast(1.4) saturate(1.3);
-}
-
-#video.day {
-  filter: brightness(1.05) contrast(1.1) saturate(1.1);
-}
+#video.night { filter: brightness(1.6) contrast(1.4) saturate(1.3); }
+#video.day   { filter: brightness(1.05) contrast(1.1) saturate(1.1); }
 
 /* 야간 버튼 활성화 상태 */
 #btn-night.on {
@@ -45,8 +38,19 @@
   color: #000;
 }
 
-/* 전체화면 오버레이: 인라인 JS로 동적 스타일 적용되므로
-   기본 layout 구조만 보조 */
-#fs.show {
-  display: flex;
+/* 전체화면 오버레이 기본 layout 보조 */
+#fs.show { display: flex; }
+
+/* 스캔 중 배지 깜빡임 */
+@keyframes scan-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+.scan-pulse { animation: scan-pulse 1.4s ease-in-out infinite; }
+
+/* 감지됨 배지 */
+#badge-scan.detected {
+  animation: none;
+  background-color: rgba(0, 120, 40, 0.5);
+  color: #4ade80;
 }

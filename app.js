@@ -31,13 +31,22 @@ function setPhase(p) {
   show('bottombar',      p === 'live', 'block');
   show('btn-flip',       p === 'live', 'flex');
   scanline.style.display = p === 'live' ? 'block' : 'none';
+
+  // 스캔 배지: live 상태에서만 표시
+  const scanBadge = document.getElementById('badge-scan');
+  scanBadge.style.display = p === 'live' ? '' : 'none';
+  if (p === 'live') {
+    scanBadge.textContent = '탐색 중';
+    scanBadge.classList.remove('detected');
+    scanBadge.classList.add('scan-pulse');
+  }
 }
 
 function applyNight(on) {
   nightMode = on;
   video.className = `w-full h-full object-cover block ${on ? 'night' : 'day'}`;
   const btn = document.getElementById('btn-night');
-  document.getElementById('night-label').textContent = on ? '야간 ON' : '야간 OFF';
+  document.getElementById('night-label').textContent = on ? 'ON' : '야간';
   on ? btn.classList.add('on') : btn.classList.remove('on');
   btn.querySelector('.material-symbols-rounded').textContent =
     on ? 'light_mode' : 'dark_mode';
@@ -94,7 +103,26 @@ function startScan() {
     overlay.width = W; overlay.height = H;
     proc.getContext('2d').drawImage(video, 0, 0, W, H);
 
-    const signals = await runYolo(proc, W, H);
+    let signals = [];
+    try {
+      signals = await runYolo(proc, W, H);
+    } catch (e) {
+      console.warn('scan error:', e);
+      setBadge('스캔 오류', 'text-red-400');
+    }
+
+    // 스캔 배지 업데이트
+    const scanBadge = document.getElementById('badge-scan');
+    if (signals.length > 0) {
+      scanBadge.textContent = `감지 ${signals.length}건`;
+      scanBadge.classList.add('detected');
+      scanBadge.classList.remove('scan-pulse');
+    } else {
+      scanBadge.textContent = '탐색 중';
+      scanBadge.classList.remove('detected');
+      scanBadge.classList.add('scan-pulse');
+    }
+
     drawBoxes(overlay.getContext('2d'), signals, W, H);
     renderCards(signals, showFullscreen);
     scanline.style.display = signals.length ? 'none' : 'block';

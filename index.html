@@ -16,22 +16,24 @@
 <body class="bg-black text-white font-sans max-w-[480px] mx-auto min-h-screen flex flex-col overflow-hidden">
 
   <!-- 상단 바 -->
-  <div id="topbar" class="flex items-center gap-2 px-3.5 py-2.5 bg-black/85 border-b border-white/10 shrink-0">
-    <svg class="w-[22px] h-7 shrink-0" viewBox="0 0 22 28" fill="none">
+  <div id="topbar" class="flex items-center gap-1.5 px-2.5 py-2 bg-black/85 border-b border-white/10 shrink-0 min-w-0">
+    <svg class="w-[18px] h-6 shrink-0" viewBox="0 0 22 28" fill="none">
       <rect x="3" y="0" width="16" height="28" rx="5" fill="#222"/>
       <circle cx="11" cy="8" r="5" fill="#ff2200"/>
       <circle cx="11" cy="20" r="5" fill="#00ee44"/>
     </svg>
-    <span class="text-[15px] font-medium flex-1">보행 신호 알리미</span>
-    <span id="badge-ai" class="text-[11px] px-2 py-0.5 rounded-md bg-black/60 text-yellow-400">대기</span>
+    <span class="text-[13px] font-medium whitespace-nowrap">보행 신호 알리미</span>
+    <span id="badge-ai" class="text-[11px] px-2 py-0.5 rounded-md bg-black/60 text-yellow-400 whitespace-nowrap shrink-0">대기</span>
+    <span id="badge-scan" class="hidden text-[11px] px-2 py-0.5 rounded-md bg-blue-900/60 text-blue-300 whitespace-nowrap shrink-0 scan-pulse">탐색 중</span>
+    <div class="flex-1"></div>
     <button id="btn-night"
-      class="flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-neutral-800 text-neutral-400 transition-colors">
-      <span class="material-symbols-rounded text-base leading-none">dark_mode</span>
-      <span id="night-label">야간 OFF</span>
+      class="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-neutral-800 text-neutral-400 transition-colors whitespace-nowrap shrink-0">
+      <span class="material-symbols-rounded text-sm leading-none">dark_mode</span>
+      <span id="night-label">야간</span>
     </button>
     <button id="btn-flip"
-      class="hidden items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-neutral-900 text-neutral-400 transition-colors">
-      <span class="material-symbols-rounded text-base leading-none">flip_camera_ios</span>
+      class="hidden items-center justify-center w-8 h-8 rounded-md bg-neutral-900 text-neutral-400 transition-colors shrink-0">
+      <span class="material-symbols-rounded text-sm leading-none">flip_camera_ios</span>
     </button>
   </div>
 
@@ -44,7 +46,6 @@
 
     <!-- 초기 화면 -->
     <div id="init-screen" class="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6">
-      <!-- 2구 보행 신호등 -->
       <svg width="72" height="160" viewBox="0 0 72 160">
         <rect x="4" y="0" width="64" height="160" rx="12" fill="#1a1a1a"/>
         <rect x="4" y="0" width="64" height="160" rx="12" fill="none" stroke="#333" stroke-width="1.5"/>
@@ -110,7 +111,6 @@
     </div>
   </div>
 
-  <!-- TF.js + 진입점 (ES Module) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
