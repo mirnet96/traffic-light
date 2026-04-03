@@ -4,7 +4,7 @@
 
 const YOLO_MODEL_URL = '/traffic-light/models/yolov8s/model.json';
 
-const INPUT_SIZE = 640;
+const INPUT_SIZE = 320;  // 모델 입력 고정값
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
 const SCORE_NEAR = 0.45;
