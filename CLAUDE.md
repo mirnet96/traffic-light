@@ -61,30 +61,15 @@ traffic-light/
 ### 스크립트 로드 방식
 
 ```html
-<!-- index.html -->
-<script src="tf.min.js"></script>            <!-- TF.js (전역 window.tf) -->
-<script type="module" src="app.js"></script> <!-- ES Module 진입점 -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script type="module" src="app.js"></script>
 ```
-
-```js
-// app.js
-import { loadModel, runYolo }     from './detector.js';
-import { drawBoxes, renderCards } from './renderer.js';
-
-// detector.js
-import { loadMediaPipe, runMediaPipeDetect } from './detector.mediapipe.js';
-import { loadYolo, runYoloDetect }           from './detector.yolo.js';
-```
-
-- `index.html`에서 `<script type="module" src="app.js">` **하나만** 로드
-- import 체인으로 로드 순서 자동 보장
-- MediaPipe는 `detector.mediapipe.js` 내부에서 동적 `import(MP_CDN)` 처리
 
 ### 파일별 역할 및 라인 수 기준
 
 | 파일 | 역할 | 상한 |
 |---|---|---|
-| `app.js` | UI · 카메라 · 스캔 루프 · 야간 · 전체화면 · 이벤트 | 300줄 |
+| `app.js` | UI · 카메라 · 스캔 루프 · 야간 · 전체화면 · PiP · 이벤트 | 300줄 |
 | `detector.js` | 폴백 체인 · `classifySignals` · `iou` | 80줄 |
 | `detector.mediapipe.js` | MediaPipe 로드 · 추론 · 출력 파싱 | 100줄 |
 | `detector.yolo.js` | YOLOv8s 로드 · Letterbox · 추론 · NMS | 130줄 |
@@ -139,23 +124,12 @@ https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8s_web_model/mod
 ### 폴백 판단 기준
 
 ```js
-const MP_THRESHOLD = 0.50;  // 이 값 미만이면 YOLOv8s 폴백
+const MP_THRESHOLD = 0.50;
 ```
-
-### 감지 출처 태그
-
-```js
-src: 'mp'    // MediaPipe 감지
-src: 'yolo'  // YOLOv8s 감지
-```
-
-하단 카드에 `MP` / `YOLO` 배지로 표시.
 
 ---
 
 ## 근거리 / 원거리 구분
-
-박스 높이(정규화) 기준으로 동적 신뢰도 임계값 적용.
 
 | 구분 | 기준 (박스 높이 / 화면 높이) | YOLOv8s 최소 신뢰도 |
 |---|---|---|
@@ -168,9 +142,8 @@ src: 'yolo'  // YOLOv8s 감지
 ## 보행 신호등 판별 로직
 
 ```js
-// traffic light 박스 안에 person 박스가 IoU > 0.1 이상 겹치면
-// → 보행 신호등 (isPedestrian: true, priority: 2)
 const hasPerson = persons.some(p => iou(l.box, p.box) > 0.1);
+// → isPedestrian: true, priority: 2
 ```
 
 ---
@@ -181,16 +154,18 @@ const hasPerson = persons.some(p => iou(l.box, p.box) > 0.1);
 // app.js
 SCAN_MS      = 120     // 감지 루프 주기 (ms)
 NIGHT_THR    = 60      // 야간 전환 밝기 기준 (0~255)
+PIP_SM       = { w: 120, h: 80  }   // PiP 기본 크기
+PIP_LG       = { w: 200, h: 130 }   // PiP 확대 크기
 
 // detector.js
-MP_THRESHOLD = 0.50    // MediaPipe → YOLOv8s 폴백 임계값
+MP_THRESHOLD = 0.50
 
 // detector.yolo.js
-NEAR_THR     = 0.12    // 근거리 기준 박스 높이 비율
-FAR_MIN      = 0.02    // 최소 유효 박스 크기
-SCORE_NEAR   = 0.45    // 근거리 최소 신뢰도
-SCORE_FAR    = 0.28    // 원거리 최소 신뢰도
-NMS_IOU      = 0.45    // NMS IoU 임계값
+NEAR_THR     = 0.12
+FAR_MIN      = 0.02
+SCORE_NEAR   = 0.45
+SCORE_FAR    = 0.28
+NMS_IOU      = 0.45
 ```
 
 ---
@@ -200,62 +175,169 @@ NMS_IOU      = 0.45    // NMS IoU 임계값
 ```
 init
   └─> loading (카메라 권한 → MediaPipe 로드 → YOLOv8s 로드 + 워밍업)
-        ├─> live  (스캔 루프 120ms + 야간 감지 3s)
+        ├─> live  (스캔 루프 120ms + 야간 감지 3s + PiP)
         └─> error (권한 거부 / 하드웨어 오류)
 ```
+
+`setPhase('live')`는 반드시 `loadModel()` 완료 후 호출.
+
+---
+
+## PiP (Picture-in-Picture) 스캔 미리보기
+
+카메라 뷰 좌하단에 실시간 스캔 영역을 축소 표시.
+
+### 구조
+
+```
+viewbox 내부 — position: absolute, left: 8px, bottom: 8px
+<canvas id="pip" class="pip-canvas">
+```
+
+### 동작
+
+| 항목 | 내용 |
+|---|---|
+| 기본 크기 | 120×80px |
+| 확대 크기 | 200×130px (탭으로 토글) |
+| 표시 조건 | `phase === 'live'` 일 때만 |
+| 내용 | proc canvas(카메라 원본) + overlay(감지 박스) 합성 |
+| 테두리 | 탐색 중: 파란색 / 감지됨: 초록색 |
+| 좌상단 라벨 | `탐색중` / `감지됨` |
+| 갱신 주기 | 스캔 루프와 동일 (120ms) |
+
+### drawPip() 구현 원칙
+
+```js
+// 1. 카메라 원본 축소 합성
+pipCtx.drawImage(proc, 0, 0, sz.w, sz.h);
+// 2. 감지 박스 오버레이 합성
+pipCtx.drawImage(overlay, 0, 0, sz.w, sz.h);
+// 3. 테두리 + 라벨 그리기
+```
+
+- `drawPip()`은 `startScan()` 루프 마지막에 호출
+- `phase !== 'live'` 또는 `proc.width === 0`이면 즉시 리턴
+- PiP canvas의 `willReadFrequently` 옵션은 불필요 (쓰기 전용)
+
+### 크기 토글
+
+```js
+// pip 탭 이벤트
+pipLarge = !pipLarge;
+applyPipSize();  // pip.width / pip.height 재설정
+```
+
+`applyPipSize()`는 `setPhase('live')` 진입 시에도 호출하여 초기 크기 보장.
+
+---
 
 ## 상태 표시 (badge-ai / badge-scan)
 
 | 배지 | 위치 | 내용 |
 |---|---|---|
-| `badge-ai` | topbar | 모델 로드 상태: `MP + YOLO` / `MediaPipe` / `YOLOv8s` / `모델 오류` / `스캔 오류` |
+| `badge-ai` | topbar | `MP + YOLO` / `MediaPipe` / `YOLOv8s` / `모델 오류` / `스캔 오류` |
 | `badge-scan` | topbar (live 전용) | `탐색 중` (파란 깜빡임) / `감지 N건` (초록 고정) |
 
-- `badge-scan`은 `setPhase('live')` 시 표시, 그 외 숨김
-- 스캔 루프 예외 발생 시 `badge-ai`에 `스캔 오류` 표시
-
----
-
-## 야간 모드
-
-- 3초마다 프레임 평균 밝기 자동 측정 → 60 미만이면 자동 전환
-- 수동 토글 버튼: `dark_mode` ↔ `light_mode` 아이콘
-- 버튼 텍스트: 야간 OFF → `야간` / 야간 ON → `ON` (topbar 공간 절약)
-- CSS 클래스로 제어: `#video.night` / `#video.day`
-
-```css
-#video.night { filter: brightness(1.6) contrast(1.4) saturate(1.3); }
-#video.day   { filter: brightness(1.05) contrast(1.1) saturate(1.1); }
-```
+- `badge-scan` 표시: `style.display = ''` / 숨김: `style.display = 'none'`
+- Tailwind `hidden` 클래스와 혼용 금지
 
 ---
 
 ## Topbar 레이아웃 규칙
 
-모바일 소형 화면에서 topbar가 줄바꿈되지 않도록:
-
 - 앱 이름: `whitespace-nowrap`
 - 배지·버튼 전체: `whitespace-nowrap shrink-0`
-- 빈 공간: `<div class="flex-1">` 으로 배지/버튼을 우측 정렬
-- 야간 버튼 텍스트: `야간` (OFF 상태) / `ON` (ON 상태) — 짧게 유지
-- 카메라 전환 버튼: 텍스트 없이 아이콘만 (`w-8 h-8`)
+- 빈 공간: `<div class="flex-1">`
+- 야간 버튼 텍스트: `야간` (OFF) / `ON` (ON)
+- 카메라 전환 버튼: 아이콘만 (`w-8 h-8`)
 
 ---
 
-## 전체화면 확대 규격
+## 전체화면 열기/닫기 규칙
 
-- 배경: 보행 신호 `#001a08` / 일반 신호등 `#1a1500`
-- 원형: `min(72vw, 72vh)` + 글로우
-- 텍스트: `min(14vw, 14vh)`
-- 거리 정보: 근거리 / 원거리 표시
-- 진동: 보행 `[200]` / 일반 `[100, 50, 100]`
-- 닫기: 화면 아무 곳 탭
+```js
+// 열기
+fs.style.display = '';
+fs.classList.add('show');
+
+// 닫기
+fs.classList.remove('show');
+// style.display = 'none' 직접 세팅 금지
+```
+
+---
+
+## Canvas / Context 규칙
+
+```js
+// proc — willReadFrequently 필수 (getImageData 매 프레임 호출)
+const procCtx = proc.getContext('2d', { willReadFrequently: true });
+
+// pip — 쓰기 전용, willReadFrequently 불필요
+const pipCtx = pip.getContext('2d');
+
+// overlay/proc 크기 — 해상도 변경 시에만 재설정
+if (W !== lastVW || H !== lastVH) { ... }
+```
+
+---
+
+## 인터벌 관리 규칙
+
+```js
+let scanTimer  = null;
+let nightTimer = null;
+
+clearInterval(scanTimer);
+scanTimer = setInterval(...);
+```
+
+---
+
+## Tensor 해제 규칙 (detector.yolo.js)
+
+```js
+const outTensor = Array.isArray(raw) ? raw[0] : raw;
+const data = await outTensor.data();
+tf.dispose(tensor);
+if (Array.isArray(raw)) tf.dispose(raw); else tf.dispose(raw);
+```
+
+---
+
+## MediaPipe 타임스탬프 규칙
+
+```js
+mpDetector.detectForVideo(canvas, performance.now());
+// 정수 카운터 사용 금지
+```
+
+---
+
+## renderCards 클로저 규칙
+
+```js
+const snapshot = signals.slice();
+list.querySelectorAll('.det-card').forEach(el =>
+  el.addEventListener('click', () => onTap(snapshot[+el.dataset.i]))
+);
+// list._sigs 패턴 사용 금지
+```
+
+---
+
+## 야간 모드
+
+- 3초마다 `procCtx.getImageData`로 평균 밝기 측정
+- 60 미만 → 자동 야간 전환
+- 버튼 텍스트: `야간` (OFF) / `ON` (ON)
 
 ---
 
 ## UI 아이콘 (Material Symbols Rounded)
 
-이모지 사용 금지. Material Symbols만 사용.
+이모지 사용 금지.
 
 | 용도 | 아이콘 |
 |---|---|
@@ -271,30 +353,25 @@ init
 
 ---
 
-## 초기 화면 신호등
-
-2구 보행 신호등 SVG. 상단: 빨간 정지 아이콘 (켜진 상태), 하단: 초록 꺼진 상태.
-
----
-
 ## 개발 규칙
 
-- 이모지 사용 금지 — 아이콘은 Material Symbols만
-- `localStorage` / `sessionStorage` 사용 금지 — 상태는 JS 변수로 관리
+- 이모지 사용 금지
+- `localStorage` / `sessionStorage` 사용 금지
 - `style.css` 에는 Tailwind 불가 스타일만 작성
-- 카메라는 HTTPS 환경 필수 (`localhost` 예외)
-- 외부 리소스는 위 CDN 허용 목록에서만 로드
-- 색상 감지 (RGB 픽셀 평균) 로직 재도입 금지
-- `@latest` CDN 버전 사용 금지 — 항상 고정 버전 명시
-- 파일당 라인 수 상한 준수 (위 표 참고)
-- topbar 아이템은 한 줄 유지 — `whitespace-nowrap` / `shrink-0` 필수
+- `@latest` CDN 버전 사용 금지
+- 파일당 라인 수 상한 준수
+- topbar 아이템 한 줄 유지
+- `#fs` 닫기 시 `style.display = 'none'` 직접 세팅 금지
+- `proc.getContext('2d')` 직접 호출 금지 — `procCtx` 재사용
+- 인터벌 변수 없이 `setInterval` 직접 호출 금지
+- PiP `drawPip()`은 스캔 루프 마지막에만 호출 (중복 호출 금지)
 
 ---
 
 ## 향후 로드맵
 
-- [ ] TTS 음성 안내 ("보행 신호입니다, 건너셔도 됩니다")
-- [ ] 카운트다운 타이머 (남은 보행 시간)
-- [ ] AI-Hub 인도보행 데이터셋 기반 YOLOv8s fine-tuning
-- [ ] PWA Service Worker (오프라인 캐싱)
+- [ ] TTS 음성 안내
+- [ ] 카운트다운 타이머
+- [ ] AI-Hub 데이터셋 기반 YOLOv8s fine-tuning
+- [ ] PWA Service Worker
 - [ ] 접근성: 고대비 모드, 폰트 크기 설정

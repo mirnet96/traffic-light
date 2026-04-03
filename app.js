@@ -5,18 +5,31 @@ import { drawBoxes, renderCards } from './renderer.js';
 const SCAN_MS   = 120;
 const NIGHT_THR = 60;
 
+/* ── PiP 크기 ── */
+const PIP_SM = { w: 120, h: 80  };
+const PIP_LG = { w: 200, h: 130 };
+
 /* ── DOM 참조 ── */
-const video    = document.getElementById('video');
-const proc     = document.getElementById('proc');
-const overlay  = document.getElementById('overlay');
-const scanline = document.getElementById('scanline');
+const video     = document.getElementById('video');
+const proc      = document.getElementById('proc');
+const overlay   = document.getElementById('overlay');
+const scanline  = document.getElementById('scanline');
+const scanBadge = document.getElementById('badge-scan');
+const pip       = document.getElementById('pip');
 
 /* ── 상태 ── */
-let stream    = null;
-let scanTimer = null;
-let nightMode = false;
-let camFacing = 'environment';
-let phase     = 'init';
+let stream      = null;
+let scanTimer   = null;
+let nightTimer  = null;
+let nightMode   = false;
+let camFacing   = 'environment';
+let phase       = 'init';
+let lastVW      = 0, lastVH = 0;
+let pipLarge    = false;  // PiP 크기 토글 상태
+
+/* ── proc ctx (willReadFrequently) ── */
+const procCtx = proc.getContext('2d', { willReadFrequently: true });
+const pipCtx  = pip.getContext('2d');
 
 /* ════════════════════════════════════
    UI 헬퍼
@@ -32,13 +45,17 @@ function setPhase(p) {
   show('btn-flip',       p === 'live', 'flex');
   scanline.style.display = p === 'live' ? 'block' : 'none';
 
-  // 스캔 배지: live 상태에서만 표시
-  const scanBadge = document.getElementById('badge-scan');
-  scanBadge.style.display = p === 'live' ? '' : 'none';
+  // PiP: live 상태에서만 표시
+  pip.style.display = p === 'live' ? 'block' : 'none';
+
   if (p === 'live') {
-    scanBadge.textContent = '탐색 중';
+    scanBadge.style.display = '';
+    scanBadge.textContent   = '탐색 중';
     scanBadge.classList.remove('detected');
     scanBadge.classList.add('scan-pulse');
+    applyPipSize();
+  } else {
+    scanBadge.style.display = 'none';
   }
 }
 
@@ -58,6 +75,47 @@ function setBadge(text, cls) {
   b.className = `text-[11px] px-2 py-0.5 rounded-md bg-black/60 ${cls}`;
 }
 
+function updateScanBadge(signals) {
+  if (signals.length > 0) {
+    scanBadge.textContent = `감지 ${signals.length}건`;
+    scanBadge.classList.add('detected');
+    scanBadge.classList.remove('scan-pulse');
+  } else {
+    scanBadge.textContent = '탐색 중';
+    scanBadge.classList.remove('detected');
+    scanBadge.classList.add('scan-pulse');
+  }
+}
+
+/* ════════════════════════════════════
+   PiP
+════════════════════════════════════ */
+function applyPipSize() {
+  const sz = pipLarge ? PIP_LG : PIP_SM;
+  pip.width  = sz.w;
+  pip.height = sz.h;
+}
+
+function drawPip() {
+  if (phase !== 'live' || !proc.width || !proc.height) return;
+  const sz = pipLarge ? PIP_LG : PIP_SM;
+  // 카메라 원본
+  pipCtx.drawImage(proc, 0, 0, sz.w, sz.h);
+  // 감지 박스 오버레이 합성
+  pipCtx.drawImage(overlay, 0, 0, sz.w, sz.h);
+  // 테두리 (감지 중이면 파란색, 감지되면 초록색)
+  const detected = scanBadge.classList.contains('detected');
+  pipCtx.strokeStyle = detected ? '#00ee44' : '#3b82f6';
+  pipCtx.lineWidth   = 1.5;
+  pipCtx.strokeRect(0.75, 0.75, sz.w - 1.5, sz.h - 1.5);
+  // 좌상단 라벨
+  pipCtx.fillStyle = 'rgba(0,0,0,0.55)';
+  pipCtx.fillRect(0, 0, 36, 14);
+  pipCtx.fillStyle = detected ? '#4ade80' : '#93c5fd';
+  pipCtx.font      = 'bold 9px system-ui,sans-serif';
+  pipCtx.fillText(detected ? '감지됨' : '탐색중', 3, 10);
+}
+
 /* ════════════════════════════════════
    카메라
 ════════════════════════════════════ */
@@ -73,11 +131,11 @@ async function startCamera(facing) {
     video.srcObject = stream;
     await new Promise(r => { video.onloadedmetadata = r; });
     video.play();
-    setPhase('live');
     await loadModel(
-      t  => document.getElementById('load-msg').textContent = t,
+      t => document.getElementById('load-msg').textContent = t,
       setBadge
     );
+    setPhase('live');
     startScan();
     startNightCheck();
   } catch (e) {
@@ -99,9 +157,12 @@ function startScan() {
     const W = video.videoWidth, H = video.videoHeight;
     if (!W || !H) return;
 
-    proc.width = W; proc.height = H;
-    overlay.width = W; overlay.height = H;
-    proc.getContext('2d').drawImage(video, 0, 0, W, H);
+    if (W !== lastVW || H !== lastVH) {
+      proc.width    = W; proc.height    = H;
+      overlay.width = W; overlay.height = H;
+      lastVW = W; lastVH = H;
+    }
+    procCtx.drawImage(video, 0, 0, W, H);
 
     let signals = [];
     try {
@@ -111,21 +172,13 @@ function startScan() {
       setBadge('스캔 오류', 'text-red-400');
     }
 
-    // 스캔 배지 업데이트
-    const scanBadge = document.getElementById('badge-scan');
-    if (signals.length > 0) {
-      scanBadge.textContent = `감지 ${signals.length}건`;
-      scanBadge.classList.add('detected');
-      scanBadge.classList.remove('scan-pulse');
-    } else {
-      scanBadge.textContent = '탐색 중';
-      scanBadge.classList.remove('detected');
-      scanBadge.classList.add('scan-pulse');
-    }
-
+    updateScanBadge(signals);
     drawBoxes(overlay.getContext('2d'), signals, W, H);
     renderCards(signals, showFullscreen);
     scanline.style.display = signals.length ? 'none' : 'block';
+
+    // PiP 업데이트 (매 스캔마다)
+    drawPip();
   }, SCAN_MS);
 }
 
@@ -133,10 +186,11 @@ function startScan() {
    야간 자동 감지
 ════════════════════════════════════ */
 function startNightCheck() {
-  setInterval(() => {
+  clearInterval(nightTimer);
+  nightTimer = setInterval(() => {
     if (phase !== 'live' || !proc.width) return;
     try {
-      const data = proc.getContext('2d').getImageData(0, 0, proc.width, proc.height).data;
+      const data = procCtx.getImageData(0, 0, proc.width, proc.height).data;
       let sum = 0, cnt = 0;
       for (let i = 0; i < data.length; i += 16) {
         sum += data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
@@ -175,6 +229,7 @@ function showFullscreen(sig) {
   const fs = document.getElementById('fs');
   fs.style.background = bg;
   fs.style.filter     = nightMode ? 'brightness(1.6) contrast(1.4) saturate(1.3)' : 'none';
+  fs.style.display = '';
   fs.classList.add('show');
 
   const sz = 'min(72vw, 72vh)';
@@ -182,7 +237,7 @@ function showFullscreen(sig) {
     width: sz, height: sz, background: accent, marginBottom: '6vh',
     boxShadow: `0 0 60px 20px ${accent}88, 0 0 120px 40px ${accent}44`,
   });
-  document.getElementById('fs-svg').innerHTML    = isPed ? PERSON_SVG.walk : PERSON_SVG.stop;
+  document.getElementById('fs-svg').innerHTML     = isPed ? PERSON_SVG.walk : PERSON_SVG.stop;
   document.getElementById('fs-svg').style.cssText = 'width:55%;height:55%';
 
   Object.assign(document.getElementById('fs-label').style, {
@@ -209,7 +264,11 @@ document.getElementById('btn-night').addEventListener('click', () => applyNight(
 document.getElementById('btn-flip').addEventListener('click',  () =>
   startCamera(camFacing === 'environment' ? 'user' : 'environment'));
 document.getElementById('fs').addEventListener('click', () => {
-  const fs = document.getElementById('fs');
-  fs.classList.remove('show');
-  fs.style.display = 'none';
+  document.getElementById('fs').classList.remove('show');
+});
+
+// PiP 탭: 작은 ↔ 큰 토글
+pip.addEventListener('click', () => {
+  pipLarge = !pipLarge;
+  applyPipSize();
 });

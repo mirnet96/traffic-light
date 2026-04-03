@@ -14,8 +14,7 @@ const MP_LABEL_MAP = { 'traffic light': 9, 'person': 0 };
 const NEAR_THR = 0.12;
 const FAR_MIN  = 0.02;
 
-let mpDetector  = null;
-let mpTimestamp = 0;
+let mpDetector = null;
 
 /* ── 로드 ── */
 export async function loadMediaPipe() {
@@ -25,10 +24,10 @@ export async function loadMediaPipe() {
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
     );
     mpDetector = await ObjectDetector.createFromOptions(vision, {
-      baseOptions:        { modelAssetPath: MP_MODEL_URL, delegate: 'GPU' },
-      scoreThreshold:     0.25,
-      categoryAllowlist:  ['traffic light', 'person'],
-      runningMode:        'VIDEO',
+      baseOptions:       { modelAssetPath: MP_MODEL_URL, delegate: 'GPU' },
+      scoreThreshold:    0.25,
+      categoryAllowlist: ['traffic light', 'person'],
+      runningMode:       'VIDEO',
     });
     return true;
   } catch (e) {
@@ -41,7 +40,8 @@ export async function loadMediaPipe() {
 export async function runMediaPipeDetect(canvas, W, H) {
   if (!mpDetector) return [];
   try {
-    const result = mpDetector.detectForVideo(canvas, ++mpTimestamp);
+    // ★ performance.now() 사용 — MediaPipe는 단조증가 ms 타임스탬프 요구
+    const result = mpDetector.detectForVideo(canvas, performance.now());
     return parseMpResult(result, W, H);
   } catch (e) {
     console.warn('MediaPipe inference error:', e);
@@ -53,14 +53,14 @@ export async function runMediaPipeDetect(canvas, W, H) {
 function parseMpResult(result, W, H) {
   if (!result?.detections?.length) return [];
   return result.detections.map(det => {
-    const cat   = det.categories[0];
-    const cls   = MP_LABEL_MAP[cat.categoryName];
+    const cat = det.categories[0];
+    const cls = MP_LABEL_MAP[cat.categoryName];
     if (cls === undefined) return null;
 
-    const bb    = det.boundingBox;
-    const x1    = bb.originX / W,  y1 = bb.originY / H;
-    const x2    = (bb.originX + bb.width) / W;
-    const y2    = (bb.originY + bb.height) / H;
+    const bb   = det.boundingBox;
+    const x1   = bb.originX / W,  y1 = bb.originY / H;
+    const x2   = (bb.originX + bb.width) / W;
+    const y2   = (bb.originY + bb.height) / H;
     const normH = y2 - y1;
     if (normH < FAR_MIN) return null;
 

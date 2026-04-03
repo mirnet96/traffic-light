@@ -23,8 +23,11 @@ export async function loadYolo() {
   try {
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
     const dummy = tf.zeros([1, 640, 640, 3]);
-    await yoloModel.executeAsync(dummy);
+    const warmup = await yoloModel.executeAsync(dummy);
     tf.dispose(dummy);
+    // ★ executeAsync 반환값이 배열일 수 있으므로 안전하게 해제
+    if (Array.isArray(warmup)) tf.dispose(warmup);
+    else tf.dispose(warmup);
     return true;
   } catch (e) {
     console.warn('YOLOv8s load failed:', e);
@@ -44,8 +47,13 @@ export async function runYoloDetect(canvas, W, H) {
     tf.dispose(tensor);
     return [];
   }
-  const data = await raw.data();
-  tf.dispose([tensor, raw]);
+
+  // ★ raw가 배열인 경우와 단일 텐서인 경우 모두 처리
+  const outTensor = Array.isArray(raw) ? raw[0] : raw;
+  const data = await outTensor.data();
+  tf.dispose(tensor);
+  if (Array.isArray(raw)) tf.dispose(raw); else tf.dispose(raw);
+
   return parseYoloOutput(data, W, H, scale, padX, padY);
 }
 

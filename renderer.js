@@ -26,8 +26,8 @@ export function drawBoxes(octx, signals, W, H) {
     });
 
     // 레이블
-    const label   = sig.isPedestrian ? `보행신호 ${Math.round(sig.score*100)}%`
-                                     : `신호등 ${Math.round(sig.score*100)}%`;
+    const label    = sig.isPedestrian ? `보행신호 ${Math.round(sig.score*100)}%`
+                                      : `신호등 ${Math.round(sig.score*100)}%`;
     const rangeTag = sig.range === 'near' ? '근거리' : '원거리';
     const fs = Math.max(11, bw*0.15);
     octx.font = `bold ${fs}px system-ui,sans-serif`;
@@ -48,7 +48,9 @@ export function renderCards(signals, onTap) {
   const empty = document.getElementById('det-empty');
 
   if (!signals.length) {
-    empty.style.display = 'flex'; list.innerHTML = ''; return;
+    empty.style.display = 'flex';
+    list.innerHTML = '';
+    return;
   }
   empty.style.display = 'none';
   list.innerHTML = signals.map((sig, i) => {
@@ -72,8 +74,9 @@ export function renderCards(signals, onTap) {
       </div>`;
   }).join('');
 
-  list._sigs = signals;
+  // ★ 클로저로 캡처 — _sigs 참조 경쟁 제거
+  const snapshot = signals.slice();
   list.querySelectorAll('.det-card').forEach(el =>
-    el.addEventListener('click', () => onTap(list._sigs[+el.dataset.i]))
+    el.addEventListener('click', () => onTap(snapshot[+el.dataset.i]))
   );
 }
