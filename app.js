@@ -29,7 +29,7 @@ const pip       = document.getElementById('pip');
 
 /* ── 상태 ── */
 let stream     = null;
-let scanTimer  = null;
+let scanTimer  = null;  // setTimeout 기반
 let nightTimer = null;
 let nightMode  = false;
 let camFacing  = 'environment';
@@ -216,34 +216,43 @@ async function startCamera(facing) {
    스캔 루프
 ════════════════════════════════════ */
 function startScan() {
-  clearInterval(scanTimer);
-  scanTimer = setInterval(async () => {
-    if (phase !== 'live' || video.readyState < 2) return;
-    const W = video.videoWidth, H = video.videoHeight;
-    if (!W || !H) return;
+  clearTimeout(scanTimer);  // ★ clearTimeout으로 변경
 
-    if (W !== lastVW || H !== lastVH) {
-      proc.width    = W; proc.height    = H;
-      overlay.width = W; overlay.height = H;
-      lastVW = W; lastVH = H;
+  async function loop() {
+    if (phase !== 'live') return;  // live 아니면 루프 종료
+
+    if (video.readyState >= 2) {
+      const W = video.videoWidth, H = video.videoHeight;
+      if (W && H) {
+        if (W !== lastVW || H !== lastVH) {
+          proc.width    = W; proc.height    = H;
+          overlay.width = W; overlay.height = H;
+          lastVW = W; lastVH = H;
+        }
+        procCtx.drawImage(video, 0, 0, W, H);
+
+        let signals = [];
+        try {
+          signals = await runYolo(proc, W, H);
+        } catch (e) {
+          console.warn('scan error:', e);
+          setBadge('스캔 오류', 'text-red-400');
+        }
+
+        tickFps();
+        updateScanBadge(signals);
+        drawBoxes(overlay.getContext('2d'), signals, W, H);
+        renderCards(signals, showFullscreen);
+        scanline.style.display = signals.length ? 'none' : 'block';
+        drawPip();
+      }
     }
-    procCtx.drawImage(video, 0, 0, W, H);
 
-    let signals = [];
-    try {
-      signals = await runYolo(proc, W, H);
-    } catch (e) {
-      console.warn('scan error:', e);
-      setBadge('스캔 오류', 'text-red-400');
-    }
+    // ★ 완료 후 다음 프레임 예약 — 중첩 실행 없음
+    scanTimer = setTimeout(loop, SCAN_MS);
+  }
 
-    tickFps();  // fps 카운트
-    updateScanBadge(signals);
-    drawBoxes(overlay.getContext('2d'), signals, W, H);
-    renderCards(signals, showFullscreen);
-    scanline.style.display = signals.length ? 'none' : 'block';
-    drawPip();
-  }, SCAN_MS);
+  loop();  // 즉시 첫 프레임 시작
 }
 
 /* ════════════════════════════════════
