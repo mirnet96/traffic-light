@@ -98,6 +98,7 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
     preprocessRegion(canvas, sx, sy, sw, sh);
 
   let raw;
+  const t0 = performance.now();
   try {
     raw = await yoloModel.executeAsync(tensor);
   } catch (e) {
@@ -107,14 +108,13 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   }
 
   const outTensor = Array.isArray(raw) ? raw[0] : raw;
-
-  // 최초 1회 shape 화면 출력
-  if (!debugShown) {
-    debugShown = true;
-    showDebug(`[infer] shape: ${JSON.stringify(outTensor.shape)}`);
-  }
-
   const data = await outTensor.data();
+  const inferMs = (performance.now() - t0).toFixed(0);
+
+  // 최초 3회 추론 시간 화면 출력
+  if (!debugShown || frameCount <= 3) {
+    debugShown = true;
+    showDebug(`[infer#${frameCount}] shape:${JSON.stringify(outTensor.shape)} time:${inferMs}ms`);
   tf.dispose(tensor);
   Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
