@@ -1,15 +1,15 @@
 /* ════════════════════════════════════
-   detector.yolo.js
-   YOLOv8s TFJS — MediaPipe 폴백
+   detector.yolo.js — YOLOv8n TF.js
 ════════════════════════════════════ */
 
+/* YOLOv8n: 6MB, 입력 640×640, 모바일 ~60ms */
 const YOLO_MODEL_URL =
-  'https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8s_web_model/model.json';
+  'https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json';
 
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
-const SCORE_NEAR = 0.45;
-const SCORE_FAR  = 0.28;
+const SCORE_NEAR = 0.40;  // n 모델은 s보다 정밀도 낮으므로 임계값 소폭 하향
+const SCORE_FAR  = 0.25;
 const NMS_IOU    = 0.45;
 
 const CLS_LIGHT  = 9;
@@ -22,15 +22,13 @@ export async function loadYolo() {
   if (!window.tf) return false;
   try {
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
-    const dummy = tf.zeros([1, 640, 640, 3]);
+    const dummy  = tf.zeros([1, 640, 640, 3]);
     const warmup = await yoloModel.executeAsync(dummy);
     tf.dispose(dummy);
-    // ★ executeAsync 반환값이 배열일 수 있으므로 안전하게 해제
-    if (Array.isArray(warmup)) tf.dispose(warmup);
-    else tf.dispose(warmup);
+    Array.isArray(warmup) ? tf.dispose(warmup) : tf.dispose(warmup);
     return true;
   } catch (e) {
-    console.warn('YOLOv8s load failed:', e);
+    console.warn('YOLOv8n load failed:', e);
     return false;
   }
 }
@@ -38,28 +36,28 @@ export async function loadYolo() {
 /* ── 추론 진입점 ── */
 export async function runYoloDetect(canvas, W, H) {
   if (!yoloModel || !window.tf) return [];
-  const { tensor, scale, padX, padY } = preprocessFrame(canvas, W, H);
+  const { tensor, scale, padX, padY } = preprocessFrame(canvas);
   let raw;
   try {
     raw = await yoloModel.executeAsync(tensor);
   } catch (e) {
-    console.warn('YOLOv8s inference error:', e);
+    console.warn('YOLOv8n inference error:', e);
     tf.dispose(tensor);
     return [];
   }
-
-  // ★ raw가 배열인 경우와 단일 텐서인 경우 모두 처리
   const outTensor = Array.isArray(raw) ? raw[0] : raw;
   const data = await outTensor.data();
   tf.dispose(tensor);
-  if (Array.isArray(raw)) tf.dispose(raw); else tf.dispose(raw);
+  Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
   return parseYoloOutput(data, W, H, scale, padX, padY);
 }
 
 /* ── Letterbox 전처리 ── */
-function preprocessFrame(canvas, W, H) {
+function preprocessFrame(canvas) {
   const T     = 640;
+  const W     = canvas.width;
+  const H     = canvas.height;
   const scale = Math.min(T / W, T / H);
   const newW  = Math.round(W * scale);
   const newH  = Math.round(H * scale);
@@ -74,7 +72,10 @@ function preprocessFrame(canvas, W, H) {
   ctx.drawImage(canvas, 0, 0, W, H, padX, padY, newW, newH);
 
   const tensor = tf.tidy(() =>
-    tf.expandDims(tf.div(tf.cast(tf.browser.fromPixels(tmp), 'float32'), 255.0), 0)
+    tf.expandDims(
+      tf.div(tf.cast(tf.browser.fromPixels(tmp), 'float32'), 255.0),
+      0
+    )
   );
   return { tensor, scale, padX, padY };
 }
@@ -91,16 +92,19 @@ function parseYoloOutput(data, W, H, scale, padX, padY) {
       const isNear = normH >= NEAR_THR;
       if (score < (isNear ? SCORE_NEAR : SCORE_FAR)) continue;
 
-      const x1 = ((cx-bw/2)-padX)/scale/W, y1 = ((cy-bh/2)-padY)/scale/H;
-      const x2 = ((cx+bw/2)-padX)/scale/W, y2 = ((cy+bh/2)-padY)/scale/H;
+      const x1 = ((cx-bw/2)-padX)/scale/W;
+      const y1 = ((cy-bh/2)-padY)/scale/H;
+      const x2 = ((cx+bw/2)-padX)/scale/W;
+      const y2 = ((cy+bh/2)-padY)/scale/H;
       if (x2<=0||y2<=0||x1>=1||y1>=1) continue;
       if ((Math.min(y2,1)-Math.max(y1,0)) < FAR_MIN) continue;
 
       res.push({
-        id: `yolo_${cls}_${i}`, cls, score,
+        id:    `yolo_${cls}_${i}`,
+        cls,   score,
         range: isNear ? 'near' : 'far',
-        box: [Math.max(y1,0),Math.max(x1,0),Math.min(y2,1),Math.min(x2,1)],
-        src: 'yolo',
+        box:   [Math.max(y1,0), Math.max(x1,0), Math.min(y2,1), Math.min(x2,1)],
+        src:   'yolo',
       });
     }
   }
@@ -116,7 +120,8 @@ function nms(dets) {
     if (used.has(i)) continue;
     kept.push(dets[i]);
     for (let j = i+1; j < dets.length; j++) {
-      if (!used.has(j) && dets[i].cls === dets[j].cls && calcIou(dets[i].box, dets[j].box) > NMS_IOU)
+      if (!used.has(j) && dets[i].cls === dets[j].cls &&
+          calcIou(dets[i].box, dets[j].box) > NMS_IOU)
         used.add(j);
     }
   }

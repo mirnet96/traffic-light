@@ -80,21 +80,26 @@ traffic-light/
 
 ---
 
-## 감지 모델: 폴백 체인 구조
+## 감지 모델: 단일 YOLOv8n
+
+MediaPipe EfficientDet-Lite2는 모바일(Android 삼성 인터넷/크롬)에서
+CPU 폴백 시 400ms 이상 소요되어 1~2fps 수준으로 실사용 불가.
+→ **MediaPipe 완전 제거, YOLOv8n 단일 모델로 교체.**
+
+| 항목 | YOLOv8n |
+|---|---|
+| 모델 크기 | 6MB |
+| 입력 해상도 | 640×640 |
+| 추론 속도 (모바일) | ~60ms |
+| COCO mAP | 37.3 |
+| URL | `https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json` |
+
+`detector.mediapipe.js`는 파일만 보존, import 및 호출 없음.
+`detector.js`는 `detector.yolo.js`만 import.
 
 ```
-매 프레임 (120ms)
-  └─> 1차: MediaPipe EfficientDet-Lite2
-        ├─> score >= 0.50 → classifySignals → 반환
-        └─> 미감지 / 저신뢰도
-              └─> 2차: YOLOv8s → NMS → classifySignals → 반환
-```
-
-### 모델 URL
-
-```
-https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/float32/1/efficientdet_lite2.tflite
-https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8s_web_model/model.json
+매 프레임 (setTimeout 재귀, SCAN_MS=120ms 이상)
+  └─> YOLOv8n Letterbox → [1,640,640,3] → 추론 → NMS → classifySignals → 반환
 ```
 
 ---
@@ -122,21 +127,18 @@ const hasPerson = persons.some(p => iou(l.box, p.box) > 0.1);
 
 ```js
 // app.js
-SCAN_MS   = 120        // 감지 루프 최소 대기 (ms) — setTimeout 재귀
+SCAN_MS   = 120
 NIGHT_THR = 60
-PROC_W    = 448        // 추론용 축소 캔버스 너비
-PROC_H    = 448        // 추론용 축소 캔버스 높이
 PIP_SM    = { w:120, h:80  }
 PIP_LG    = { w:200, h:130 }
 SCAN_MSGS = [...]
 
-// detector.mediapipe.js
-delegate     = 'CPU'   // GPU 위임 사용 금지 (모바일 GPU 위임 실패 방지)
-maxResults   = 5
-
-// detector.js
-MP_THRESHOLD = 0.50
-MP_ANY_MIN   = 0.25
+// detector.yolo.js (YOLOv8n)
+NEAR_THR   = 0.12
+FAR_MIN    = 0.02
+SCORE_NEAR = 0.40   // n 모델 정밀도 반영, s 대비 소폭 하향
+SCORE_FAR  = 0.25
+NMS_IOU    = 0.45
 ```
 
 ## 추론용 캔버스 구조

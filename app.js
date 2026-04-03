@@ -46,14 +46,6 @@ let fpsValue    = 0;
 const procCtx = proc.getContext('2d', { willReadFrequently: true });
 const pipCtx  = pip.getContext('2d');
 
-/* ── 스캔용 축소 캔버스 (MediaPipe 입력 부하 감소) ── */
-const PROC_W  = 448;
-const PROC_H  = 448;
-const small   = document.createElement('canvas');
-small.width   = PROC_W;
-small.height  = PROC_H;
-const smallCtx = small.getContext('2d');
-
 /* ════════════════════════════════════
    UI 헬퍼
 ════════════════════════════════════ */
@@ -238,13 +230,10 @@ function startScan() {
           lastVW = W; lastVH = H;
         }
         procCtx.drawImage(video, 0, 0, W, H);
-        // ★ MediaPipe 추론용 축소 캔버스 갱신 (448×448)
-        smallCtx.drawImage(video, 0, 0, PROC_W, PROC_H);
 
         let signals = [];
         try {
-          // proc: PiP·야간 측광용 원본, small: 추론용 축소본
-          signals = await runYolo(small, W, H);
+          signals = await runYolo(proc, W, H);
         } catch (e) {
           console.warn('scan error:', e);
           setBadge('스캔 오류', 'text-red-400');
