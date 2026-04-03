@@ -8,7 +8,7 @@ const CLS_PERSON = 0;
 export async function loadModel(onMsg, onBadge) {
   onMsg('YOLOv8n 로드 중...');
   const ok = await loadYolo();
-  onBadge(ok ? 'YOLOv8n' : '모델 오류', ok ? 'text-green-400' : 'text-red-400');
+  onBadge(ok ? 'YOLOv8s' : '모델 오류', ok ? 'text-green-400' : 'text-red-400');
 }
 
 /* ── 추론 ── */

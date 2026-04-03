@@ -1,23 +1,51 @@
 /* ════════════════════════════════════
-   detector.yolo.js — YOLOv8n + 상단 타일 원거리 보완
+   detector.yolo.js — YOLOv8s + 타일 분할 + shape 디버그
 ════════════════════════════════════ */
-
-//  const YOLO_MODEL_URL = 'https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8n_web_model/model.json';
 
 const YOLO_MODEL_URL = '/traffic-light/models/yolov8s/model.json';
 
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
-const SCORE_NEAR = 0.40;
-const SCORE_FAR  = 0.25;
+const SCORE_NEAR = 0.45;
+const SCORE_FAR  = 0.28;
 const NMS_IOU    = 0.45;
-const TILE_EVERY = 3;    // N프레임마다 타일 추론 1회
+const TILE_EVERY = 3;
 
 const CLS_LIGHT  = 9;
 const CLS_PERSON = 0;
 
 let yoloModel  = null;
 let frameCount = 0;
+let debugShown = false;  // shape 디버그는 최초 1회만
+
+/* ── 디버그 메시지를 화면에 표시 ── */
+function showDebug(msg) {
+  let el = document.getElementById('debug-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'debug-overlay';
+    Object.assign(el.style, {
+      position:   'fixed',
+      top:        '60px',
+      left:       '0',
+      right:      '0',
+      background: 'rgba(0,0,0,0.82)',
+      color:      '#0f0',
+      fontSize:   '11px',
+      fontFamily: 'monospace',
+      padding:    '8px',
+      zIndex:     '99999',
+      whiteSpace: 'pre-wrap',
+      wordBreak:  'break-all',
+      maxHeight:  '40vh',
+      overflowY:  'auto',
+    });
+    // 탭하면 닫기
+    el.addEventListener('click', () => el.remove());
+    document.body.appendChild(el);
+  }
+  el.textContent += msg + '\n';
+}
 
 /* ── 로드 + 워밍업 ── */
 export async function loadYolo() {
@@ -25,16 +53,25 @@ export async function loadYolo() {
   try {
     await tf.setBackend('webgl');
     await tf.ready();
-    console.log('[tf] backend:', tf.getBackend());
+    showDebug(`[tf] backend: ${tf.getBackend()}`);
 
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
+    showDebug(`[yolo] model loaded`);
+
     const dummy  = tf.zeros([1, 640, 640, 3]);
     const warmup = await yoloModel.executeAsync(dummy);
     tf.dispose(dummy);
+
+    // 워밍업 출력 shape 표시
+    const wo = Array.isArray(warmup) ? warmup[0] : warmup;
+    showDebug(`[yolo] warmup shape: ${JSON.stringify(wo.shape)}`);
+    showDebug(`[yolo] isArray: ${Array.isArray(warmup)}, len: ${Array.isArray(warmup) ? warmup.length : 1}`);
+    showDebug('(화면 탭하면 닫힘)');
+
     Array.isArray(warmup) ? tf.dispose(warmup) : tf.dispose(warmup);
     return true;
   } catch (e) {
-    console.warn('YOLOv8n load failed:', e);
+    showDebug(`[yolo] load error: ${e.message}`);
     return false;
   }
 }
@@ -44,24 +81,18 @@ export async function runYoloDetect(canvas, W, H) {
   if (!yoloModel || !window.tf) return [];
   frameCount++;
 
-  // 1) 전체 프레임 추론
   const full = await inferCanvas(canvas, 0, 0, W, H, W, H);
 
-  // 2) 상단 절반 타일 추론 (TILE_EVERY 프레임마다)
   let tiled = [];
   if (frameCount % TILE_EVERY === 0) {
-    const tileH = Math.floor(H / 2);  // 상단 50%
+    const tileH = Math.floor(H / 2);
     tiled = await inferCanvas(canvas, 0, 0, W, tileH, W, H);
   }
 
-  // 3) 합산 후 NMS
   return nms([...full, ...tiled]);
 }
 
-/* ── 단일 영역 추론 ──
-   sx,sy,sw,sh: 원본 canvas에서 잘라낼 영역
-   W,H:         원본 전체 해상도 (정규화 기준)
-── */
+/* ── 단일 영역 추론 ── */
 async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   const { tensor, scale, padX, padY } =
     preprocessRegion(canvas, sx, sy, sw, sh);
@@ -70,20 +101,27 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   try {
     raw = await yoloModel.executeAsync(tensor);
   } catch (e) {
-    console.warn('YOLOv8n inference error:', e);
+    showDebug(`[yolo] infer error: ${e.message}`);
     tf.dispose(tensor);
     return [];
   }
+
   const outTensor = Array.isArray(raw) ? raw[0] : raw;
+
+  // 최초 1회 shape 화면 출력
+  if (!debugShown) {
+    debugShown = true;
+    showDebug(`[infer] shape: ${JSON.stringify(outTensor.shape)}`);
+  }
+
   const data = await outTensor.data();
   tf.dispose(tensor);
   Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
-  // 좌표를 원본 W/H 기준으로 역변환
   return parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H);
 }
 
-/* ── Letterbox 전처리 (지정 영역만) ── */
+/* ── Letterbox 전처리 ── */
 function preprocessRegion(canvas, sx, sy, sw, sh) {
   const T     = 640;
   const scale = Math.min(T / sw, T / sh);
@@ -97,7 +135,6 @@ function preprocessRegion(canvas, sx, sy, sw, sh) {
   const ctx  = tmp.getContext('2d');
   ctx.fillStyle = '#808080';
   ctx.fillRect(0, 0, T, T);
-  // 원본의 sx,sy,sw,sh 영역 → tmp의 letterbox 위치로
   ctx.drawImage(canvas, sx, sy, sw, sh, padX, padY, newW, newH);
 
   const tensor = tf.tidy(() =>
@@ -109,7 +146,7 @@ function preprocessRegion(canvas, sx, sy, sw, sh) {
   return { tensor, scale, padX, padY };
 }
 
-/* ── 출력 파싱 + 원본 좌표 역변환 ── */
+/* ── 출력 파싱 (shape A: [1,84,8400] 기준) ── */
 function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
   const N = 8400, res = [];
   for (let i = 0; i < N; i++) {
@@ -117,24 +154,18 @@ function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
     const bw = data[2*N+i], bh = data[3*N+i];
 
     for (const cls of [CLS_LIGHT, CLS_PERSON]) {
-      const score = data[(4+cls)*N+i];
-
-      // 640 공간에서 정규화된 박스 높이로 근/원 판별
+      const score  = data[(4+cls)*N+i];
       const normH  = bh / 640;
       const isNear = normH >= NEAR_THR;
       if (score < (isNear ? SCORE_NEAR : SCORE_FAR)) continue;
 
-      // 640 letterbox 좌표 → 잘라낸 영역(sw×sh) 내 픽셀 좌표
       const rx1 = ((cx - bw/2) - padX) / scale;
       const ry1 = ((cy - bh/2) - padY) / scale;
       const rx2 = ((cx + bw/2) - padX) / scale;
       const ry2 = ((cy + bh/2) - padY) / scale;
 
-      // 원본 W×H 기준 정규화
-      const x1 = (sx + rx1) / W;
-      const y1 = (sy + ry1) / H;
-      const x2 = (sx + rx2) / W;
-      const y2 = (sy + ry2) / H;
+      const x1 = (sx + rx1) / W, y1 = (sy + ry1) / H;
+      const x2 = (sx + rx2) / W, y2 = (sy + ry2) / H;
 
       if (x2<=0||y2<=0||x1>=1||y1>=1) continue;
       if ((Math.min(y2,1) - Math.max(y1,0)) < FAR_MIN) continue;
@@ -148,7 +179,7 @@ function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
       });
     }
   }
-  return res;  // NMS는 runYoloDetect에서 합산 후 일괄 처리
+  return res;
 }
 
 /* ── NMS ── */
