@@ -2,9 +2,10 @@ import { loadMediaPipe, runMediaPipeDetect } from './detector.mediapipe.js';
 import { loadYolo, runYoloDetect }           from './detector.yolo.js';
 
 /* ── 상수 ── */
-const MP_THRESHOLD = 0.50;
-const CLS_LIGHT    = 9;
-const CLS_PERSON   = 0;
+const MP_THRESHOLD  = 0.50;
+const MP_ANY_MIN    = 0.25;  // ★ MP가 뭔가 감지했을 때의 최소 점수
+const CLS_LIGHT     = 9;
+const CLS_PERSON    = 0;
 
 /* ── 모델 초기화 ── */
 export async function loadModel(onMsg, onBadge) {
@@ -23,14 +24,31 @@ export async function loadModel(onMsg, onBadge) {
 /* ── 폴백 체인 추론 ── */
 export async function runYolo(canvas, W, H) {
   // 1차: MediaPipe
-  const mpDets   = await runMediaPipeDetect(canvas, W, H);
-  const confident = mpDets.filter(d => d.cls === CLS_LIGHT && d.score >= MP_THRESHOLD);
+  const mpDets    = await runMediaPipeDetect(canvas, W, H);
+  const mpLights  = mpDets.filter(d => d.cls === CLS_LIGHT);
+  const confident = mpLights.filter(d => d.score >= MP_THRESHOLD);
 
+  // ★ 신뢰도 높은 신호등 감지 → 즉시 반환 (YOLO 생략)
   if (confident.length > 0) {
     return classifySignals(confident, mpDets);
   }
 
-  // 2차: YOLOv8s 폴백
+  // ★ MP가 신호등을 조금이라도 감지했으면 (0.25~0.50) → YOLO 생략하고 낮은 신뢰도로 반환
+  //   신호등이 전혀 없는 장면에서 YOLO를 매번 돌리는 것을 방지
+  if (mpLights.length > 0) {
+    return classifySignals(mpLights, mpDets);
+  }
+
+  // ★ MP가 traffic light를 아예 못 찾았을 때만 YOLO 폴백
+  //   단, person만 감지된 경우는 YOLO로 신호등을 재탐색
+  const mpHasAny = mpDets.some(d => d.score >= MP_ANY_MIN);
+  if (mpHasAny && mpLights.length === 0) {
+    // MP가 다른 물체(사람 등)는 잘 보이는 상황 → 신호등이 진짜 없는 것
+    // YOLO 생략으로 프레임 절약
+    return [];
+  }
+
+  // 2차: YOLOv8s 폴백 (MP가 아무것도 못 잡은 경우 — 원거리·야간 등)
   const yoloDets = await runYoloDetect(canvas, W, H);
   return classifySignals(
     yoloDets.filter(d => d.cls === CLS_LIGHT),

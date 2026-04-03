@@ -13,7 +13,11 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0">
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-black text-white font-sans max-w-[480px] mx-auto min-h-screen flex flex-col overflow-hidden">
+
+
+<body class="bg-black text-white font-sans max-w-[480px] mx-auto h-[100dvh] flex flex-col overflow-hidden">
+
+
 
   <!-- 상단 바 -->
   <div id="topbar" class="flex items-center gap-1.5 px-2.5 py-2 bg-black/85 border-b border-white/10 shrink-0 min-w-0">
@@ -41,7 +45,12 @@
   </div>
 
   <!-- 카메라 뷰 -->
-  <div id="viewbox" class="relative flex-1 bg-black overflow-hidden">
+
+<!-- viewbox: flex-1 → min-h-0 추가 (flex 자식이 부모를 넘치지 않도록) -->
+<div id="viewbox" class="relative flex-1 min-h-0 bg-black overflow-hidden">
+
+
+
     <video id="video" class="w-full h-full object-cover block day" playsinline muted autoplay></video>
     <canvas id="proc" style="display:none"></canvas>
     <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none object-cover"></canvas>
