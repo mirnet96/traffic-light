@@ -16,7 +16,7 @@ const SCAN_MSGS = [
   '건너편 신호등을 찾고 있습니다...',
   '멀리 있는 신호등도 감지합니다',
 ];
-let scanMsgIdx  = 0;
+let scanMsgIdx   = 0;
 let scanMsgTimer = null;
 
 /* ── DOM 참조 ── */
@@ -29,7 +29,7 @@ const pip       = document.getElementById('pip');
 
 /* ── 상태 ── */
 let stream     = null;
-let scanTimer  = null;  // setTimeout 기반
+let scanTimer  = null;
 let nightTimer = null;
 let nightMode  = false;
 let camFacing  = 'environment';
@@ -42,16 +42,34 @@ let fpsFrames   = 0;
 let fpsLastTime = 0;
 let fpsValue    = 0;
 
-/* ── proc ctx (willReadFrequently) ── */
+/* ── ctx ── */
 const procCtx = proc.getContext('2d', { willReadFrequently: true });
 const pipCtx  = pip.getContext('2d');
+
+/* ── 디버그 패널 (app.js에서만 DOM 조작) ── */
+function showDebug(msg) {
+  let el = document.getElementById('debug-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'debug-overlay';
+    Object.assign(el.style, {
+      position: 'fixed', top: '60px', left: '0', right: '0',
+      background: 'rgba(0,0,0,0.82)', color: '#0f0',
+      fontSize: '11px', fontFamily: 'monospace', padding: '8px',
+      zIndex: '99999', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+      maxHeight: '40vh', overflowY: 'auto',
+    });
+    el.addEventListener('click', () => el.remove());
+    document.body.appendChild(el);
+  }
+  el.textContent += msg + '\n';
+}
 
 /* ════════════════════════════════════
    UI 헬퍼
 ════════════════════════════════════ */
 function setPhase(p) {
   phase = p;
-  // ★ Tailwind hidden 클래스 충돌 방지 — style.display 로만 제어
   const show = (id, on, dtype = 'flex') =>
     document.getElementById(id).style.display = on ? dtype : 'none';
   show('init-screen',    p === 'init',    'flex');
@@ -68,7 +86,7 @@ function setPhase(p) {
     scanBadge.classList.remove('detected');
     scanBadge.classList.add('scan-pulse');
     applyPipSize();
-    startScanMsgCycle();  // 텍스트 순환 시작
+    startScanMsgCycle();
     fpsFrames   = 0;
     fpsLastTime = performance.now();
   } else {
@@ -111,7 +129,6 @@ function startScanMsgCycle() {
   scanMsgIdx = 0;
   renderScanMsg();
   scanMsgTimer = setInterval(() => {
-    // 감지 중에는 텍스트 교체 안 함
     if (document.getElementById('det-empty').style.display === 'none') return;
     scanMsgIdx = (scanMsgIdx + 1) % SCAN_MSGS.length;
     renderScanMsg();
@@ -125,13 +142,20 @@ function stopScanMsgCycle() {
 
 function renderScanMsg() {
   const el = document.getElementById('det-empty');
-  // fade 효과: 투명 → 불투명
   el.style.transition = 'opacity 0.4s';
   el.style.opacity    = '0';
   setTimeout(() => {
     el.querySelector('.scan-msg-text').textContent = SCAN_MSGS[scanMsgIdx];
     el.style.opacity = '1';
   }, 400);
+}
+
+/* ── det-empty 표시 (opacity 리셋 포함) ── */
+function showDetEmpty() {
+  const el = document.getElementById('det-empty');
+  el.style.opacity    = '1';      // fade-out 도중 전환 시 리셋
+  el.style.transition = '';
+  el.style.display    = 'flex';
 }
 
 /* ── fps 갱신 (1초마다) ── */
@@ -143,7 +167,6 @@ function tickFps() {
     fpsValue    = Math.round(fpsFrames * 1000 / diff);
     fpsFrames   = 0;
     fpsLastTime = now;
-    // 탐색 중일 때만 배지 갱신 (감지 중엔 덮어쓰지 않음)
     if (!scanBadge.classList.contains('detected')) {
       scanBadge.textContent = `탐색 중 · ${fpsValue}fps`;
     }
@@ -168,13 +191,11 @@ function drawPip() {
   pipCtx.strokeStyle = detected ? '#00ee44' : '#3b82f6';
   pipCtx.lineWidth   = 1.5;
   pipCtx.strokeRect(0.75, 0.75, sz.w - 1.5, sz.h - 1.5);
-  // fps를 PiP 우하단에 표시
   pipCtx.fillStyle = 'rgba(0,0,0,0.55)';
   pipCtx.fillRect(sz.w - 34, sz.h - 14, 34, 14);
   pipCtx.fillStyle = '#94a3b8';
   pipCtx.font      = 'bold 9px system-ui,sans-serif';
   pipCtx.fillText(`${fpsValue}fps`, sz.w - 30, sz.h - 4);
-  // 좌상단 라벨
   pipCtx.fillStyle = 'rgba(0,0,0,0.55)';
   pipCtx.fillRect(0, 0, 36, 14);
   pipCtx.fillStyle = detected ? '#4ade80' : '#93c5fd';
@@ -189,46 +210,28 @@ async function startCamera(facing) {
   setPhase('loading');
   document.getElementById('load-msg').textContent = '카메라 시작 중...';
 
-  // ★ 디버그: 진입 확인
-  const dbg = (m) => {
-    let el = document.getElementById('debug-overlay');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'debug-overlay';
-      Object.assign(el.style, {
-        position:'fixed', top:'60px', left:'0', right:'0',
-        background:'rgba(0,0,0,0.82)', color:'#0f0',
-        fontSize:'11px', fontFamily:'monospace', padding:'8px',
-        zIndex:'99999', whiteSpace:'pre-wrap', wordBreak:'break-all',
-        maxHeight:'40vh', overflowY:'auto',
-      });
-      el.addEventListener('click', () => el.remove());
-      document.body.appendChild(el);
-    }
-    el.textContent += m + '\n';
-  };
-
   try {
-    dbg('[cam] startCamera');
+    showDebug('[cam] startCamera');
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: camFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
     });
-    dbg('[cam] getUserMedia OK');
+    showDebug('[cam] getUserMedia OK');
     video.srcObject = stream;
     await new Promise(r => { video.onloadedmetadata = r; });
     video.play();
-    dbg('[cam] video playing');
+    showDebug('[cam] video playing');
     await loadModel(
-      t => { document.getElementById('load-msg').textContent = t; dbg('[cam] ' + t); },
-      setBadge
+      t => { document.getElementById('load-msg').textContent = t; showDebug('[model] ' + t); },
+      setBadge,
+      showDebug   // ← 디버그 콜백 주입 (detector.yolo.js DOM 접근 제거)
     );
-    dbg('[cam] model loaded → setPhase live');
+    showDebug('[cam] model loaded → setPhase live');
     setPhase('live');
     startScan();
     startNightCheck();
   } catch (e) {
-    dbg(`[cam] ERROR: ${e.name} ${e.message}`);
+    showDebug(`[cam] ERROR: ${e.name} ${e.message}`);
     setPhase('error');
     document.getElementById('err-msg').textContent =
       e.name === 'NotAllowedError'
@@ -241,10 +244,10 @@ async function startCamera(facing) {
    스캔 루프
 ════════════════════════════════════ */
 function startScan() {
-  clearTimeout(scanTimer);  // ★ clearTimeout으로 변경
+  clearTimeout(scanTimer);
 
   async function loop() {
-    if (phase !== 'live') return;  // live 아니면 루프 종료
+    if (phase !== 'live') return;
 
     if (video.readyState >= 2) {
       const W = video.videoWidth, H = video.videoHeight;
@@ -267,17 +270,16 @@ function startScan() {
         tickFps();
         updateScanBadge(signals);
         drawBoxes(overlay.getContext('2d'), signals, W, H);
-        renderCards(signals, showFullscreen);
+        renderCards(signals, showFullscreen, showDetEmpty);  // showDetEmpty 전달
         scanline.style.display = signals.length ? 'none' : 'block';
         drawPip();
       }
     }
 
-    // ★ 완료 후 다음 프레임 예약 — 중첩 실행 없음
     scanTimer = setTimeout(loop, SCAN_MS);
   }
 
-  loop();  // 즉시 첫 프레임 시작
+  loop();
 }
 
 /* ════════════════════════════════════
@@ -300,6 +302,30 @@ function startNightCheck() {
 }
 
 /* ════════════════════════════════════
+   신호등 색상 추정 (픽셀 샘플링)
+════════════════════════════════════ */
+function estimateSignalColor(box, W, H) {
+  // box = [y1, x1, y2, x2] (0~1 정규화)
+  const [y1, x1, y2, x2] = box;
+  const bx = Math.round(x1 * W), by = Math.round(y1 * H);
+  const bw = Math.round((x2 - x1) * W), bh = Math.round((y2 - y1) * H);
+  if (bw < 4 || bh < 4) return 'unknown';
+
+  try {
+    const px = procCtx.getImageData(bx, by, bw, bh).data;
+    let r = 0, g = 0, cnt = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      r += px[i]; g += px[i + 1]; cnt++;
+    }
+    if (!cnt) return 'unknown';
+    r /= cnt; g /= cnt;
+    if (r > 100 && r > g * 1.5) return 'red';
+    if (g > 80  && g > r * 1.2) return 'green';
+    return 'unknown';
+  } catch { return 'unknown'; }
+}
+
+/* ════════════════════════════════════
    전체화면
 ════════════════════════════════════ */
 const PERSON_SVG = {
@@ -318,11 +344,33 @@ const PERSON_SVG = {
 };
 
 function showFullscreen(sig) {
-  const isPed  = sig.isPedestrian;
-  const accent = isPed ? '#00ee44' : '#ffcc00';
-  const bg     = isPed ? '#001a08' : '#1a1500';
-  const label  = isPed ? '보행신호' : '신호등';
-  const range  = sig.range === 'near' ? '근거리' : '원거리';
+  const W = proc.width, H = proc.height;
+  const sigColor = W && H ? estimateSignalColor(sig.box, W, H) : 'unknown';
+
+  // 보행신호등: 색상 기반 accent / 일반 신호등: 색상 기반 accent
+  let accent, bg, svgKey, label;
+  if (sig.isPedestrian) {
+    // 녹색=보행 가능, 적색/unknown=정지
+    const isWalk = sigColor === 'green';
+    accent = isWalk ? '#00ee44' : '#ff3322';
+    bg     = isWalk ? '#001a08' : '#1a0000';
+    svgKey = isWalk ? 'walk' : 'stop';
+    label  = '보행신호';
+  } else {
+    accent = sigColor === 'green' ? '#00ee44'
+           : sigColor === 'red'   ? '#ff3322'
+           : '#ffcc00';            // unknown → 노란색 (주의)
+    bg     = sigColor === 'green' ? '#001a08'
+           : sigColor === 'red'   ? '#1a0000'
+           : '#1a1500';
+    svgKey = sigColor === 'red' ? 'stop' : 'walk';
+    label  = '신호등';
+  }
+
+  const range = sig.range === 'near' ? '근거리' : '원거리';
+  const colorTag = sigColor === 'green' ? '녹색'
+                 : sigColor === 'red'   ? '적색'
+                 : '색상미확인';
 
   const fs = document.getElementById('fs');
   fs.style.background = bg;
@@ -335,7 +383,7 @@ function showFullscreen(sig) {
     width: sz, height: sz, background: accent, marginBottom: '6vh',
     boxShadow: `0 0 60px 20px ${accent}88, 0 0 120px 40px ${accent}44`,
   });
-  document.getElementById('fs-svg').innerHTML     = isPed ? PERSON_SVG.walk : PERSON_SVG.stop;
+  document.getElementById('fs-svg').innerHTML     = PERSON_SVG[svgKey];
   document.getElementById('fs-svg').style.cssText = 'width:55%;height:55%';
 
   Object.assign(document.getElementById('fs-label').style, {
@@ -348,9 +396,10 @@ function showFullscreen(sig) {
     marginTop: '2vh', fontSize: 'min(4vw,4vh)',
   });
   document.getElementById('fs-sub').textContent =
-    `${range} \u00B7 신뢰도 ${Math.round(sig.score * 100)}% \u00B7 탭하면 돌아갑니다`;
+    `${range} · ${colorTag} · 신뢰도 ${Math.round(sig.score * 100)}% · 탭하면 돌아갑니다`;
 
-  if (navigator.vibrate) navigator.vibrate(isPed ? [200] : [100, 50, 100]);
+  if (navigator.vibrate)
+    navigator.vibrate(sigColor === 'green' ? [200] : [100, 50, 100]);
 }
 
 /* ════════════════════════════════════

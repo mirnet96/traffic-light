@@ -1,9 +1,10 @@
-import { loadYolo, runYoloDetect } from './detector.yolo.js';
+import { loadYolo, runYoloDetect, setDebugLogger } from './detector.yolo.js';
 
 const CLS_LIGHT  = 9;
 const CLS_PERSON = 0;
 
-export async function loadModel(onMsg, onBadge) {
+export async function loadModel(onMsg, onBadge, onDebug) {
+  if (onDebug) setDebugLogger(onDebug);   // DOM 없는 디버그 콜백 주입
   onMsg('YOLOv8s 로드 중...');
   const ok = await loadYolo();
   onBadge(ok ? 'YOLOv8s' : '모델 오류', ok ? 'text-green-400' : 'text-red-400');

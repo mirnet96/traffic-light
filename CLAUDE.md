@@ -24,8 +24,7 @@
 | 마크업 | HTML5 |
 | 스타일 | Tailwind CSS (CDN) + style.css (커스텀 보완) |
 | 아이콘 | Google Material Symbols Rounded (FILL=1) |
-| ML 1차 | MediaPipe EfficientDet-Lite2 (빠름) |
-| ML 2차 | YOLOv8s TF.js (정밀, 폴백) |
+| ML | YOLOv8s TF.js (단일 모델 + 타일 분할) |
 | 모듈 시스템 | ES Module (import/export) |
 | 카메라 | `getUserMedia` API (HTTPS 필수) |
 | 배포 | GitHub Pages |
@@ -38,7 +37,6 @@
 https://cdn.tailwindcss.com
 https://fonts.googleapis.com
 https://cdn.jsdelivr.net
-https://storage.googleapis.com/mediapipe-models
 ```
 
 ---
@@ -51,7 +49,6 @@ traffic-light/
 ├── style.css
 ├── app.js
 ├── detector.js
-├── detector.mediapipe.js
 ├── detector.yolo.js
 ├── renderer.js
 ├── README.md
@@ -62,35 +59,32 @@ traffic-light/
 
 | 파일 | 역할 | 상한 |
 |---|---|---|
-| `app.js` | UI · 카메라 · 스캔 루프 · 야간 · 전체화면 · PiP · fps · 텍스트 순환 · 이벤트 | 300줄 |
-| `detector.js` | 폴백 체인 · `classifySignals` · `iou` | 80줄 |
-| `detector.mediapipe.js` | MediaPipe 로드 · 추론 · 출력 파싱 | 100줄 |
-| `detector.yolo.js` | YOLOv8s 로드 · Letterbox · 추론 · NMS | 130줄 |
+| `app.js` | UI · 카메라 · 스캔 루프 · 야간 · 색상 추정 · 전체화면 · PiP · fps · 텍스트 순환 · 디버그 패널 · 이벤트 | 320줄 |
+| `detector.js` | 폴백 체인 · `classifySignals` · `iou` · 디버그 콜백 주입 | 60줄 |
+| `detector.yolo.js` | YOLOv8s 로드 · Letterbox · 추론 · NMS | 140줄 |
 | `renderer.js` | `drawBoxes` · `renderCards` | 100줄 |
 
 ### 역할 분리 원칙
 
 - `index.html` — 구조와 Tailwind 클래스만. 인라인 스타일 금지.
 - `style.css` — Tailwind 불가 항목만.
-- `detector.mediapipe.js` — MediaPipe 전용. DOM 접근 금지.
-- `detector.yolo.js` — YOLOv8s 전용. DOM 접근 금지.
-- `detector.js` — 두 감지 모듈 조율만.
-- `renderer.js` — 그리기만.
-- `app.js` — 위 모듈 조합 진입점. 300줄 이하 유지.
+- `detector.yolo.js` — YOLOv8s 전용. **DOM 접근 금지 (디버그 포함).**
+- `detector.js` — detector.yolo.js 조율 + 디버그 콜백 주입만.
+- `renderer.js` — 그리기만. `onEmpty` 콜백으로 빈 상태 위임.
+- `app.js` — 위 모듈 조합 진입점. 320줄 이하 유지. 디버그 패널 DOM 유일 소유.
 
 ---
 
-## 감지 모델: YOLOv8n + 타일 분할 원거리 보완
+## 감지 모델: YOLOv8s + 타일 분할 원거리 보완
 
-MediaPipe는 모바일에서 1~2fps로 실사용 불가 → 완전 제거.
-YOLOv8n 단일 모델 + 상단 타일 분할로 속도와 원거리 감지를 동시에 확보.
+YOLOv8s 단일 모델 + 상단 타일 분할로 속도와 원거리 감지를 동시에 확보.
 
 | 항목 | YOLOv8s |
 |---|---|
 | 모델 크기 | 22MB |
-| 입력 해상도 | 640×640 |
-| 추론 속도 (Galaxy 실측) | 미측정 |
-| URL | `https://cdn.jsdelivr.net/gh/niconielsen32/ultralytics-tfjs/yolov8s_web_model/model.json` |
+| 입력 해상도 | **320×320** |
+| 출력 앵커 수 | **2100** (320×320 기준; 640×640 시 8400) |
+| URL | `/traffic-light/models/yolov8s/model.json` |
 
 YOLOv8n CDN URL은 존재하지 않음 — 사용 금지.
 확인된 모델 URL은 yolov8s_web_model만 유효.
@@ -99,18 +93,21 @@ YOLOv8n CDN URL은 존재하지 않음 — 사용 금지.
 
 ```
 매 프레임:
-  └─> 전체(W×H) → Letterbox 640×640 → 추론 → 파싱
-매 3프레임 추가:
-  └─> 상단 절반(W×H/2) → Letterbox 640×640 → 추론 → 파싱
-        (원거리 신호등 2배 확대 효과)
+  └─> 전체(W×H) → Letterbox 320×320 → 추론 → 파싱
+매 4프레임 추가:
+  └─> 상단 절반(W×H/2) → Letterbox 320×320 → 추론 → 파싱
 두 결과 합산 → 전체 NMS → classifySignals → 반환
 ```
 
-### 타일 전략 근거
+### 추론용 임시 캔버스
 
-- 신호등은 항상 화면 상단에 위치 → 하단 절반 추론 불필요
-- 원거리 신호등(전체 화면 2~5%) → 상단 절반 기준 4~10%로 확대
-- TILE_EVERY=3: 3프레임에 1회 타일 추론 → 평균 fps 영향 최소화
+```js
+// detector.yolo.js 모듈 상단 1회 생성, 재사용 (매 프레임 createElement 금지)
+const tmpCanvas = document.createElement('canvas');
+tmpCanvas.width  = INPUT_SIZE;
+tmpCanvas.height = INPUT_SIZE;
+const tmpCtx = tmpCanvas.getContext('2d');
+```
 
 ### 좌표 역변환
 
@@ -143,6 +140,23 @@ const hasPerson = persons.some(p => iou(l.box, p.box) > 0.1);
 
 ---
 
+## 신호등 색상 추정
+
+전체화면 표시 직전 `procCtx.getImageData`로 박스 영역 픽셀을 샘플링.
+
+```js
+// app.js — estimateSignalColor(box, W, H)
+// 반환값: 'red' | 'green' | 'unknown'
+if (r > 100 && r > g * 1.5) return 'red';
+if (g > 80  && g > r * 1.2) return 'green';
+return 'unknown';
+```
+
+- `unknown` 시 보행신호는 정지(적색) 처리, 일반 신호등은 노란색(주의) accent
+- 진동: `green` → 길게 한 번(200ms) / 그 외 → 짧게 두 번(100-50-100ms)
+
+---
+
 ## 핵심 상수
 
 ```js
@@ -153,25 +167,35 @@ PIP_SM    = { w:120, h:80  }
 PIP_LG    = { w:200, h:130 }
 SCAN_MSGS = [...]
 
-// detector.yolo.js (YOLOv8n)
+// detector.yolo.js
+INPUT_SIZE = 320    // 모델 입력 고정값
+N_ANCHORS  = 2100   // 320×320 기준 YOLOv8 출력 앵커 수
 NEAR_THR   = 0.12
 FAR_MIN    = 0.02
-SCORE_NEAR = 0.40   // n 모델 정밀도 반영, s 대비 소폭 하향
-SCORE_FAR  = 0.25
+SCORE_NEAR = 0.45
+SCORE_FAR  = 0.28
 NMS_IOU    = 0.45
+TILE_EVERY = 4
 ```
 
-## 추론용 캔버스 구조
+---
 
-```
-video (원본 1280×720)
-  ├── proc (원본 크기) — PiP 합성, 야간 측광용
-  └── small (448×448) — MediaPipe / YOLO 추론 입력용
-```
+## 디버그 패널 규칙
 
-- `runYolo(small, W, H)` 로 호출 — canvas는 축소본, W/H는 원본 해상도
-- 좌표 정규화(0~1)는 원본 W/H 기준이므로 박스 위치 정확도 유지
-- `small`은 모듈 상단에서 한 번 생성 후 재사용 (매 프레임 createElement 금지)
+- `debug-overlay` DOM 생성/조작은 **app.js 전용**
+- `detector.yolo.js`는 `setDebugLogger(fn)` 로 콜백을 받아 사용
+- `detector.js`의 `loadModel(onMsg, onBadge, onDebug)`에서 콜백 주입
+
+```js
+// detector.js
+export async function loadModel(onMsg, onBadge, onDebug) {
+  if (onDebug) setDebugLogger(onDebug);
+  ...
+}
+
+// app.js
+await loadModel(onMsg, setBadge, showDebug);
+```
 
 ---
 
@@ -191,25 +215,6 @@ init
 ## fps 측정
 
 스캔 루프 매 실행마다 `tickFps()` 호출. 1초마다 `fpsValue` 갱신.
-
-```js
-let fpsFrames   = 0;
-let fpsLastTime = 0;  // performance.now() 기준
-let fpsValue    = 0;
-
-function tickFps() {
-  fpsFrames++;
-  const diff = performance.now() - fpsLastTime;
-  if (diff >= 1000) {
-    fpsValue    = Math.round(fpsFrames * 1000 / diff);
-    fpsFrames   = 0;
-    fpsLastTime = performance.now();
-    // 탐색 중일 때만 badge-scan 갱신 (감지 중 덮어쓰기 금지)
-    if (!scanBadge.classList.contains('detected'))
-      scanBadge.textContent = `탐색 중 · ${fpsValue}fps`;
-  }
-}
-```
 
 fps는 두 곳에 표시:
 - `badge-scan`: `탐색 중 · Nfps`
@@ -232,17 +237,30 @@ const SCAN_MSGS = [
 
 ### 구현 규칙
 
-- `startScanMsgCycle()`: `setPhase('live')` 시 호출, 인터벌 시작
-- `stopScanMsgCycle()`: `setPhase` 에서 live가 아닐 때 호출, 인터벌 정리
-- 감지 중(`det-empty` 숨김 상태)에는 텍스트 교체 건너뜀
-- 텍스트 교체 시 opacity 0 → 400ms → opacity 1 페이드 효과
-- `det-empty` 안에 `<span class="scan-msg-text">` 필수 — JS에서 이 span의 textContent만 변경
+- `startScanMsgCycle()`: `setPhase('live')` 시 호출
+- `stopScanMsgCycle()`: live가 아닐 때 호출
+- 감지 중(`det-empty` 숨김)에는 텍스트 교체 건너뜀
+- 텍스트 교체 시 opacity 0 → 400ms → opacity 1 페이드
 
-```html
-<div id="det-empty" ...>
-  <span class="material-symbols-rounded ...">radar</span>
-  <span class="scan-msg-text">신호등을 탐색 중입니다...</span>
-</div>
+### det-empty 표시 규칙
+
+`renderCards`에서 빈 상태 처리는 `onEmpty` 콜백으로 위임.
+`app.js`의 `showDetEmpty()`가 opacity 리셋 후 display를 복원.
+
+```js
+// app.js
+function showDetEmpty() {
+  const el = document.getElementById('det-empty');
+  el.style.opacity    = '1';   // fade-out 도중 전환 시 리셋 필수
+  el.style.transition = '';
+  el.style.display    = 'flex';
+}
+
+// renderer.js
+export function renderCards(signals, onTap, onEmpty) {
+  if (!signals.length) { onEmpty(); list.innerHTML = ''; return; }
+  ...
+}
 ```
 
 ---
@@ -299,7 +317,7 @@ fs.classList.remove('show');
 
 ```js
 const procCtx = proc.getContext('2d', { willReadFrequently: true }); // 필수
-const pipCtx  = pip.getContext('2d');  // willReadFrequently 불필요
+const pipCtx  = pip.getContext('2d');
 // overlay/proc 크기: 해상도 변경 시에만 재설정
 if (W !== lastVW || H !== lastVH) { ... }
 ```
@@ -309,10 +327,10 @@ if (W !== lastVW || H !== lastVH) { ... }
 ## 인터벌 관리
 
 ```js
-let scanTimer    = null;  // startScan()
-let nightTimer   = null;  // startNightCheck()
-let scanMsgTimer = null;  // startScanMsgCycle()
-// 각 함수 첫 줄에서 clearInterval 후 재생성
+let scanTimer    = null;  // setTimeout 기반 (startScan)
+let nightTimer   = null;  // setInterval 기반 (startNightCheck)
+let scanMsgTimer = null;  // setInterval 기반 (startScanMsgCycle)
+// scanTimer → clearTimeout / nightTimer·scanMsgTimer → clearInterval
 ```
 
 ---
@@ -323,27 +341,17 @@ let scanMsgTimer = null;  // startScanMsgCycle()
 const outTensor = Array.isArray(raw) ? raw[0] : raw;
 const data = await outTensor.data();
 tf.dispose(tensor);
-if (Array.isArray(raw)) tf.dispose(raw); else tf.dispose(raw);
+Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 ```
 
 ---
 
-## MediaPipe 타임스탬프
+## renderCards 콜백 시그니처
 
 ```js
-mpDetector.detectForVideo(canvas, performance.now()); // 정수 카운터 금지
-```
-
----
-
-## renderCards 클로저
-
-```js
-const snapshot = signals.slice();
-list.querySelectorAll('.det-card').forEach(el =>
-  el.addEventListener('click', () => onTap(snapshot[+el.dataset.i]))
-);
-// list._sigs 패턴 금지
+renderCards(signals, onTap, onEmpty)
+// onTap(sig)   — 카드 탭 시 전체화면
+// onEmpty()    — 빈 상태 복원 (app.js의 showDetEmpty)
 ```
 
 ---
@@ -381,9 +389,11 @@ list.querySelectorAll('.det-card').forEach(el =>
 - topbar 한 줄 유지
 - `#fs` 닫기 시 `style.display='none'` 금지
 - `proc.getContext('2d')` 직접 호출 금지 — `procCtx` 재사용
-- 인터벌 변수 없이 `setInterval` 직접 호출 금지
+- `scanTimer` → `clearTimeout` / `nightTimer`, `scanMsgTimer` → `clearInterval`
 - `drawPip()`은 스캔 루프 마지막에만 호출
 - `det-empty` 텍스트는 `.scan-msg-text` span만 변경
+- `detector.yolo.js` DOM 접근 완전 금지 (디버그 패널 포함)
+- 추론용 임시 캔버스(`tmpCanvas`)는 모듈 상단 1회 생성, 재사용
 
 ---
 

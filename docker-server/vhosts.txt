@@ -1,0 +1,38 @@
+# /etc/httpd/conf.d/traffic-yolo.conf
+# certbot이 SSL 설정을 자동 추가하므로 기존 VirtualHost에 아래 내용 병합
+
+# ── WebSocket 프록시 모듈 활성화 ──
+# httpd.conf 또는 여기서 선언
+LoadModule proxy_module modules/mod_proxy.so
+LoadModule proxy_http_module modules/mod_proxy_http.so
+LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so
+
+<VirtualHost *:443>
+    ServerName your-domain.com
+
+    # certbot 자동 생성 SSL 경로 (예시)
+    SSLEngine on
+    SSLCertificateFile    /etc/letsencrypt/live/your-domain.com/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/your-domain.com/privkey.pem
+
+    # ── WebSocket 프록시 (/ws → Docker 컨테이너) ──
+    ProxyRequests Off
+    ProxyPreserveHost On
+
+    # wss:// → ws:// 로 프록시
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteRule /ws  ws://127.0.0.1:8765/ws [P,L]
+
+    # health 체크 엔드포인트
+    ProxyPass        /yolo/health http://127.0.0.1:8765/health
+    ProxyPassReverse /yolo/health http://127.0.0.1:8765/health
+
+</VirtualHost>
+
+# ── HTTP → HTTPS 리다이렉트 ──
+<VirtualHost *:80>
+    ServerName your-domain.com
+    RewriteEngine On
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]
+</VirtualHost>

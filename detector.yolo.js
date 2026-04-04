@@ -1,10 +1,11 @@
 /* ════════════════════════════════════
-   detector.yolo.js — YOLOv8s 640×640 고정 입력
+   detector.yolo.js — YOLOv8s 320×320 고정 입력
 ════════════════════════════════════ */
 
 const YOLO_MODEL_URL = '/traffic-light/models/yolov8s/model.json';
 
-const INPUT_SIZE = 320;  // 모델 입력 고정값
+const INPUT_SIZE = 320;   // 모델 입력 고정값 (320×320)
+const N_ANCHORS  = 2100;  // 320×320 입력 시 YOLOv8 출력 앵커 수 (8400 / 4)
 const NEAR_THR   = 0.12;
 const FAR_MIN    = 0.02;
 const SCORE_NEAR = 0.45;
@@ -18,24 +19,16 @@ const CLS_PERSON = 0;
 let yoloModel  = null;
 let frameCount = 0;
 
-/* ── 디버그 패널 ── */
-function showDebug(msg) {
-  let el = document.getElementById('debug-overlay');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'debug-overlay';
-    Object.assign(el.style, {
-      position: 'fixed', top: '60px', left: '0', right: '0',
-      background: 'rgba(0,0,0,0.82)', color: '#0f0',
-      fontSize: '11px', fontFamily: 'monospace', padding: '8px',
-      zIndex: '99999', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-      maxHeight: '35vh', overflowY: 'auto',
-    });
-    el.addEventListener('click', () => el.remove());
-    document.body.appendChild(el);
-  }
-  el.textContent += msg + '\n';
-}
+/* ── 추론용 임시 캔버스 (모듈 상단 1회 생성, 재사용) ── */
+const tmpCanvas = document.createElement('canvas');
+tmpCanvas.width  = INPUT_SIZE;
+tmpCanvas.height = INPUT_SIZE;
+const tmpCtx = tmpCanvas.getContext('2d');
+
+/* ── 디버그 콜백 (DOM 직접 접근 금지 — app.js에서 주입) ── */
+let _debugFn = null;
+export function setDebugLogger(fn) { _debugFn = fn; }
+function dbg(msg) { _debugFn && _debugFn(msg); }
 
 /* ── 로드 + 워밍업 ── */
 export async function loadYolo() {
@@ -43,21 +36,21 @@ export async function loadYolo() {
   try {
     await tf.setBackend('webgl');
     await tf.ready();
-    showDebug(`[tf] backend: ${tf.getBackend()}`);
+    dbg(`[tf] backend: ${tf.getBackend()}`);
 
     yoloModel = await tf.loadGraphModel(YOLO_MODEL_URL);
-    showDebug('[yolo] model loaded');
+    dbg('[yolo] model loaded');
 
     const dummy  = tf.zeros([1, INPUT_SIZE, INPUT_SIZE, 3]);
     const warmup = await yoloModel.executeAsync(dummy);
     tf.dispose(dummy);
     const wo = Array.isArray(warmup) ? warmup[0] : warmup;
-    showDebug(`[yolo] warmup shape: ${JSON.stringify(wo.shape)}`);
-    showDebug('(탭하면 닫힘)');
+    dbg(`[yolo] warmup shape: ${JSON.stringify(wo.shape)}`);
+    dbg('(탭하면 닫힘)');
     Array.isArray(warmup) ? tf.dispose(warmup) : tf.dispose(warmup);
     return true;
   } catch (e) {
-    showDebug(`[yolo] load error: ${e.message}`);
+    dbg(`[yolo] load error: ${e.message}`);
     return false;
   }
 }
@@ -88,18 +81,16 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   try {
     raw = await yoloModel.executeAsync(tensor);
   } catch (e) {
-    showDebug(`[yolo] infer error: ${e.message}`);
+    dbg(`[yolo] infer error: ${e.message}`);
     tf.dispose(tensor);
     return [];
   }
 
   const outTensor = Array.isArray(raw) ? raw[0] : raw;
-  const data = await outTensor.data();
-  const inferMs = (performance.now() - t0).toFixed(0);
+  const data      = await outTensor.data();
+  const inferMs   = (performance.now() - t0).toFixed(0);
 
-  if (frameCount <= 3) {
-    showDebug(`[infer#${frameCount}] time:${inferMs}ms`);
-  }
+  if (frameCount <= 3) dbg(`[infer#${frameCount}] time:${inferMs}ms`);
 
   tf.dispose(tensor);
   Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
@@ -107,7 +98,7 @@ async function inferCanvas(canvas, sx, sy, sw, sh, W, H) {
   return parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H);
 }
 
-/* ── Letterbox 전처리 ── */
+/* ── Letterbox 전처리 (tmpCanvas 재사용) ── */
 function preprocessRegion(canvas, sx, sy, sw, sh) {
   const T     = INPUT_SIZE;
   const scale = Math.min(T / sw, T / sh);
@@ -116,25 +107,22 @@ function preprocessRegion(canvas, sx, sy, sw, sh) {
   const padX  = (T - newW) / 2;
   const padY  = (T - newH) / 2;
 
-  const tmp = document.createElement('canvas');
-  tmp.width  = T; tmp.height = T;
-  const ctx  = tmp.getContext('2d');
-  ctx.fillStyle = '#808080';
-  ctx.fillRect(0, 0, T, T);
-  ctx.drawImage(canvas, sx, sy, sw, sh, padX, padY, newW, newH);
+  tmpCtx.fillStyle = '#808080';
+  tmpCtx.fillRect(0, 0, T, T);
+  tmpCtx.drawImage(canvas, sx, sy, sw, sh, padX, padY, newW, newH);
 
   const tensor = tf.tidy(() =>
     tf.expandDims(
-      tf.div(tf.cast(tf.browser.fromPixels(tmp), 'float32'), 255.0),
+      tf.div(tf.cast(tf.browser.fromPixels(tmpCanvas), 'float32'), 255.0),
       0
     )
   );
   return { tensor, scale, padX, padY };
 }
 
-/* ── 출력 파싱 [1,84,8400] ── */
+/* ── 출력 파싱 [1,84,N_ANCHORS] ── */
 function parseOutput(data, sx, sy, sw, sh, scale, padX, padY, W, H) {
-  const N = 8400, res = [];
+  const N = N_ANCHORS, res = [];
   for (let i = 0; i < N; i++) {
     const cx = data[0*N+i], cy = data[1*N+i];
     const bw = data[2*N+i], bh = data[3*N+i];
