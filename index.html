@@ -173,11 +173,23 @@
   <!-- 전체화면 오버레이 -->
   <div id="fs" class="fixed inset-0 z-[9999] flex-col items-center justify-center cursor-pointer"
     style="display:none">
-    <div id="fs-circle" class="rounded-full flex items-center justify-center">
-      <svg id="fs-svg" viewBox="0 0 100 120"></svg>
-    </div>
+    <!-- 캡처 이미지 (감지된 박스 영역) -->
+    <canvas id="fs-canvas" style="
+      border-radius:16px;
+      max-width:88vw; max-height:44vh;
+      object-fit:contain;
+      margin-bottom:4vh;
+      box-shadow:0 0 0 3px rgba(255,255,255,0.15);
+    "></canvas>
     <div id="fs-label" class="font-bold leading-none"></div>
-    <div id="fs-sub" class="text-white/40"></div>
+    <div id="fs-sub" class="text-white/40 text-center px-6"></div>
+    <!-- 색상 표시 바 -->
+    <div id="fs-color-bar" style="
+      width:80vw; max-width:320px;
+      height:8px; border-radius:4px;
+      margin-top:3vh;
+      background:#444;
+    "></div>
     <!-- 녹화 중 표시 -->
     <div id="fs-rec-badge" style="display:none"
       class="absolute top-5 left-5 flex items-center gap-1.5 bg-red-600/80 rounded-full px-3 py-1">

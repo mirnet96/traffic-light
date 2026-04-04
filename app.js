@@ -256,8 +256,12 @@ function showFullscreen(sig, color) {
 /* ════════════════════════════════════
    이벤트
 ════════════════════════════════════ */
-document.getElementById('btn-start').addEventListener('click', () => startCamera());
-document.getElementById('btn-retry').addEventListener('click', () => startCamera());
+// 버튼이 DOM에 존재하는지 확인 후 등록
+const btnStart = document.getElementById('btn-start');
+const btnRetry = document.getElementById('btn-retry');
+if (btnStart) btnStart.addEventListener('click', () => startCamera());
+else console.error('[app] btn-start 없음');
+if (btnRetry) btnRetry.addEventListener('click', () => startCamera());
 document.getElementById('btn-night').addEventListener('click', () => applyNight(!getNightMode()));
 document.getElementById('btn-flip').addEventListener('click',  () =>
   startCamera(camFacing === 'environment' ? 'user' : 'environment'));
