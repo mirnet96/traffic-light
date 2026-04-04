@@ -1,39 +1,102 @@
-import { loadYolo, runYoloDetect, setDebugLogger } from './detector.yolo.js';
+/* ════════════════════════════════════
+   detector.js — 서버 WebSocket 추론 모드
+   detector.yolo.js 의존 없음 (TF.js 불필요)
+════════════════════════════════════ */
 
-const CLS_LIGHT  = 9;
-const CLS_PERSON = 0;
+const WS_URL     = 'wss://supply.klueware.com/ws';
+const JPEG_Q     = 0.75;   // 전송 화질 (0.6~0.85 권장)
+const WS_TIMEOUT = 8000;   // 연결 대기 ms
 
+let _ws      = null;
+let _ready   = false;
+let _onDebug = null;
+let _pending = null;   // { resolve, reject, timer }
+
+function dbg(msg) { _onDebug && _onDebug(msg); }
+
+/* ── WebSocket 연결 ── */
+function connect(onBadge) {
+  dbg('[ws] connecting...');
+  _ws = new WebSocket(WS_URL);
+  _ws.binaryType = 'arraybuffer';
+
+  _ws.onopen = () => {
+    _ready = true;
+    dbg('[ws] connected');
+    onBadge('서버 추론', 'text-green-400');
+  };
+
+  _ws.onmessage = (e) => {
+    if (!_pending) return;
+    const { resolve, timer } = _pending;
+    _pending = null;
+    clearTimeout(timer);
+    try {
+      const { signals, error } = JSON.parse(e.data);
+      if (error) dbg(`[ws] server error: ${error}`);
+      resolve(signals || []);
+    } catch (err) {
+      resolve([]);
+    }
+  };
+
+  _ws.onerror = (e) => {
+    dbg('[ws] error');
+    _ready = false;
+    onBadge('서버 오류', 'text-red-400');
+    _rejectPending('ws error');
+  };
+
+  _ws.onclose = () => {
+    _ready = false;
+    dbg('[ws] closed — reconnect in 3s');
+    onBadge('재연결 중', 'text-yellow-400');
+    _rejectPending('ws closed');
+    setTimeout(() => connect(onBadge), 3000);
+  };
+}
+
+function _rejectPending(reason) {
+  if (!_pending) return;
+  const { reject, timer } = _pending;
+  _pending = null;
+  clearTimeout(timer);
+  reject(new Error(reason));
+}
+
+/* ── 공개 API ── */
 export async function loadModel(onMsg, onBadge, onDebug) {
-  if (onDebug) setDebugLogger(onDebug);   // DOM 없는 디버그 콜백 주입
-  onMsg('YOLOv8s 로드 중...');
-  const ok = await loadYolo();
-  onBadge(ok ? 'YOLOv8s' : '모델 오류', ok ? 'text-green-400' : 'text-red-400');
+  _onDebug = onDebug;
+  onMsg('서버 연결 중...');
+  dbg(`[ws] target: ${WS_URL}`);
+  connect(onBadge);
+
+  // 최대 WS_TIMEOUT ms 동안 연결 대기
+  const t0 = Date.now();
+  while (!_ready && Date.now() - t0 < WS_TIMEOUT) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (!_ready) {
+    onBadge('서버 오프라인', 'text-red-400');
+    dbg('[ws] connection timeout');
+  }
 }
 
 export async function runYolo(canvas, W, H) {
-  const dets = await runYoloDetect(canvas, W, H);
-  return classifySignals(
-    dets.filter(d => d.cls === CLS_LIGHT),
-    dets
-  );
-}
+  if (!_ready || !_ws || _ws.readyState !== WebSocket.OPEN) return [];
+  if (_pending) return [];   // 이전 프레임 응답 대기 중
 
-function classifySignals(lights, allDets) {
-  const persons = allDets.filter(d => d.cls === CLS_PERSON);
-  return lights
-    .map(l => ({
-      ...l,
-      isPedestrian: persons.some(p => iou(l.box, p.box) > 0.1),
-      priority:     persons.some(p => iou(l.box, p.box) > 0.1) ? 2 : 1,
-      src: 'yolo',
-    }))
-    .sort((a, b) => b.priority - a.priority || b.score - a.score);
-}
+  // canvas → JPEG Blob → ArrayBuffer
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', JPEG_Q));
+  const buf  = await blob.arrayBuffer();
 
-export function iou(a, b) {
-  const iy1 = Math.max(a[0], b[0]), ix1 = Math.max(a[1], b[1]);
-  const iy2 = Math.min(a[2], b[2]), ix2 = Math.min(a[3], b[3]);
-  const inter = Math.max(0, iy2 - iy1) * Math.max(0, ix2 - ix1);
-  if (!inter) return 0;
-  return inter / ((a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      _pending = null;
+      dbg('[ws] frame timeout');
+      resolve([]);
+    }, 5000);
+    _pending = { resolve, reject, timer };
+    _ws.send(buf);
+  });
 }
