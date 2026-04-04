@@ -71,64 +71,66 @@
         <circle cx="36" cy="116" r="22" fill="#1a3a1a"/>
       </svg>
 
-      <!-- ── 설정 카드 ── -->
-      <div class="w-full max-w-sm bg-neutral-900 rounded-2xl border border-white/10">
-
-        <!-- 음성 알림 -->
-        <div class="cfg-row" onclick="toggleCfg('cfg-tts')">
-          <span class="material-symbols-rounded text-xl text-blue-400">volume_up</span>
-          <div style="flex:1">
-            <div class="text-[14px] font-medium">음성 알림</div>
-            <div class="text-[11px] text-neutral-500">신호 감지 시 TTS로 안내</div>
-          </div>
-          <div class="sw-track" id="cfg-tts-track">
-            <div class="sw-thumb"></div>
-          </div>
-        </div>
-
-        <div class="h-px bg-white/5 mx-4"></div>
-
-        <!-- 디버그 로그 -->
-        <div class="cfg-row" onclick="toggleCfg('cfg-debug')">
-          <span class="material-symbols-rounded text-xl text-neutral-400">bug_report</span>
-          <div style="flex:1">
-            <div class="text-[14px] font-medium">디버그 로그</div>
-            <div class="text-[11px] text-neutral-500">화면 상단에 로그 표시</div>
-          </div>
-          <div class="sw-track" id="cfg-debug-track">
-            <div class="sw-thumb"></div>
-          </div>
-        </div>
-
-        <div class="h-px bg-white/5 mx-4"></div>
-
-        <!-- 디버그 녹화 -->
-        <div class="cfg-row" onclick="toggleCfg('cfg-rec')">
-          <span class="material-symbols-rounded text-xl text-red-400">videocam</span>
-          <div style="flex:1">
-            <div class="text-[14px] font-medium">디버그 녹화</div>
-            <div class="text-[11px] text-neutral-500">카메라 영상을 파일로 저장</div>
-          </div>
-          <div class="sw-track" id="cfg-rec-track">
-            <div class="sw-thumb"></div>
-          </div>
-        </div>
-      </div>
-
       <!-- 숨김 체크박스 (settings.js가 읽음) -->
       <input type="checkbox" id="cfg-tts" checked style="display:none">
       <input type="checkbox" id="cfg-debug" style="display:none">
       <input type="checkbox" id="cfg-rec" style="display:none">
 
-      <script>
-        // 초기 상태: 음성 알림 ON
-        document.getElementById('cfg-tts-track').classList.add('on');
+      <!-- ── 설정 카드 ── -->
+      <div style="width:100%;max-width:360px;background:#171717;border-radius:16px;border:1px solid rgba(255,255,255,0.1);overflow:hidden;">
 
+        <!-- 음성 알림 -->
+        <div onclick="toggleCfg('cfg-tts')"
+          style="display:flex;flex-direction:row;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;">
+          <span class="material-symbols-rounded" style="font-size:20px;color:#60a5fa;flex-shrink:0;">volume_up</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:500;color:#fff;">음성 알림</div>
+            <div style="font-size:11px;color:#737373;">신호 감지 시 TTS로 안내</div>
+          </div>
+          <div id="cfg-tts-track" style="position:relative;width:44px;height:26px;border-radius:999px;background:#2563eb;flex-shrink:0;transition:background .2s;">
+            <div id="cfg-tts-thumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(18px);box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>
+          </div>
+        </div>
+
+        <div style="height:1px;background:rgba(255,255,255,0.06);margin:0 16px;"></div>
+
+        <!-- 디버그 로그 -->
+        <div onclick="toggleCfg('cfg-debug')"
+          style="display:flex;flex-direction:row;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;">
+          <span class="material-symbols-rounded" style="font-size:20px;color:#737373;flex-shrink:0;">bug_report</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:500;color:#fff;">디버그 로그</div>
+            <div style="font-size:11px;color:#737373;">화면 상단에 로그 표시</div>
+          </div>
+          <div id="cfg-debug-track" style="position:relative;width:44px;height:26px;border-radius:999px;background:#3a3a3a;flex-shrink:0;transition:background .2s;">
+            <div id="cfg-debug-thumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(0);box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>
+          </div>
+        </div>
+
+        <div style="height:1px;background:rgba(255,255,255,0.06);margin:0 16px;"></div>
+
+        <!-- 디버그 녹화 -->
+        <div onclick="toggleCfg('cfg-rec')"
+          style="display:flex;flex-direction:row;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;">
+          <span class="material-symbols-rounded" style="font-size:20px;color:#f87171;flex-shrink:0;">videocam</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:500;color:#fff;">디버그 녹화</div>
+            <div style="font-size:11px;color:#737373;">카메라 영상을 파일로 저장</div>
+          </div>
+          <div id="cfg-rec-track" style="position:relative;width:44px;height:26px;border-radius:999px;background:#3a3a3a;flex-shrink:0;transition:background .2s;">
+            <div id="cfg-rec-thumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(0);box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>
+          </div>
+        </div>
+      </div>
+
+      <script>
         function toggleCfg(id) {
-          const cb    = document.getElementById(id);
-          const track = document.getElementById(id + '-track');
-          cb.checked  = !cb.checked;
-          track.classList.toggle('on', cb.checked);
+          var cb    = document.getElementById(id);
+          var track = document.getElementById(id + '-track');
+          var thumb = document.getElementById(id + '-thumb');
+          cb.checked = !cb.checked;
+          track.style.background = cb.checked ? '#2563eb' : '#3a3a3a';
+          thumb.style.transform  = cb.checked ? 'translateX(18px)' : 'translateX(0)';
         }
       </script>
 
