@@ -1,0 +1,43 @@
+/* ════════════════════════════════════
+   recorder.js — MediaRecorder 녹화 전담
+════════════════════════════════════ */
+
+let _recorder = null;
+let _chunks   = [];
+let _onDebug  = null;
+
+export function setRecorderDebug(fn) { _onDebug = fn; }
+function dbg(msg) { _onDebug && _onDebug(msg); }
+
+export function startRecording(stream) {
+  if (!stream) return;
+  try {
+    _chunks   = [];
+    _recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+
+    _recorder.ondataavailable = e => { if (e.data.size) _chunks.push(e.data); };
+    _recorder.onstop = () => {
+      const blob = new Blob(_chunks, { type: 'video/webm' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `debug_${Date.now()}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+      dbg('[rec] 저장 완료');
+    };
+
+    _recorder.start(1000);
+    document.getElementById('fs-rec-badge').style.display = 'flex';
+    dbg('[rec] 녹화 시작');
+  } catch (e) {
+    dbg(`[rec] 오류: ${e.message}`);
+  }
+}
+
+export function stopRecording() {
+  if (_recorder && _recorder.state !== 'inactive') {
+    _recorder.stop();
+    document.getElementById('fs-rec-badge').style.display = 'none';
+  }
+}

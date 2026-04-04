@@ -12,8 +12,9 @@
 ## 1차 목표 (최우선)
 
 - 카메라로 2~10차선 건너편 보행 신호등 자동 감지 (근거리 + 원거리)
-- 감지된 신호등을 전체화면으로 확대 표시
+- 감지된 신호등을 전체화면으로 자동 확대 표시
 - 정지 / 보행 상태를 크고 명확하게 표시
+- TTS 음성으로 진행 과정 및 신호 상태 안내
 
 ---
 
@@ -24,7 +25,9 @@
 | 마크업 | HTML5 |
 | 스타일 | Tailwind CSS (CDN) + style.css (커스텀 보완) |
 | 아이콘 | Google Material Symbols Rounded (FILL=1) |
-| ML | YOLOv8s TF.js (단일 모델 + 타일 분할) |
+| 추론 | 서버 WebSocket (wss://supply.klueware.com/ws) |
+| 음성 | Web Speech API (SpeechSynthesisUtterance, ko-KR) |
+| 녹화 | MediaRecorder API (video/webm;codecs=vp8) |
 | 모듈 시스템 | ES Module (import/export) |
 | 카메라 | `getUserMedia` API (HTTPS 필수) |
 | 배포 | GitHub Pages |
@@ -45,12 +48,18 @@ https://cdn.jsdelivr.net
 
 ```
 traffic-light/
-├── index.html
-├── style.css
-├── app.js
-├── detector.js
-├── detector.yolo.js
-├── renderer.js
+├── index.html          — 구조·설정 화면·Tailwind 클래스
+├── style.css           — 커스텀 스타일 (토글 스위치 포함)
+├── app.js              — 진입점·카메라·스캔루프·전체화면·이벤트
+├── ui.js               — setPhase·badge·PiP·fps·scanMsg·야간·디버그
+├── tts.js              — TTS 전담 (진행과정 + 신호 안내)
+├── recorder.js         — MediaRecorder 녹화 전담
+├── settings.js         — cfg 객체·readConfig
+├── detector.js         — WebSocket 추론 클라이언트
+├── detector.yolo.js    — YOLOv8s 로컬 추론 (예비)
+├── detector.mediapipe.js — MediaPipe 추론 (예비)
+├── local-detector.js   — 로컬 YOLO 래퍼 (예비)
+├── renderer.js         — drawBoxes·renderCards
 ├── README.md
 └── CLAUDE.md
 ```
@@ -59,90 +68,156 @@ traffic-light/
 
 | 파일 | 역할 | 상한 |
 |---|---|---|
-| `app.js` | UI · 카메라 · 스캔 루프 · 야간 · 색상 추정 · 전체화면 · PiP · fps · 텍스트 순환 · 디버그 패널 · 이벤트 | 320줄 |
-| `detector.js` | 폴백 체인 · `classifySignals` · `iou` · 디버그 콜백 주입 | 60줄 |
-| `detector.yolo.js` | YOLOv8s 로드 · Letterbox · 추론 · NMS | 140줄 |
-| `renderer.js` | `drawBoxes` · `renderCards` | 100줄 |
+| `app.js` | 진입점·카메라·스캔루프·전체화면·이벤트 | 200줄 |
+| `ui.js` | setPhase·badge·PiP·fps·scanMsg·야간·디버그 패널 | 200줄 |
+| `tts.js` | TTS 전담 (진행과정·순환문구·신호 안내) | 80줄 |
+| `recorder.js` | MediaRecorder 녹화·다운로드 | 60줄 |
+| `settings.js` | cfg 객체·readConfig | 15줄 |
+| `detector.js` | WebSocket 연결·send·receive | 100줄 |
+| `detector.yolo.js` | YOLOv8s 로드·Letterbox·추론·NMS | 140줄 |
+| `renderer.js` | drawBoxes·renderCards | 100줄 |
 
 ### 역할 분리 원칙
 
 - `index.html` — 구조와 Tailwind 클래스만. 인라인 스타일 금지.
-- `style.css` — Tailwind 불가 항목만.
-- `detector.yolo.js` — YOLOv8s 전용. **DOM 접근 금지 (디버그 포함).**
-- `detector.js` — detector.yolo.js 조율 + 디버그 콜백 주입만.
+- `style.css` — Tailwind 불가 항목만 (토글 스위치, PiP, 스캔라인 등).
+- `app.js` — 모듈 조합 진입점. 200줄 이하 유지.
+- `ui.js` — DOM 조작 전담. `showDebug` DOM 유일 소유. 디버그 패널 포함.
+- `tts.js` — DOM 접근 금지. `speechSynthesis` 만 사용.
+- `recorder.js` — `MediaRecorder` 전담. `fs-rec-badge` DOM만 접근 허용.
+- `settings.js` — `cfg` 객체와 `readConfig()` 만. 다른 DOM 접근 금지.
+- `detector.js` — WebSocket 전담. DOM 접근 금지 (디버그 콜백으로 위임).
+- `detector.yolo.js` — YOLOv8s 전용. DOM 접근 완전 금지.
 - `renderer.js` — 그리기만. `onEmpty` 콜백으로 빈 상태 위임.
-- `app.js` — 위 모듈 조합 진입점. 320줄 이하 유지. 디버그 패널 DOM 유일 소유.
 
 ---
 
-## 감지 모델: YOLOv8s + 타일 분할 원거리 보완
+## 추론 방식: 서버 WebSocket
 
-YOLOv8s 단일 모델 + 상단 타일 분할로 속도와 원거리 감지를 동시에 확보.
+```
+클라이언트                         서버
+  │                                 │
+  │── JPEG ArrayBuffer ────────────>│
+  │                                 │ YOLOv8 추론
+  │<─ { signals, error } JSON ──────│
+```
 
-| 항목 | YOLOv8s |
+| 항목 | 값 |
 |---|---|
-| 모델 크기 | 22MB |
-| 입력 해상도 | **320×320** |
-| 출력 앵커 수 | **2100** (320×320 기준; 640×640 시 8400) |
-| URL | `/traffic-light/models/yolov8s/model.json` |
+| 엔드포인트 | `wss://supply.klueware.com/ws` |
+| 전송 포맷 | JPEG ArrayBuffer (q=0.75) |
+| 수신 포맷 | JSON `{ signals: [...], error?: string }` |
+| 연결 실패 | 3초 후 자동 재연결 |
+| 프레임 타임아웃 | 5000ms |
+| 동시 요청 | 이전 프레임 응답 대기 중이면 새 프레임 스킵 |
 
-YOLOv8n CDN URL은 존재하지 않음 — 사용 금지.
-확인된 모델 URL은 yolov8s_web_model만 유효.
+---
 
-### 추론 흐름
+## 앱 상태 흐름 및 TTS 발화 시점
 
 ```
-매 프레임:
-  └─> 전체(W×H) → Letterbox 320×320 → 추론 → 파싱
-매 4프레임 추가:
-  └─> 상단 절반(W×H/2) → Letterbox 320×320 → 추론 → 파싱
-두 결과 합산 → 전체 NMS → classifySignals → 반환
-```
-
-### 추론용 임시 캔버스
-
-```js
-// detector.yolo.js 모듈 상단 1회 생성, 재사용 (매 프레임 createElement 금지)
-const tmpCanvas = document.createElement('canvas');
-tmpCanvas.width  = INPUT_SIZE;
-tmpCanvas.height = INPUT_SIZE;
-const tmpCtx = tmpCanvas.getContext('2d');
-```
-
-### 좌표 역변환
-
-타일 추론 결과는 잘라낸 영역(sx,sy,sw,sh) 기준이므로
-원본 W×H 정규화 좌표로 역변환 후 전체 NMS 일괄 처리.
-
-```js
-const x1 = (sx + rx1) / W;
-const y1 = (sy + ry1) / H;
+설정 화면
+  └─> [시작 버튼 탭] TTS: "카메라를 시작합니다"
+        └─> loading (getUserMedia → WebSocket)
+              │ TTS: "서버에 연결하는 중입니다"
+              ├─> live  TTS: "서버 연결 완료. 탐색을 시작합니다"
+              │    └─> 스캔 루프 120ms
+              │          │ [미감지] TTS: 순환 문구 (3.5s마다)
+              │          └─> [감지] TTS: "보행 신호입니다" 등 → 전체화면 자동 표시
+              └─> error
+                    TTS: "카메라 권한이 거부되었습니다" 또는 "카메라를 사용할 수 없습니다"
 ```
 
 ---
 
-## 근거리 / 원거리 구분
+## TTS 모듈 (tts.js)
 
-| 구분 | 기준 | YOLOv8s 최소 신뢰도 |
+### 진행 과정 안내 — `ttsPhase(phase)`
+
+| phase 값 | 발화 내용 |
+|---|---|
+| `camera-start` | "카메라를 시작합니다" |
+| `connecting` | "서버에 연결하는 중입니다" |
+| `connected` | "서버 연결 완료. 탐색을 시작합니다" |
+| `offline` | "서버에 연결할 수 없습니다. 재연결을 시도합니다" |
+| `reconnecting` | "서버 재연결 중입니다" |
+| `live` | "신호등을 탐색 중입니다" |
+| `error-perm` | "카메라 권한이 거부되었습니다..." |
+| `error-cam` | "카메라를 사용할 수 없습니다" |
+
+### 탐색 중 순환 — `ttsScanMsg(idx)`
+
+화면의 `SCAN_MSGS` 배열과 동기화. `ui.js`의 `startScanMsgCycle()` 내부에서 호출.
+
+### 신호 감지 안내 — `ttsSignal(sig, color)` (4초 쿨다운)
+
+| 조건 | 발화 내용 |
+|---|---|
+| 보행신호 + green | "보행 신호입니다. 건너도 됩니다." |
+| 보행신호 + 기타 | "정지 신호입니다. 기다려 주세요." |
+| 일반 + green | "녹색 신호등 감지" |
+| 일반 + red | "적색 신호등 감지" |
+| 일반 + unknown | "신호등 감지됨" |
+
+### TTS 규칙
+
+- `tts.js`는 DOM 접근 금지. `speechSynthesis`만 사용.
+- 쿨다운: 신호 감지 발화만 4초. 진행 과정 발화는 쿨다운 없음.
+- `speechSynthesis.cancel()` 후 새 발화 (이전 발화 중단).
+
+---
+
+## 설정 화면 (카메라 시작 전)
+
+카메라 시작 전 별도 설정 페이지 표시. 시작 버튼 클릭 시 `readConfig()` 로 값 읽기.
+
+| 설정 항목 | 기본값 | DOM ID |
 |---|---|---|
-| 근거리 | 박스 높이 >= 12% | 0.45 |
-| 원거리 | 2% ~ 12% | 0.28 |
-| 무효 | < 2% | 버림 |
+| 음성 알림 (TTS) | ON | `cfg-tts` |
+| 디버그 로그 | OFF | `cfg-debug` |
+| 디버그 녹화 | OFF | `cfg-rec` |
 
 ---
 
-## 보행 신호등 판별
+## 녹화 모듈 (recorder.js)
 
-```js
-const hasPerson = persons.some(p => iou(l.box, p.box) > 0.1);
-// → isPedestrian: true, priority: 2
+- `startRecording(stream)` — `MediaRecorder` 시작, 1초 청크
+- `stopRecording()` — 중지 후 `.webm` 자동 다운로드
+- 파일명: `debug_{timestamp}.webm`
+- `#fs-rec-badge` 표시/숨김 담당 (유일한 DOM 접근)
+- 디버그 콜백: `setRecorderDebug(fn)` 으로 주입
+
+---
+
+## 스캔 루프 흐름
+
 ```
+매 120ms:
+  1. procCtx.drawImage(video)         // 프레임 캡처
+  2. canvas.toBlob(q=0.75)            // JPEG 압축
+  3. ws.send(ArrayBuffer)             // 서버 전송
+  4. 응답 수신 { signals }
+  5. tickFps()
+  6. updateScanBadge(signals)
+  7. drawBoxes(overlay, signals)
+  8. signals.length > 0 && !fsVisible
+       → estimateSignalColor()
+       → showFullscreen(sig, color)   // 자동 전체화면
+       → ttsSignal(sig, color)
+  9. renderCards(signals, onTap, showDetEmpty)
+  10. drawPip(proc, overlay)
+```
+
+### 전체화면 자동 표시
+
+감지 즉시 자동으로 전체화면 표시. `fsVisible` 플래그로 중복 갱신 방지.
+탭하면 닫힘 → `fsVisible = false`.
 
 ---
 
 ## 신호등 색상 추정
 
-전체화면 표시 직전 `procCtx.getImageData`로 박스 영역 픽셀을 샘플링.
+전체화면 표시 직전 `procCtx.getImageData` 로 박스 영역 픽셀 샘플링.
 
 ```js
 // app.js — estimateSignalColor(box, W, H)
@@ -152,8 +227,18 @@ if (g > 80  && g > r * 1.2) return 'green';
 return 'unknown';
 ```
 
-- `unknown` 시 보행신호는 정지(적색) 처리, 일반 신호등은 노란색(주의) accent
-- 진동: `green` → 길게 한 번(200ms) / 그 외 → 짧게 두 번(100-50-100ms)
+- `unknown` 시 보행신호는 정지 처리, 일반 신호등은 노란색(주의) accent
+- 진동: `green` → 200ms 한 번 / 그 외 → 100-50-100ms
+
+---
+
+## 근거리 / 원거리 구분 (서버 반환값)
+
+| 구분 | 기준 |
+|---|---|
+| 근거리 | 박스 높이 >= 12% |
+| 원거리 | 2% ~ 12% |
+| 무효 | < 2% (버림) |
 
 ---
 
@@ -163,109 +248,31 @@ return 'unknown';
 // app.js
 SCAN_MS   = 120
 NIGHT_THR = 60
+
+// ui.js
 PIP_SM    = { w:120, h:80  }
 PIP_LG    = { w:200, h:130 }
-SCAN_MSGS = [...]
-
-// detector.yolo.js
-INPUT_SIZE = 320    // 모델 입력 고정값
-N_ANCHORS  = 2100   // 320×320 기준 YOLOv8 출력 앵커 수
-NEAR_THR   = 0.12
-FAR_MIN    = 0.02
-SCORE_NEAR = 0.45
-SCORE_FAR  = 0.28
-NMS_IOU    = 0.45
-TILE_EVERY = 4
-```
-
----
-
-## 디버그 패널 규칙
-
-- `debug-overlay` DOM 생성/조작은 **app.js 전용**
-- `detector.yolo.js`는 `setDebugLogger(fn)` 로 콜백을 받아 사용
-- `detector.js`의 `loadModel(onMsg, onBadge, onDebug)`에서 콜백 주입
-
-```js
-// detector.js
-export async function loadModel(onMsg, onBadge, onDebug) {
-  if (onDebug) setDebugLogger(onDebug);
-  ...
-}
-
-// app.js
-await loadModel(onMsg, setBadge, showDebug);
-```
-
----
-
-## 앱 상태 흐름
-
-```
-init
-  └─> loading (카메라 권한 → loadModel)
-        ├─> live  (스캔 루프 120ms · 야간 3s · PiP · fps · 텍스트 순환)
-        └─> error
-```
-
-`setPhase('live')`는 반드시 `loadModel()` 완료 후 호출.
-
----
-
-## fps 측정
-
-스캔 루프 매 실행마다 `tickFps()` 호출. 1초마다 `fpsValue` 갱신.
-
-fps는 두 곳에 표시:
-- `badge-scan`: `탐색 중 · Nfps`
-- PiP 우하단 오버레이: `Nfps`
-
----
-
-## 탐색 중 텍스트 순환
-
-신호등 미감지 상태에서 하단바 `det-empty` 텍스트를 3.5초마다 교체.
-
-```js
-const SCAN_MSGS = [
+SCAN_MSGS = [
   '신호등을 탐색 중입니다...',
   '카메라를 신호등 방향으로 향해 주세요',
   '건너편 신호등을 찾고 있습니다...',
   '멀리 있는 신호등도 감지합니다',
-];
-```
+]
 
-### 구현 규칙
+// tts.js
+TTS_COOLDOWN_MS = 4000   // 신호 감지 발화 쿨다운
+TTS_RATE        = 1.05
+TTS_LANG        = 'ko-KR'
 
-- `startScanMsgCycle()`: `setPhase('live')` 시 호출
-- `stopScanMsgCycle()`: live가 아닐 때 호출
-- 감지 중(`det-empty` 숨김)에는 텍스트 교체 건너뜀
-- 텍스트 교체 시 opacity 0 → 400ms → opacity 1 페이드
-
-### det-empty 표시 규칙
-
-`renderCards`에서 빈 상태 처리는 `onEmpty` 콜백으로 위임.
-`app.js`의 `showDetEmpty()`가 opacity 리셋 후 display를 복원.
-
-```js
-// app.js
-function showDetEmpty() {
-  const el = document.getElementById('det-empty');
-  el.style.opacity    = '1';   // fade-out 도중 전환 시 리셋 필수
-  el.style.transition = '';
-  el.style.display    = 'flex';
-}
-
-// renderer.js
-export function renderCards(signals, onTap, onEmpty) {
-  if (!signals.length) { onEmpty(); list.innerHTML = ''; return; }
-  ...
-}
+// detector.js
+WS_URL      = 'wss://supply.klueware.com/ws'
+JPEG_Q      = 0.75
+WS_TIMEOUT  = 12000
 ```
 
 ---
 
-## PiP (Picture-in-Picture) 스캔 미리보기
+## PiP (Picture-in-Picture)
 
 | 항목 | 내용 |
 |---|---|
@@ -276,7 +283,17 @@ export function renderCards(signals, onTap, onEmpty) {
 | 좌상단 라벨 | `탐색중` / `감지됨` |
 | 우하단 라벨 | `Nfps` |
 | 테두리 색 | 탐색 중: `#3b82f6` / 감지됨: `#00ee44` |
-| 갱신 | 스캔 루프 마지막 `drawPip()` 호출 |
+| 갱신 | 스캔 루프 마지막 `drawPip(proc, overlay)` 호출 |
+
+---
+
+## 디버그 패널 규칙
+
+- `debug-overlay` DOM 생성·조작은 `ui.js` 전용 (`showDebug` 함수)
+- `app.js` 에서 `showDebug` import 후 사용
+- `detector.js` 는 `onDebug` 콜백으로 주입받아 사용 (DOM 직접 접근 금지)
+- `recorder.js` 는 `setRecorderDebug(fn)` 으로 콜백 주입
+- 디버그 ON 상태에서만 `debug-overlay` 생성
 
 ---
 
@@ -303,11 +320,14 @@ export function renderCards(signals, onTap, onEmpty) {
 ## 전체화면 열기/닫기
 
 ```js
-// 열기
+// 열기 (자동 — 감지 즉시)
 fs.style.display = '';
 fs.classList.add('show');
-// 닫기
+fsVisible = true;
+
+// 닫기 (탭)
 fs.classList.remove('show');
+fsVisible = false;
 // style.display = 'none' 직접 세팅 금지
 ```
 
@@ -316,10 +336,10 @@ fs.classList.remove('show');
 ## Canvas / Context 규칙
 
 ```js
-const procCtx = proc.getContext('2d', { willReadFrequently: true }); // 필수
-const pipCtx  = pip.getContext('2d');
-// overlay/proc 크기: 해상도 변경 시에만 재설정
-if (W !== lastVW || H !== lastVH) { ... }
+const procCtx = proc.getContext('2d', { willReadFrequently: true }); // app.js에서만
+const pipCtx  = pip.getContext('2d');                                 // ui.js에서만
+// overlay context는 매번 getContext('2d') — willReadFrequently 불필요
+// proc.getContext('2d') 직접 호출 금지 — procCtx 재사용
 ```
 
 ---
@@ -327,21 +347,14 @@ if (W !== lastVW || H !== lastVH) { ... }
 ## 인터벌 관리
 
 ```js
-let scanTimer    = null;  // setTimeout 기반 (startScan)
-let nightTimer   = null;  // setInterval 기반 (startNightCheck)
-let scanMsgTimer = null;  // setInterval 기반 (startScanMsgCycle)
-// scanTimer → clearTimeout / nightTimer·scanMsgTimer → clearInterval
-```
+// app.js
+let scanTimer  = null;  // setTimeout 기반
+let nightTimer = null;  // setInterval 기반
+// scanTimer → clearTimeout
+// nightTimer → clearInterval
 
----
-
-## Tensor 해제 (detector.yolo.js)
-
-```js
-const outTensor = Array.isArray(raw) ? raw[0] : raw;
-const data = await outTensor.data();
-tf.dispose(tensor);
-Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
+// ui.js
+let _scanMsgTimer = null;  // setInterval 기반 → clearInterval
 ```
 
 ---
@@ -350,8 +363,8 @@ Array.isArray(raw) ? tf.dispose(raw) : tf.dispose(raw);
 
 ```js
 renderCards(signals, onTap, onEmpty)
-// onTap(sig)   — 카드 탭 시 전체화면
-// onEmpty()    — 빈 상태 복원 (app.js의 showDetEmpty)
+// onTap(sig)   — 카드 탭 시 전체화면 + TTS
+// onEmpty()    — 빈 상태 복원 (ui.js의 showDetEmpty)
 ```
 
 ---
@@ -360,6 +373,7 @@ renderCards(signals, onTap, onEmpty)
 
 - 3초마다 `procCtx.getImageData` 평균 밝기 < 60 → 자동 전환
 - 버튼: `야간` (OFF) / `ON` (ON)
+- `getNightMode()` getter로 외부 접근 (ui.js export)
 
 ---
 
@@ -376,6 +390,9 @@ renderCards(signals, onTap, onEmpty)
 | 탐색 중 | `radar` |
 | 보행 신호 | `directions_walk` |
 | 일반 신호등 | `traffic` |
+| 음성 알림 | `volume_up` |
+| 디버그 | `bug_report` |
+| 녹화 | `videocam` |
 
 ---
 
@@ -389,18 +406,21 @@ renderCards(signals, onTap, onEmpty)
 - topbar 한 줄 유지
 - `#fs` 닫기 시 `style.display='none'` 금지
 - `proc.getContext('2d')` 직접 호출 금지 — `procCtx` 재사용
-- `scanTimer` → `clearTimeout` / `nightTimer`, `scanMsgTimer` → `clearInterval`
-- `drawPip()`은 스캔 루프 마지막에만 호출
+- `scanTimer` → `clearTimeout` / `nightTimer`, `_scanMsgTimer` → `clearInterval`
+- `drawPip(proc, overlay)` 는 스캔 루프 마지막에만 호출
 - `det-empty` 텍스트는 `.scan-msg-text` span만 변경
-- `detector.yolo.js` DOM 접근 완전 금지 (디버그 패널 포함)
-- 추론용 임시 캔버스(`tmpCanvas`)는 모듈 상단 1회 생성, 재사용
+- `detector.js`, `detector.yolo.js` DOM 접근 완전 금지
+- `tts.js` DOM 접근 완전 금지 — `speechSynthesis` 만 사용
+- `recorder.js` 는 `#fs-rec-badge` 외 DOM 접근 금지
+- TTS 진행 과정 발화는 쿨다운 없음 / 신호 감지 발화는 4초 쿨다운
 
 ---
 
 ## 향후 로드맵
 
-- [ ] TTS 음성 안내
+- [ ] 신호등 색상 판별 정확도 개선 (픽셀 샘플링 → 서버 측 색상 분류)
 - [ ] 카운트다운 타이머
 - [ ] AI-Hub 데이터셋 기반 YOLOv8s fine-tuning
 - [ ] PWA Service Worker
 - [ ] 접근성: 고대비 모드, 폰트 크기 설정
+- [ ] TTS 속도·음량 사용자 조절
