@@ -12,12 +12,10 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0">
   <link rel="stylesheet" href="style.css">
+  <!-- TF.js 제거 — 추론은 wss://supply.klueware.com/ws 서버에서 처리 -->
 </head>
 
-
 <body class="bg-black text-white font-sans max-w-[480px] mx-auto h-[100dvh] flex flex-col overflow-hidden">
-
-
 
   <!-- 상단 바 -->
   <div id="topbar" class="flex items-center gap-1.5 px-2.5 py-2 bg-black/85 border-b border-white/10 shrink-0 min-w-0">
@@ -28,7 +26,6 @@
     </svg>
     <span class="text-[13px] font-medium whitespace-nowrap">보행 신호 알리미</span>
     <span id="badge-ai" class="text-[11px] px-2 py-0.5 rounded-md bg-black/60 text-yellow-400 whitespace-nowrap shrink-0">대기</span>
-    <!-- ★ hidden 제거 → style="display:none" 으로 통일 -->
     <span id="badge-scan" style="display:none"
       class="text-[11px] px-2 py-0.5 rounded-md bg-blue-900/60 text-blue-300 whitespace-nowrap shrink-0 scan-pulse">탐색 중</span>
     <div class="flex-1"></div>
@@ -37,7 +34,6 @@
       <span class="material-symbols-rounded text-sm leading-none">dark_mode</span>
       <span id="night-label">야간</span>
     </button>
-    <!-- ★ hidden 제거 → style="display:none" -->
     <button id="btn-flip" style="display:none"
       class="items-center justify-center w-8 h-8 rounded-md bg-neutral-900 text-neutral-400 transition-colors shrink-0">
       <span class="material-symbols-rounded text-sm leading-none">flip_camera_ios</span>
@@ -45,16 +41,10 @@
   </div>
 
   <!-- 카메라 뷰 -->
-
-<!-- viewbox: flex-1 → min-h-0 추가 (flex 자식이 부모를 넘치지 않도록) -->
-<div id="viewbox" class="relative flex-1 min-h-0 bg-black overflow-hidden">
-
-
-
+  <div id="viewbox" class="relative flex-1 min-h-0 bg-black overflow-hidden">
     <video id="video" class="w-full h-full object-cover block day" playsinline muted autoplay></video>
     <canvas id="proc" style="display:none"></canvas>
     <canvas id="overlay" class="absolute inset-0 w-full h-full pointer-events-none object-cover"></canvas>
-    <!-- ★ hidden 제거 → style="display:none" -->
     <div id="scanline" style="display:none"
       class="absolute left-0 right-0 h-0.5 bg-blue-400/50"></div>
 
@@ -88,7 +78,6 @@
     </div>
 
     <!-- 로딩 화면 -->
-    <!-- ★ hidden 제거 → style="display:none" -->
     <div id="loading-screen" style="display:none"
       class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80">
       <div class="spinner"></div>
@@ -96,7 +85,6 @@
     </div>
 
     <!-- 오류 화면 -->
-    <!-- ★ hidden 제거 → style="display:none" -->
     <div id="error-screen" style="display:none"
       class="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6">
       <div class="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center">
@@ -112,7 +100,6 @@
   </div>
 
   <!-- 하단 감지 결과 -->
-  <!-- ★ hidden 제거 → style="display:none" -->
   <div id="bottombar" style="display:none"
     class="bg-black/90 border-t border-white/10 px-3.5 py-3 shrink-0">
     <div id="det-empty"
@@ -136,9 +123,7 @@
     </div>
   </div>
 
-  <!--
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-  -->
+  <!-- TF.js 없음 — detector.js가 WebSocket으로 서버 추론 -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
