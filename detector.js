@@ -4,8 +4,8 @@
 ════════════════════════════════════ */
 
 const WS_URL     = 'wss://supply.klueware.com/ws';
-const JPEG_Q     = 0.75;   // 전송 화질 (0.6~0.85 권장)
-const WS_TIMEOUT = 8000;   // 연결 대기 ms
+const JPEG_Q     = 0.75;   // 전송 화질
+const WS_TIMEOUT = 12000;  // 연결 대기 ms (모바일 네트워크 여유)
 
 let _ws      = null;
 let _ready   = false;
@@ -23,7 +23,7 @@ function connect(onBadge) {
   _ws.onopen = () => {
     _ready = true;
     dbg('[ws] connected');
-    onBadge('서버 추론', 'text-green-400');
+    onBadge('서버', 'text-green-400');  // 짧게 — topbar 넘침 방지
   };
 
   _ws.onmessage = (e) => {
@@ -43,14 +43,14 @@ function connect(onBadge) {
   _ws.onerror = (e) => {
     dbg('[ws] error');
     _ready = false;
-    onBadge('서버 오류', 'text-red-400');
+    onBadge('WS오류', 'text-red-400');  // 짧게
     _rejectPending('ws error');
   };
 
   _ws.onclose = () => {
     _ready = false;
     dbg('[ws] closed — reconnect in 3s');
-    onBadge('재연결 중', 'text-yellow-400');
+    onBadge('재연결', 'text-yellow-400');  // 짧게
     _rejectPending('ws closed');
     setTimeout(() => connect(onBadge), 3000);
   };
@@ -68,6 +68,7 @@ function _rejectPending(reason) {
 export async function loadModel(onMsg, onBadge, onDebug) {
   _onDebug = onDebug;
   onMsg('서버 연결 중...');
+  onBadge('연결 중', 'text-yellow-400');
   dbg(`[ws] target: ${WS_URL}`);
   connect(onBadge);
 
@@ -77,7 +78,7 @@ export async function loadModel(onMsg, onBadge, onDebug) {
     await new Promise(r => setTimeout(r, 100));
   }
   if (!_ready) {
-    onBadge('서버 오프라인', 'text-red-400');
+    onBadge('오프라인', 'text-red-400');
     dbg('[ws] connection timeout');
   }
 }
