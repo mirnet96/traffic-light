@@ -1,10 +1,5 @@
-/* ════════════════════════════════════
-   ui.js — setPhase · badge · PiP · scanMsg · night
-════════════════════════════════════ */
+import { ttsScanMsg } from './tts.js';
 
-import { ttsScanMsg, ttsPhase } from './tts.js';
-
-/* ── 상수 ── */
 const PIP_SM = { w: 120, h: 80  };
 const PIP_LG = { w: 200, h: 130 };
 
@@ -15,32 +10,26 @@ export const SCAN_MSGS = [
   '멀리 있는 신호등도 감지합니다',
 ];
 
-/* ── 내부 상태 ── */
-let _nightMode   = false;
-let _pipLarge    = false;
-let _scanMsgIdx  = 0;
+let _nightMode    = false;
+let _pipLarge     = false;
+let _scanMsgIdx   = 0;
 let _scanMsgTimer = null;
-let _fpsValue    = 0;
-let _fpsFrames   = 0;
-let _fpsLast     = 0;
+let _fpsValue     = 0;
+let _fpsFrames    = 0;
+let _fpsLast      = 0;
+let _debugEnabled = false;
 
-/* ── DOM 참조 (ui.js 내부) ── */
 const pip       = document.getElementById('pip');
 const scanBadge = document.getElementById('badge-scan');
 const scanline  = document.getElementById('scanline');
 const video     = document.getElementById('video');
 const pipCtx    = pip.getContext('2d');
 
-/* ── getter ── */
 export const getNightMode = () => _nightMode;
 export const getFpsValue  = () => _fpsValue;
-
-/* ════════════════════════════════════
-   디버그 패널
-════════════════════════════════════ */
-let _debugEnabled = false;
 export function setDebugEnabled(on) { _debugEnabled = on; }
 
+/* ── 디버그 패널 ── */
 export function showDebug(msg) {
   if (!_debugEnabled) return;
   let el = document.getElementById('debug-overlay');
@@ -48,11 +37,11 @@ export function showDebug(msg) {
     el = document.createElement('div');
     el.id = 'debug-overlay';
     Object.assign(el.style, {
-      position: 'fixed', top: '60px', left: '0', right: '0',
-      background: 'rgba(0,0,0,0.82)', color: '#0f0',
-      fontSize: '11px', fontFamily: 'monospace', padding: '8px',
-      zIndex: '99999', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-      maxHeight: '40vh', overflowY: 'auto',
+      position:'fixed', top:'60px', left:'0', right:'0',
+      background:'rgba(0,0,0,0.82)', color:'#0f0',
+      fontSize:'11px', fontFamily:'monospace', padding:'8px',
+      zIndex:'99999', whiteSpace:'pre-wrap', wordBreak:'break-all',
+      maxHeight:'40vh', overflowY:'auto',
     });
     el.addEventListener('click', () => el.remove());
     document.body.appendChild(el);
@@ -60,19 +49,19 @@ export function showDebug(msg) {
   el.textContent += msg + '\n';
 }
 
-/* ════════════════════════════════════
-   Phase
-════════════════════════════════════ */
+/* ── Phase ── */
 export function setPhase(p) {
-  const show = (id, on, dtype = 'flex') =>
-    document.getElementById(id).style.display = on ? dtype : 'none';
-  show('init-screen',    p === 'init',    'flex');
-  show('loading-screen', p === 'loading', 'flex');
-  show('error-screen',   p === 'error',   'flex');
-  show('bottombar',      p === 'live',    'block');
-  show('btn-flip',       p === 'live',    'flex');
-  scanline.style.display = p === 'live' ? 'block' : 'none';
-  pip.style.display      = p === 'live' ? 'block' : 'none';
+  const show = (id, on, dtype='flex') => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? dtype : 'none';
+  };
+  show('init-screen',    p==='init',    'flex');
+  show('loading-screen', p==='loading', 'flex');
+  show('error-screen',   p==='error',   'flex');
+  show('bottombar',      p==='live',    'block');
+  show('btn-flip',       p==='live',    'flex');
+  scanline.style.display = p==='live' ? 'block' : 'none';
+  pip.style.display      = p==='live' ? 'block' : 'none';
 
   if (p === 'live') {
     scanBadge.style.display = '';
@@ -89,9 +78,7 @@ export function setPhase(p) {
   }
 }
 
-/* ════════════════════════════════════
-   Badge
-════════════════════════════════════ */
+/* ── Badge ── */
 export function setBadge(text, cls) {
   const b = document.getElementById('badge-ai');
   b.textContent = text;
@@ -110,9 +97,7 @@ export function updateScanBadge(signals) {
   }
 }
 
-/* ════════════════════════════════════
-   fps
-════════════════════════════════════ */
+/* ── fps ── */
 export function tickFps() {
   _fpsFrames++;
   const now  = performance.now();
@@ -126,9 +111,7 @@ export function tickFps() {
   }
 }
 
-/* ════════════════════════════════════
-   탐색 중 순환 텍스트
-════════════════════════════════════ */
+/* ── 탐색 중 순환 ── */
 export function startScanMsgCycle() {
   stopScanMsgCycle();
   _scanMsgIdx = 0;
@@ -137,7 +120,7 @@ export function startScanMsgCycle() {
     if (document.getElementById('det-empty').style.display === 'none') return;
     _scanMsgIdx = (_scanMsgIdx + 1) % SCAN_MSGS.length;
     _renderScanMsg();
-    ttsScanMsg(_scanMsgIdx);   // ← TTS 동기화
+    ttsScanMsg(_scanMsgIdx);
   }, 3500);
 }
 
@@ -163,9 +146,7 @@ export function showDetEmpty() {
   el.style.display    = 'flex';
 }
 
-/* ════════════════════════════════════
-   야간 모드
-════════════════════════════════════ */
+/* ── 야간 모드 ── */
 export function applyNight(on) {
   _nightMode = on;
   video.className = `w-full h-full object-cover block ${on ? 'night' : 'day'}`;
@@ -176,9 +157,7 @@ export function applyNight(on) {
     on ? 'light_mode' : 'dark_mode';
 }
 
-/* ════════════════════════════════════
-   PiP
-════════════════════════════════════ */
+/* ── PiP ── */
 export function applyPipSize() {
   const sz = _pipLarge ? PIP_LG : PIP_SM;
   pip.width  = sz.w;
@@ -194,20 +173,16 @@ export function drawPip(proc, overlay) {
   if (!proc.width || !proc.height) return;
   const sz       = _pipLarge ? PIP_LG : PIP_SM;
   const detected = scanBadge.classList.contains('detected');
-
   pipCtx.drawImage(proc,    0, 0, sz.w, sz.h);
   pipCtx.drawImage(overlay, 0, 0, sz.w, sz.h);
-
   pipCtx.strokeStyle = detected ? '#00ee44' : '#3b82f6';
   pipCtx.lineWidth   = 1.5;
-  pipCtx.strokeRect(0.75, 0.75, sz.w - 1.5, sz.h - 1.5);
-
+  pipCtx.strokeRect(0.75, 0.75, sz.w-1.5, sz.h-1.5);
   pipCtx.fillStyle = 'rgba(0,0,0,0.55)';
-  pipCtx.fillRect(sz.w - 34, sz.h - 14, 34, 14);
+  pipCtx.fillRect(sz.w-34, sz.h-14, 34, 14);
   pipCtx.fillStyle = '#94a3b8';
   pipCtx.font      = 'bold 9px system-ui,sans-serif';
-  pipCtx.fillText(`${_fpsValue}fps`, sz.w - 30, sz.h - 4);
-
+  pipCtx.fillText(`${_fpsValue}fps`, sz.w-30, sz.h-4);
   pipCtx.fillStyle = 'rgba(0,0,0,0.55)';
   pipCtx.fillRect(0, 0, 36, 14);
   pipCtx.fillStyle = detected ? '#4ade80' : '#93c5fd';

@@ -1,7 +1,3 @@
-/* ════════════════════════════════════
-   settings.js — 설정 읽기/관리
-════════════════════════════════════ */
-
 export const cfg = { tts: true, debug: false, rec: false };
 
 export function readConfig() {
