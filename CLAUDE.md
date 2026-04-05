@@ -12,8 +12,8 @@
 ## 1차 목표 (최우선)
 
 - 카메라로 2~10차선 건너편 보행 신호등 자동 감지 (근거리 + 원거리)
-- 감지된 신호등을 전체화면으로 자동 확대 표시
-- 정지 / 보행 상태를 크고 명확하게 표시
+- 감지된 신호등을 전체화면으로 자동 확대 표시 (초해상도 처리 포함)
+- 정지 / 보행 상태를 TTS 음성으로 안내
 - TTS 음성으로 진행 과정 및 신호 상태 안내
 
 ---
@@ -68,7 +68,7 @@ traffic-light/
 
 | 파일 | 역할 | 상한 |
 |---|---|---|
-| `app.js` | 진입점·카메라·스캔루프·전체화면·이벤트 | 200줄 |
+| `app.js` | 진입점·카메라·스캔루프·전체화면·이벤트 | 400줄 |
 | `ui.js` | setPhase·badge·PiP·fps·scanMsg·야간·디버그 패널 | 200줄 |
 | `tts.js` | TTS 전담 (진행과정·순환문구·신호 안내) | 80줄 |
 | `recorder.js` | MediaRecorder 녹화·다운로드 | 60줄 |
@@ -81,7 +81,7 @@ traffic-light/
 
 - `index.html` — 구조와 Tailwind 클래스만. 인라인 스타일 금지.
 - `style.css` — Tailwind 불가 항목만 (토글 스위치, PiP, 스캔라인 등).
-- `app.js` — 모듈 조합 진입점. 200줄 이하 유지.
+- `app.js` — 모듈 조합 진입점. 전체화면 초해상도 처리 포함.
 - `ui.js` — DOM 조작 전담. `showDebug` DOM 유일 소유. 디버그 패널 포함.
 - `tts.js` — DOM 접근 금지. `speechSynthesis` 만 사용.
 - `recorder.js` — `MediaRecorder` 전담. `fs-rec-badge` DOM만 접근 허용.
@@ -202,7 +202,7 @@ traffic-light/
   7. drawBoxes(overlay, signals)
   8. signals.length > 0 && !fsVisible
        → estimateSignalColor()
-       → showFullscreen(sig, color)   // 자동 전체화면
+       → showFullscreen(sig, color)   // 자동 전체화면 (초해상도)
        → ttsSignal(sig, color)
   9. renderCards(signals, onTap, showDetEmpty)
   10. drawPip(proc, overlay)
@@ -212,6 +212,56 @@ traffic-light/
 
 감지 즉시 자동으로 전체화면 표시. `fsVisible` 플래그로 중복 갱신 방지.
 탭하면 닫힘 → `fsVisible = false`.
+
+---
+
+## 전체화면 표시 (showFullscreen)
+
+**UI 구성:** `#fs-canvas` 단독으로 화면 전체를 덮음.
+원형 아이콘·사람 SVG·신호등 텍스트 없음. 신뢰도 % 만 우하단에 작게 표시.
+
+**초해상도 처리 파이프라인 (`app.js — showFullscreen`):**
+
+```
+1. 크롭  — 박스 중심 기준 2.8배 패딩 영역 (최소 80px)
+2. 업스케일 — 중간 캔버스에 4× 확대 (imageSmoothingQuality: 'high')
+3. 샤프닝 — 라플라시안 커널 언샤프 마스크 (strength = 0.55)
+              lap = center×5 − left − right − top − bottom
+              out = clamp(src + lap × strength, 0, 255)
+4. 출력  — window.innerWidth × innerHeight 캔버스에 contain 비율로 렌더
+5. 박스  — accent 색상 테두리 + glow (shadowBlur=10)
+6. 텍스트 — 신뢰도 % 우하단 (14px bold, 반투명 배경)
+```
+
+| 상수 | 값 | 설명 |
+|---|---|---|
+| `pad` | 2.8 | 박스 대비 크롭 배율 |
+| `SCALE` | 4 | 업스케일 배율 |
+| `strength` | 0.55 | 샤프닝 강도 (0.3~0.8 권장) |
+
+**배경색:** green → `#001a08` / red → `#1a0000` / unknown → `#0a0a0a`
+
+**`#fs` HTML 구조:**
+```html
+<div id="fs">                          <!-- fixed inset-0, cursor-pointer -->
+  <canvas id="fs-canvas">             <!-- position:absolute; inset:0; 100%×100% -->
+  <div id="fs-rec-badge">             <!-- 절대위치 top-left, REC 표시 -->
+  <div>(close 아이콘)</div>            <!-- 절대위치 top-right -->
+</div>
+```
+
+**열기/닫기:**
+```js
+// 열기 (자동 — 감지 즉시)
+fs.style.display = 'flex';
+fs.classList.add('show');
+fsVisible = true;
+
+// 닫기 (탭)
+fs.classList.remove('show');
+fsVisible = false;
+// style.display = 'none' 직접 세팅 금지
+```
 
 ---
 
@@ -227,7 +277,7 @@ if (g > 80  && g > r * 1.2) return 'green';
 return 'unknown';
 ```
 
-- `unknown` 시 보행신호는 정지 처리, 일반 신호등은 노란색(주의) accent
+- `unknown` 시 노란색(#ffcc00) accent, 배경 #0a0a0a
 - 진동: `green` → 200ms 한 번 / 그 외 → 100-50-100ms
 
 ---
@@ -246,8 +296,11 @@ return 'unknown';
 
 ```js
 // app.js
-SCAN_MS   = 120
-NIGHT_THR = 60
+SCAN_MS    = 120
+NIGHT_THR  = 60
+FS_PAD     = 2.8      // 전체화면 크롭 배율
+FS_SCALE   = 4        // 업스케일 배율
+FS_SHARP   = 0.55     // 샤프닝 강도
 
 // ui.js
 PIP_SM    = { w:120, h:80  }
@@ -260,7 +313,7 @@ SCAN_MSGS = [
 ]
 
 // tts.js
-TTS_COOLDOWN_MS = 4000   // 신호 감지 발화 쿨다운
+TTS_COOLDOWN_MS = 4000
 TTS_RATE        = 1.05
 TTS_LANG        = 'ko-KR'
 
@@ -317,22 +370,6 @@ WS_TIMEOUT  = 12000
 
 ---
 
-## 전체화면 열기/닫기
-
-```js
-// 열기 (자동 — 감지 즉시)
-fs.style.display = '';
-fs.classList.add('show');
-fsVisible = true;
-
-// 닫기 (탭)
-fs.classList.remove('show');
-fsVisible = false;
-// style.display = 'none' 직접 세팅 금지
-```
-
----
-
 ## Canvas / Context 규칙
 
 ```js
@@ -340,6 +377,7 @@ const procCtx = proc.getContext('2d', { willReadFrequently: true }); // app.js�
 const pipCtx  = pip.getContext('2d');                                 // ui.js에서만
 // overlay context는 매번 getContext('2d') — willReadFrequently 불필요
 // proc.getContext('2d') 직접 호출 금지 — procCtx 재사용
+// showFullscreen 내 중간 캔버스(mid)는 createElement('canvas')로 생성, 재사용 안 함
 ```
 
 ---
@@ -348,10 +386,8 @@ const pipCtx  = pip.getContext('2d');                                 // ui.js�
 
 ```js
 // app.js
-let scanTimer  = null;  // setTimeout 기반
-let nightTimer = null;  // setInterval 기반
-// scanTimer → clearTimeout
-// nightTimer → clearInterval
+let scanTimer  = null;  // setTimeout 기반 → clearTimeout
+let nightTimer = null;  // setInterval 기반 → clearInterval
 
 // ui.js
 let _scanMsgTimer = null;  // setInterval 기반 → clearInterval
@@ -374,6 +410,7 @@ renderCards(signals, onTap, onEmpty)
 - 3초마다 `procCtx.getImageData` 평균 밝기 < 60 → 자동 전환
 - 버튼: `야간` (OFF) / `ON` (ON)
 - `getNightMode()` getter로 외부 접근 (ui.js export)
+- 전체화면 야간 모드 시 `brightness(1.5) contrast(1.3) saturate(1.2)` 필터 적용
 
 ---
 
@@ -393,6 +430,7 @@ renderCards(signals, onTap, onEmpty)
 | 음성 알림 | `volume_up` |
 | 디버그 | `bug_report` |
 | 녹화 | `videocam` |
+| 전체화면 닫기 | `close` |
 
 ---
 
@@ -404,7 +442,7 @@ renderCards(signals, onTap, onEmpty)
 - `@latest` CDN 금지 — 고정 버전 명시
 - 파일당 라인 수 상한 준수
 - topbar 한 줄 유지
-- `#fs` 닫기 시 `style.display='none'` 금지
+- `#fs` 닫기 시 `style.display='none'` 직접 세팅 금지
 - `proc.getContext('2d')` 직접 호출 금지 — `procCtx` 재사용
 - `scanTimer` → `clearTimeout` / `nightTimer`, `_scanMsgTimer` → `clearInterval`
 - `drawPip(proc, overlay)` 는 스캔 루프 마지막에만 호출
@@ -413,14 +451,18 @@ renderCards(signals, onTap, onEmpty)
 - `tts.js` DOM 접근 완전 금지 — `speechSynthesis` 만 사용
 - `recorder.js` 는 `#fs-rec-badge` 외 DOM 접근 금지
 - TTS 진행 과정 발화는 쿨다운 없음 / 신호 감지 발화는 4초 쿨다운
+- `showFullscreen` 내 중간 캔버스(`mid`)는 매번 `createElement`로 생성 (재사용 금지)
+- `PERSON_SVG` 상수는 현재 미사용 — 삭제 가능 (하위 호환 보존 중)
 
 ---
 
 ## 향후 로드맵
 
+- [ ] `PERSON_SVG` 상수 제거 (전체화면에서 사람 아이콘 제거 완료)
 - [ ] 신호등 색상 판별 정확도 개선 (픽셀 샘플링 → 서버 측 색상 분류)
 - [ ] 카운트다운 타이머
 - [ ] AI-Hub 데이터셋 기반 YOLOv8s fine-tuning
 - [ ] PWA Service Worker
 - [ ] 접근성: 고대비 모드, 폰트 크기 설정
 - [ ] TTS 속도·음량 사용자 조절
+- [ ] WebGL 기반 초해상도 (현재 Canvas 2D 라플라시안 → GPU 가속)
