@@ -31,6 +31,39 @@ let fsVisible = false;
 
 const procCtx = proc.getContext('2d', { willReadFrequently: true });
 
+
+
+function initSettings() {
+  const settings = [
+    { row: 'row-tts', input: 'cfg-tts', track: 'cfg-tts-track', thumb: 'cfg-tts-thumb' },
+    { row: 'row-debug', input: 'cfg-debug', track: 'cfg-debug-track', thumb: 'cfg-debug-thumb' },
+    { row: 'row-rec', input: 'cfg-rec', track: 'cfg-rec-track', thumb: 'cfg-rec-thumb' }
+  ];
+
+  settings.forEach(item => {
+    const rowEl = document.getElementById(item.row);
+    const inputEl = document.getElementById(item.input);
+    const trackEl = document.getElementById(item.track);
+    const thumbEl = document.getElementById(item.thumb);
+
+    rowEl.addEventListener('click', () => {
+      inputEl.checked = !inputEl.checked;
+
+      // UI 업데이트 (클래스 토글 방식 권장)
+      if (inputEl.checked) {
+        trackEl.style.background = '#2563eb';
+        thumbEl.style.transform = 'translateX(18px)';
+      } else {
+        trackEl.style.background = '#3a3a3a';
+        thumbEl.style.transform = 'translateX(0)';
+      }
+
+      readConfig(); // 설정값 반영
+    });
+  });
+}
+
+
 /* ════════════════════════════════════
    카메라
 ════════════════════════════════════ */
@@ -205,9 +238,40 @@ const PERSON_SVG = {
     <rect x="50" y="80" width="8" height="18" rx="3" fill="#330000"/>`,
 };
 
+
 function showFullscreen(sig, color) {
   if (fsVisible) return;
 
+  // 1. 필요한 DOM 요소 참조
+  const video = document.getElementById('video');
+  const fsCanvas = document.getElementById('fs-canvas');
+  const fctx = fsCanvas.getContext('2d');
+  const fs = document.getElementById('fs');
+
+  // 2. 캔버스에 이미지 그리기 (검은 화면 방지 핵심 로직)
+  if (video && video.readyState >= 2) { // 비디오 데이터가 로드된 상태인지 확인
+    const [y1, x1, y2, x2] = sig.box;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    // 실제 픽셀 좌표 계산
+    const sx = x1 * vw;
+    const sy = y1 * vh;
+    const sw = (x2 - x1) * vw;
+    const sh = (y2 - y1) * vh;
+
+    // 캔버스 크기를 감지된 박스 크기에 맞춤
+    fsCanvas.width = sw;
+    fsCanvas.height = sh;
+
+    // 비디오의 해당 영역을 캔버스에 복사
+    fctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+    fsCanvas.style.display = 'block'; // 캔버스 보이기
+  } else {
+    fsCanvas.style.display = 'none'; // 비디오 불능 시 숨김
+  }
+
+  // 3. UI 스타일 및 테마 설정
   let accent, bg, svgKey, label;
   if (sig.isPedestrian) {
     const isWalk = color === 'green';
@@ -218,44 +282,64 @@ function showFullscreen(sig, color) {
   } else {
     accent = color === 'green' ? '#00ee44' : color === 'red' ? '#ff3322' : '#ffcc00';
     bg     = color === 'green' ? '#001a08' : color === 'red' ? '#1a0000' : '#1a1500';
-    svgKey = color === 'red'   ? 'stop'    : 'walk';
+    svgKey = color === 'red'    ? 'stop'    : 'walk';
     label  = '신호등';
   }
 
   const colorTag = color === 'green' ? '녹색' : color === 'red' ? '적색' : '색상미확인';
   const range    = sig.range === 'near' ? '근거리' : '원거리';
-  const nightMode = getNightMode();
+  const nightMode = typeof getNightMode === 'function' ? getNightMode() : false;
 
-  const fs = document.getElementById('fs');
+  // 4. 전체화면 표시 적용
   fs.style.background = bg;
   fs.style.filter     = nightMode ? 'brightness(1.6) contrast(1.4) saturate(1.3)' : 'none';
-  fs.style.display    = '';
+  fs.style.display    = 'flex'; // block 대신 flex로 중앙 정렬
   fs.classList.add('show');
   fsVisible = true;
 
+  // 5. 아이콘 및 텍스트 업데이트
   const sz = 'min(72vw, 72vh)';
-  Object.assign(document.getElementById('fs-circle').style, {
-    width: sz, height: sz, background: accent, marginBottom: '6vh',
-    boxShadow: `0 0 60px 20px ${accent}88, 0 0 120px 40px ${accent}44`,
-  });
-  document.getElementById('fs-svg').innerHTML     = PERSON_SVG[svgKey];
-  document.getElementById('fs-svg').style.cssText = 'width:55%;height:55%';
-  Object.assign(document.getElementById('fs-label').style, {
-    fontSize: 'min(14vw,14vh)', color: accent, marginTop: '4vh',
-    textShadow: `0 0 30px ${accent}`, letterSpacing: '-.02em',
-  });
-  document.getElementById('fs-label').textContent = label;
-  Object.assign(document.getElementById('fs-sub').style, { marginTop: '2vh', fontSize: 'min(4vw,4vh)' });
-  document.getElementById('fs-sub').textContent =
-    `${range} · ${colorTag} · 신뢰도 ${Math.round(sig.score * 100)}% · 탭하면 돌아갑니다`;
+  const fsCircle = document.getElementById('fs-circle');
+  if (fsCircle) {
+      Object.assign(fsCircle.style, {
+        width: sz, height: sz, background: accent, marginBottom: '6vh',
+        boxShadow: `0 0 60px 20px ${accent}88, 0 0 120px 40px ${accent}44`,
+      });
+  }
 
+  const fsSvg = document.getElementById('fs-svg');
+  if (fsSvg) {
+      fsSvg.innerHTML = PERSON_SVG[svgKey];
+      fsSvg.style.cssText = 'width:55%;height:55%';
+  }
+
+  const fsLabel = document.getElementById('fs-label');
+  if (fsLabel) {
+      Object.assign(fsLabel.style, {
+        fontSize: 'min(14vw,14vh)', color: accent, marginTop: '4vh',
+        textShadow: `0 0 30px ${accent}`, letterSpacing: '-.02em',
+      });
+      fsLabel.textContent = label;
+  }
+
+  const fsSub = document.getElementById('fs-sub');
+  if (fsSub) {
+      Object.assign(fsSub.style, { marginTop: '2vh', fontSize: 'min(4vw,4vh)' });
+      fsSub.textContent = `${range} · ${colorTag} · 신뢰도 ${Math.round(sig.score * 100)}% · 탭하면 돌아갑니다`;
+  }
+
+  // 6. 진동 피드백
   if (navigator.vibrate)
     navigator.vibrate(color === 'green' ? [200] : [100, 50, 100]);
 }
 
+
+
 /* ════════════════════════════════════
    이벤트
 ════════════════════════════════════ */
+  initSettings();
+
 // 버튼이 DOM에 존재하는지 확인 후 등록
 const btnStart = document.getElementById('btn-start');
 const btnRetry = document.getElementById('btn-retry');
@@ -269,4 +353,4 @@ document.getElementById('fs').addEventListener('click', () => {
   document.getElementById('fs').classList.remove('show');
   fsVisible = false;
 });
-document.getElementById('pip').addEventListener('click', togglePip);
+

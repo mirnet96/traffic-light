@@ -80,7 +80,7 @@
       <div style="width:100%;max-width:360px;background:#171717;border-radius:16px;border:1px solid rgba(255,255,255,0.1);overflow:hidden;">
 
         <!-- 음성 알림 -->
-        <div onclick="toggleCfg('cfg-tts')"
+        <div id="row-tts" class="cfg-tts"
           style="display:flex;flex-direction:row;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;">
           <span class="material-symbols-rounded" style="font-size:20px;color:#60a5fa;flex-shrink:0;">volume_up</span>
           <div style="flex:1;min-width:0;">
@@ -95,7 +95,7 @@
         <div style="height:1px;background:rgba(255,255,255,0.06);margin:0 16px;"></div>
 
         <!-- 디버그 로그 -->
-        <div onclick="toggleCfg('cfg-debug')"
+        <div id="row-debug" class="cfg-debug"
           style="display:flex;flex-direction:row;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;">
           <span class="material-symbols-rounded" style="font-size:20px;color:#737373;flex-shrink:0;">bug_report</span>
           <div style="flex:1;min-width:0;">
@@ -110,7 +110,7 @@
         <div style="height:1px;background:rgba(255,255,255,0.06);margin:0 16px;"></div>
 
         <!-- 디버그 녹화 -->
-        <div onclick="toggleCfg('cfg-rec')"
+        <div id="row-rec" class="cfg-rec"
           style="display:flex;flex-direction:row;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;">
           <span class="material-symbols-rounded" style="font-size:20px;color:#f87171;flex-shrink:0;">videocam</span>
           <div style="flex:1;min-width:0;">
