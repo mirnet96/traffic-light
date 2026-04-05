@@ -242,119 +242,129 @@ const PERSON_SVG = {
 function showFullscreen(sig, color) {
   if (fsVisible) return;
 
-  // 1. 필요한 DOM 요소 참조
-  const video = document.getElementById('video');
+  const video    = document.getElementById('video');
   const fsCanvas = document.getElementById('fs-canvas');
-  const fctx = fsCanvas.getContext('2d');
-  const fs = document.getElementById('fs');
+  const fs       = document.getElementById('fs');
 
-  // 2. 캔버스에 이미지 그리기 — 박스 주변부 포함하여 크게
-  if (video && video.readyState >= 2) {
-    const [y1, x1, y2, x2] = sig.box;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-
-    // 박스 중심 및 크기
-    const boxW = (x2 - x1) * vw;
-    const boxH = (y2 - y1) * vh;
-    const cx   = (x1 + x2) / 2 * vw;
-    const cy   = (y1 + y2) / 2 * vh;
-
-    // 주변부 포함: 박스의 2.5배 영역 (최소 120px)
-    const cropW = Math.max(boxW * 2.5, 120);
-    const cropH = Math.max(boxH * 2.5, 120);
-
-    // 화면 경계 클램프
-    const sx = Math.max(0, Math.round(cx - cropW / 2));
-    const sy = Math.max(0, Math.round(cy - cropH / 2));
-    const sw = Math.min(vw - sx, Math.round(cropW));
-    const sh = Math.min(vh - sy, Math.round(cropH));
-
-    // 출력 캔버스 크기: 화면 88% 너비, 최대 46vh
-    const maxOutW = Math.round(window.innerWidth * 0.88);
-    const maxOutH = Math.round(window.innerHeight * 0.46);
-    const scale   = Math.min(maxOutW / sw, maxOutH / sh);
-    fsCanvas.width  = Math.round(sw * scale);
-    fsCanvas.height = Math.round(sh * scale);
-
-    fctx.imageSmoothingEnabled = true;
-    fctx.imageSmoothingQuality = 'high';
-    fctx.drawImage(video, sx, sy, sw, sh, 0, 0, fsCanvas.width, fsCanvas.height);
-
-    // 감지 박스 테두리 강조 표시 (accent 색상은 아래서 결정되므로 임시 흰색)
-    const bx = (x1 * vw - sx) * scale;
-    const by = (y1 * vh - sy) * scale;
-    const bw = boxW * scale;
-    const bh = boxH * scale;
-    fctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    fctx.lineWidth   = 3;
-    fctx.strokeRect(bx, by, bw, bh);
-
-    fsCanvas.style.display = 'block';
-  } else {
-    fsCanvas.style.display = 'none';
-  }
-
-  // 3. UI 스타일 및 테마 설정
-  let accent, bg, svgKey, label;
-  if (sig.isPedestrian) {
-    const isWalk = color === 'green';
-    accent = isWalk ? '#00ee44' : '#ff3322';
-    bg     = isWalk ? '#001a08' : '#1a0000';
-    svgKey = isWalk ? 'walk'    : 'stop';
-    label  = '보행신호';
-  } else {
-    accent = color === 'green' ? '#00ee44' : color === 'red' ? '#ff3322' : '#ffcc00';
-    bg     = color === 'green' ? '#001a08' : color === 'red' ? '#1a0000' : '#1a1500';
-    svgKey = color === 'red'    ? 'stop'    : 'walk';
-    label  = '신호등';
-  }
-
-  const colorTag = color === 'green' ? '녹색' : color === 'red' ? '적색' : '색상미확인';
-  const range    = sig.range === 'near' ? '근거리' : '원거리';
-  const nightMode = typeof getNightMode === 'function' ? getNightMode() : false;
-
-  // 4. 전체화면 표시 적용
+  /* ── 배경색 (신호 색상 기반) ── */
+  const bg = color === 'green' ? '#001a08' : color === 'red' ? '#1a0000' : '#0a0a0a';
   fs.style.background = bg;
-  fs.style.filter     = nightMode ? 'brightness(1.6) contrast(1.4) saturate(1.3)' : 'none';
-  fs.style.display    = 'flex'; // block 대신 flex로 중앙 정렬
+  fs.style.filter     = getNightMode() ? 'brightness(1.5) contrast(1.3) saturate(1.2)' : 'none';
+  fs.style.display    = 'flex';
   fs.classList.add('show');
   fsVisible = true;
 
-  // 5. 아이콘 및 텍스트 업데이트
-  const sz = 'min(44vw, 44vh)';
-  const fsCircle = document.getElementById('fs-circle');
-  if (fsCircle) {
-      Object.assign(fsCircle.style, {
-        width: sz, height: sz, background: accent, marginBottom: '2vh',
-        boxShadow: `0 0 40px 14px ${accent}88, 0 0 80px 28px ${accent}44`,
-      });
-  }
-
-  const fsSvg = document.getElementById('fs-svg');
-  if (fsSvg) {
-      fsSvg.innerHTML = PERSON_SVG[svgKey];
-      fsSvg.style.cssText = 'width:55%;height:55%';
-  }
-
-  const fsLabel = document.getElementById('fs-label');
-  if (fsLabel) {
-      Object.assign(fsLabel.style, {
-        fontSize: 'min(12vw,12vh)', color: accent, marginTop: '2vh',
-        textShadow: `0 0 30px ${accent}`, letterSpacing: '-.02em',
-      });
-      fsLabel.textContent = label;
-  }
-
-  const fsSub = document.getElementById('fs-sub');
-  if (fsSub) {
-      Object.assign(fsSub.style, { marginTop: '2vh', fontSize: 'min(4vw,4vh)' });
-      fsSub.textContent = `${range} · ${colorTag} · 신뢰도 ${Math.round(sig.score * 100)}% · 탭하면 돌아갑니다`;
-  }
-
-  // 6. 진동 피드백
+  /* ── 진동 ── */
   if (navigator.vibrate)
     navigator.vibrate(color === 'green' ? [200] : [100, 50, 100]);
+
+  /* ── 캡처 없으면 종료 ── */
+  if (!video || video.readyState < 2) {
+    fsCanvas.style.display = 'none';
+    return;
+  }
+
+  const [y1, x1, y2, x2] = sig.box;
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+
+  /* ── 1단계: 소스 크롭 영역 계산 (박스 중심 + 2.8배 패딩) ── */
+  const boxW = (x2 - x1) * vw;
+  const boxH = (y2 - y1) * vh;
+  const cx   = (x1 + x2) / 2 * vw;
+  const cy   = (y1 + y2) / 2 * vh;
+  const pad  = 2.8;
+  const rawW = Math.max(boxW * pad, 80);
+  const rawH = Math.max(boxH * pad, 80);
+  const sx   = Math.max(0, Math.round(cx - rawW / 2));
+  const sy   = Math.max(0, Math.round(cy - rawH / 2));
+  const sw   = Math.min(vw - sx, Math.round(rawW));
+  const sh   = Math.min(vh - sy, Math.round(rawH));
+
+  /* ── 2단계: 중간 캔버스에 2× 업스케일로 1차 드로우 ── */
+  const SCALE = 4; // 초해상도 업스케일 배율
+  const midW  = sw * SCALE;
+  const midH  = sh * SCALE;
+  const mid   = document.createElement('canvas');
+  mid.width   = midW;
+  mid.height  = midH;
+  const mctx  = mid.getContext('2d');
+  mctx.imageSmoothingEnabled = true;
+  mctx.imageSmoothingQuality = 'high';
+  mctx.drawImage(video, sx, sy, sw, sh, 0, 0, midW, midH);
+
+  /* ── 3단계: 언샤프 마스크 (샤프닝) ── */
+  const imgData = mctx.getImageData(0, 0, midW, midH);
+  const src     = imgData.data;
+  const out     = new Uint8ClampedArray(src.length);
+  const W4      = midW * 4;
+  const strength = 0.55; // 샤프닝 강도 (0.3~0.8 권장)
+
+  for (let y = 1; y < midH - 1; y++) {
+    for (let x = 1; x < midW - 1; x++) {
+      const i = y * W4 + x * 4;
+      for (let c = 0; c < 3; c++) {
+        // 라플라시안 커널 샤프닝
+        const lap =
+          src[i + c] * 5
+          - src[i - 4 + c]          // left
+          - src[i + 4 + c]          // right
+          - src[i - W4 + c]         // top
+          - src[i + W4 + c];        // bottom
+        out[i + c] = Math.min(255, Math.max(0, src[i + c] + lap * strength));
+      }
+      out[i + 3] = 255;
+    }
+  }
+  // 가장자리 픽셀은 원본 복사
+  for (let i = 0; i < src.length; i += 4) {
+    if (out[i + 3] === 0) { out[i]=src[i]; out[i+1]=src[i+1]; out[i+2]=src[i+2]; out[i+3]=255; }
+  }
+  mctx.putImageData(new ImageData(out, midW, midH), 0, 0);
+
+  /* ── 4단계: 출력 캔버스 = 화면 전체 꽉 채우기 ── */
+  const outW = window.innerWidth;
+  const outH = window.innerHeight;
+  fsCanvas.width  = outW;
+  fsCanvas.height = outH;
+
+  const fctx = fsCanvas.getContext('2d');
+  fctx.imageSmoothingEnabled = true;
+  fctx.imageSmoothingQuality = 'high';
+
+  // 비율 유지하며 화면 꽉 채움 (contain)
+  const scale  = Math.min(outW / midW, outH / midH);
+  const dw     = Math.round(midW * scale);
+  const dh     = Math.round(midH * scale);
+  const dx     = Math.round((outW - dw) / 2);
+  const dy     = Math.round((outH - dh) / 2);
+
+  fctx.fillStyle = bg;
+  fctx.fillRect(0, 0, outW, outH);
+  fctx.drawImage(mid, 0, 0, midW, midH, dx, dy, dw, dh);
+
+  /* ── 5단계: 감지 박스 테두리 ── */
+  const accent   = color === 'green' ? '#00ee44' : color === 'red' ? '#ff3322' : '#ffcc00';
+  const bx = dx + (x1 * vw - sx) / sw * dw;
+  const by = dy + (y1 * vh - sy) / sh * dh;
+  const bw = (x2 - x1) * vw / sw * dw;
+  const bh = (y2 - y1) * vh / sh * dh;
+  fctx.strokeStyle = accent;
+  fctx.lineWidth   = 3;
+  fctx.shadowColor = accent;
+  fctx.shadowBlur  = 10;
+  fctx.strokeRect(bx, by, bw, bh);
+  fctx.shadowBlur  = 0;
+
+  /* ── 6단계: 신뢰도 텍스트 (우하단 작게) ── */
+  const conf = `${Math.round(sig.score * 100)}%`;
+  fctx.font      = 'bold 14px system-ui,sans-serif';
+  fctx.fillStyle = 'rgba(0,0,0,0.55)';
+  fctx.fillRect(outW - 60, outH - 28, 56, 22);
+  fctx.fillStyle = accent;
+  fctx.fillText(conf, outW - 52, outH - 12);
+
+  fsCanvas.style.display = 'block';
 }
 
 

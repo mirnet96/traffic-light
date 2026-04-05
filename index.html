@@ -170,37 +170,17 @@
     <div id="det-list" class="flex gap-2.5 overflow-x-auto"></div>
   </div>
 
-  <!-- 전체화면 오버레이 -->
-  <div id="fs" class="fixed inset-0 z-[9999] flex-col items-center justify-center cursor-pointer"
-    style="display:none">
-    <!-- 캡처 이미지 (감지된 박스 + 주변부 크게) -->
-    <canvas id="fs-canvas" style="
-      border-radius:16px;
-      max-width:88vw; max-height:46vh;
-      object-fit:contain;
-      margin-bottom:3vh;
-      box-shadow:0 0 0 2px rgba(255,255,255,0.12), 0 8px 32px rgba(0,0,0,0.6);
-    "></canvas>
-    <!-- 신호 색상 원 + 사람 아이콘 -->
-    <div id="fs-circle" style="
-      border-radius:50%;
-      display:flex; align-items:center; justify-content:center;
-      flex-shrink:0;
-      width:min(44vw,44vh); height:min(44vw,44vh);
-    ">
-      <svg id="fs-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"
-        style="width:55%;height:55%">
-      </svg>
-    </div>
-    <div id="fs-label" class="font-bold leading-none"></div>
-    <div id="fs-sub" class="text-white/40 text-center px-6"></div>
+  <!-- 전체화면 오버레이 — 캡처 이미지만 꽉 채움 -->
+  <div id="fs" class="fixed inset-0 z-[9999] cursor-pointer"
+    style="display:none; align-items:center; justify-content:center;">
+    <canvas id="fs-canvas" style="position:absolute;inset:0;width:100%;height:100%;display:block;"></canvas>
     <!-- 녹화 중 표시 -->
-    <div id="fs-rec-badge" style="display:none"
-      class="absolute top-5 left-5 flex items-center gap-1.5 bg-red-600/80 rounded-full px-3 py-1">
+    <div id="fs-rec-badge" style="display:none;position:absolute;top:20px;left:20px;"
+      class="flex items-center gap-1.5 bg-red-600/80 rounded-full px-3 py-1">
       <div class="w-2 h-2 rounded-full bg-white rec-blink"></div>
       <span class="text-[12px] font-medium">REC</span>
     </div>
-    <div class="absolute top-5 right-5 text-white/40">
+    <div style="position:absolute;top:20px;right:20px;" class="text-white/40">
       <span class="material-symbols-rounded text-2xl leading-none">close</span>
     </div>
   </div>
