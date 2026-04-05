@@ -248,27 +248,51 @@ function showFullscreen(sig, color) {
   const fctx = fsCanvas.getContext('2d');
   const fs = document.getElementById('fs');
 
-  // 2. 캔버스에 이미지 그리기 (검은 화면 방지 핵심 로직)
-  if (video && video.readyState >= 2) { // 비디오 데이터가 로드된 상태인지 확인
+  // 2. 캔버스에 이미지 그리기 — 박스 주변부 포함하여 크게
+  if (video && video.readyState >= 2) {
     const [y1, x1, y2, x2] = sig.box;
     const vw = video.videoWidth;
     const vh = video.videoHeight;
 
-    // 실제 픽셀 좌표 계산
-    const sx = x1 * vw;
-    const sy = y1 * vh;
-    const sw = (x2 - x1) * vw;
-    const sh = (y2 - y1) * vh;
+    // 박스 중심 및 크기
+    const boxW = (x2 - x1) * vw;
+    const boxH = (y2 - y1) * vh;
+    const cx   = (x1 + x2) / 2 * vw;
+    const cy   = (y1 + y2) / 2 * vh;
 
-    // 캔버스 크기를 감지된 박스 크기에 맞춤
-    fsCanvas.width = sw;
-    fsCanvas.height = sh;
+    // 주변부 포함: 박스의 2.5배 영역 (최소 120px)
+    const cropW = Math.max(boxW * 2.5, 120);
+    const cropH = Math.max(boxH * 2.5, 120);
 
-    // 비디오의 해당 영역을 캔버스에 복사
-    fctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-    fsCanvas.style.display = 'block'; // 캔버스 보이기
+    // 화면 경계 클램프
+    const sx = Math.max(0, Math.round(cx - cropW / 2));
+    const sy = Math.max(0, Math.round(cy - cropH / 2));
+    const sw = Math.min(vw - sx, Math.round(cropW));
+    const sh = Math.min(vh - sy, Math.round(cropH));
+
+    // 출력 캔버스 크기: 화면 88% 너비, 최대 46vh
+    const maxOutW = Math.round(window.innerWidth * 0.88);
+    const maxOutH = Math.round(window.innerHeight * 0.46);
+    const scale   = Math.min(maxOutW / sw, maxOutH / sh);
+    fsCanvas.width  = Math.round(sw * scale);
+    fsCanvas.height = Math.round(sh * scale);
+
+    fctx.imageSmoothingEnabled = true;
+    fctx.imageSmoothingQuality = 'high';
+    fctx.drawImage(video, sx, sy, sw, sh, 0, 0, fsCanvas.width, fsCanvas.height);
+
+    // 감지 박스 테두리 강조 표시 (accent 색상은 아래서 결정되므로 임시 흰색)
+    const bx = (x1 * vw - sx) * scale;
+    const by = (y1 * vh - sy) * scale;
+    const bw = boxW * scale;
+    const bh = boxH * scale;
+    fctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    fctx.lineWidth   = 3;
+    fctx.strokeRect(bx, by, bw, bh);
+
+    fsCanvas.style.display = 'block';
   } else {
-    fsCanvas.style.display = 'none'; // 비디오 불능 시 숨김
+    fsCanvas.style.display = 'none';
   }
 
   // 3. UI 스타일 및 테마 설정
@@ -298,12 +322,12 @@ function showFullscreen(sig, color) {
   fsVisible = true;
 
   // 5. 아이콘 및 텍스트 업데이트
-  const sz = 'min(72vw, 72vh)';
+  const sz = 'min(44vw, 44vh)';
   const fsCircle = document.getElementById('fs-circle');
   if (fsCircle) {
       Object.assign(fsCircle.style, {
-        width: sz, height: sz, background: accent, marginBottom: '6vh',
-        boxShadow: `0 0 60px 20px ${accent}88, 0 0 120px 40px ${accent}44`,
+        width: sz, height: sz, background: accent, marginBottom: '2vh',
+        boxShadow: `0 0 40px 14px ${accent}88, 0 0 80px 28px ${accent}44`,
       });
   }
 
@@ -316,7 +340,7 @@ function showFullscreen(sig, color) {
   const fsLabel = document.getElementById('fs-label');
   if (fsLabel) {
       Object.assign(fsLabel.style, {
-        fontSize: 'min(14vw,14vh)', color: accent, marginTop: '4vh',
+        fontSize: 'min(12vw,12vh)', color: accent, marginTop: '2vh',
         textShadow: `0 0 30px ${accent}`, letterSpacing: '-.02em',
       });
       fsLabel.textContent = label;
@@ -353,4 +377,3 @@ document.getElementById('fs').addEventListener('click', () => {
   document.getElementById('fs').classList.remove('show');
   fsVisible = false;
 });
-

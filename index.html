@@ -173,19 +173,20 @@
   <!-- 전체화면 오버레이 -->
   <div id="fs" class="fixed inset-0 z-[9999] flex-col items-center justify-center cursor-pointer"
     style="display:none">
-    <!-- 캡처 이미지 (감지된 박스 영역 — 상단 작게) -->
+    <!-- 캡처 이미지 (감지된 박스 + 주변부 크게) -->
     <canvas id="fs-canvas" style="
-      border-radius:12px;
-      max-width:40vw; max-height:22vh;
+      border-radius:16px;
+      max-width:88vw; max-height:46vh;
       object-fit:contain;
-      margin-bottom:2vh;
-      box-shadow:0 0 0 2px rgba(255,255,255,0.15);
+      margin-bottom:3vh;
+      box-shadow:0 0 0 2px rgba(255,255,255,0.12), 0 8px 32px rgba(0,0,0,0.6);
     "></canvas>
     <!-- 신호 색상 원 + 사람 아이콘 -->
     <div id="fs-circle" style="
       border-radius:50%;
       display:flex; align-items:center; justify-content:center;
       flex-shrink:0;
+      width:min(44vw,44vh); height:min(44vw,44vh);
     ">
       <svg id="fs-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"
         style="width:55%;height:55%">
