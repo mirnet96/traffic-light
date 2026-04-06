@@ -1,6 +1,11 @@
 /* ════════════════════════════════════
    camera.js — 카메라 · 스캔루프 · 야간 감지 · 색상 추정
    [개선] ROI 3종 순환 · 원거리 언샤프 마스크 · JPEG 품질 주입
+
+[개선] estimateSignalColor
+   - RGB -> HSV 변환으로 조명 변화에 대응
+   - 상/하단 영역 분할 분석으로 신호등 구조 활용
+   - 보행 신호등 특화 판정 (위: 빨강, 아래: 초록)
 ════════════════════════════════════ */
 
 import { loadModel, runYolo }          from './detector.js';
@@ -238,6 +243,7 @@ function startNightCheck() {
 /* ════════════════════════════════════
    신호등 색상 추정
 ════════════════════════════════════ */
+/*
 export function estimateSignalColor(box, W, H) {
   const [y1, x1, y2, x2] = box;
   const bx = Math.round(x1*W), by = Math.round(y1*H);
@@ -253,6 +259,92 @@ export function estimateSignalColor(box, W, H) {
     if (g > 80  && g > r * 1.2) return 'green';
     return 'unknown';
   } catch { return 'unknown'; }
+}
+*/
+
+/**
+ * [개선] RGB를 HSV로 변환하는 헬퍼 함수
+ */
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, v = max;
+  const d = max - min;
+  s = max === 0 ? 0 : d / max;
+
+  if (max === min) {
+    h = 0;
+  } else {
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return [h * 360, s, v]; // Hue(0~360), Saturation(0~1), Value(0~1)
+}
+
+/**
+ * [개선] 신호등 색상 추정 (영역 분할 + HSV 방식)
+ */
+export function _estimateColor(x1, y1, x2, y2) {
+  const W = proc.width, H = proc.height;
+  const bx = Math.round(x1 * W), by = Math.round(y1 * H);
+  const bw = Math.round((x2 - x1) * W), bh = Math.round((y2 - y1) * H);
+
+  if (bw < 5 || bh < 5) return 'unknown';
+
+  try {
+    const imgData = procCtx.getImageData(bx, by, bw, bh);
+    const px = imgData.data;
+
+    // 1. 상단(Upper)과 하단(Lower) 영역 분리
+    // 보행 신호등 특성상 위쪽은 빨강, 아래쪽은 초록일 확률이 높음
+    let topR = 0, topG = 0, topB = 0, topCnt = 0;
+    let botR = 0, botG = 0, botB = 0, botCnt = 0;
+    const midY = Math.floor(bh / 2);
+
+    for (let row = 0; row < bh; row++) {
+      for (let col = 0; col < bw; col++) {
+        const i = (row * bw + col) * 4;
+        if (row < midY) {
+          topR += px[i]; topG += px[i+1]; topB += px[i+2]; topCnt++;
+        } else {
+          botR += px[i]; botG += px[i+1]; botB += px[i+2]; botCnt++;
+        }
+      }
+    }
+
+    if (!topCnt || !botCnt) return 'unknown';
+
+    // 2. HSV 변환을 통한 정밀 판단
+    const [tH, tS, tV] = rgbToHsv(topR/topCnt, topG/topCnt, topB/topCnt);
+    const [bH, bS, bV] = rgbToHsv(botR/botCnt, botG/botCnt, botB/botCnt);
+
+    // 
+
+    // 3. 판정 로직
+    // 빨간색: Hue가 0~20 또는 340~360 범위이면서 채도(S)와 밝기(V)가 일정 수준 이상
+    const isTopRed = (tH < 25 || tH > 335) && tS > 0.3 && tV > 0.3;
+    
+    // 초록색: Hue가 100~170 범위이면서 채도(S)와 밝기(V)가 일정 수준 이상
+    const isBotGreen = (bH > 100 && bH < 180) && bS > 0.25 && bV > 0.3;
+
+    // 4. 최종 결과 도출
+    if (isTopRed && !isBotGreen) return 'red';
+    if (isBotGreen && !isTopRed) return 'green';
+    
+    // 만약 보행 신호등이 가로형이거나 특이 케이스일 경우 전체 평균으로 보조 판정
+    const [avgH, avgS, avgV] = rgbToHsv((topR+botR)/(topCnt+botCnt), (topG+botG)/(topCnt+botCnt), (topB+botB)/(topCnt+botCnt));
+    if ((avgH < 20 || avgH > 340) && avgS > 0.4) return 'red';
+    if ((avgH > 110 && avgH < 170) && avgS > 0.3) return 'green';
+
+    return 'unknown';
+  } catch (e) {
+    console.error('Color estimation error:', e);
+    return 'unknown';
+  }
 }
 
 /* ════════════════════════════════════
