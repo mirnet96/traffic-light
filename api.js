@@ -1,137 +1,115 @@
 /**
- * V2X 진단 및 데이터 통신 스크립트 (수정본)
+ * V2X 진단 및 주소 변환 통합 스크립트
  */
 
-// 1. 전역 변수 선언
 let userPos = { lat: null, lng: null };
 let userHeading = 0;
 const AUTH_KEY = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 
-// 2. 로그 함수 (가장 먼저 정의)
-function addLog(msg, type = 'info') {
-    const consoleBox = document.getElementById('logConsole');
-    if (!consoleBox) return;
-    const item = document.createElement('div');
-    item.className = `log-item ${type === 'error' ? 'text-red-500 font-bold' : 'text-neutral-400'}`;
-    const now = new Date();
-    item.innerText = `[${now.toLocaleTimeString()}] ${msg}`;
-    consoleBox.prepend(item);
-    console.log(`[V2X LOG] ${msg}`); // 브라우저 콘솔에도 출력
-}
-
-// 3. 버튼 이벤트 리스너 (DOMContentLoaded로 감싸서 확실히 로드된 후 실행)
-document.addEventListener('DOMContentLoaded', () => {
-    const startBtn = document.getElementById('startBtn');
+// 카카오 SDK 로드 완료 후 실행
+kakao.maps.load(() => {
+    addLog("카카오 SDK 로드 완료");
     
-    if (!startBtn) {
-        console.error("시작 버튼(startBtn)을 찾을 수 없습니다.");
-        return;
-    }
+    const startBtn = document.getElementById('startBtn');
+    if (!startBtn) return;
 
     startBtn.onclick = async function() {
-        addLog("버튼 클릭됨. 권한 요청 시작...");
+        addLog("진단 프로세스 시작...");
         
-        try {
-            // A. 위치 정보 권한 요청
-            if (!("geolocation" in navigator)) {
-                throw new Error("이 브라우저는 GPS를 지원하지 않습니다.");
-            }
-
-            navigator.geolocation.watchPosition(
-                (pos) => {
-                    userPos.lat = pos.coords.latitude;
-                    userPos.lng = pos.coords.longitude;
-                    
-                    document.getElementById('geoCoords').innerText = `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
-                    updateStepStatus('gps', 'success', 'Connected');
-                    
-                    // 카카오 주소 변환 (함수 분리)
-                    getAddressFromCoords(userPos.lat, userPos.lng);
-                },
-                (err) => {
-                    addLog(`GPS 오류: ${err.message}`, 'error');
-                    updateStepStatus('gps', 'error', 'Permission Denied');
-                },
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
-
-            // B. iOS 방위 권한 요청
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                addLog("iOS 방위 권한 요청 중...");
-                const res = await DeviceOrientationEvent.requestPermission();
-                addLog(`방위 권한 상태: ${res}`);
-            }
-
-            // C. 방위 이벤트 리스너 등록
-            window.addEventListener('deviceorientation', (e) => {
-                userHeading = e.webkitCompassHeading || (360 - e.alpha);
-                if (userHeading) {
-                    document.getElementById('headingInfo').innerText = `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
-                }
-            }, true);
-
-            // D. 주기적 데이터 요청 시작
-            addLog("실시간 데이터 동기화 시작 (2초 간격)");
-            setInterval(fetchData, 2000);
-
-            // 버튼 상태 변경
-            startBtn.disabled = true;
-            startBtn.classList.replace('bg-blue-600', 'bg-neutral-800');
-            startBtn.innerText = "진단 실행 중...";
-
-        } catch (error) {
-            addLog(`치명적 에러: ${error.message}`, 'error');
-            alert("에러 발생: " + error.message);
+        // 1. GPS 추적 시작
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(successGPS, errorGPS, { 
+                enableHighAccuracy: true,
+                timeout: 5000 
+            });
+        } else {
+            addLog("이 기기는 GPS를 지원하지 않습니다.", "error");
         }
+
+        // 2. 방향 센서 권한 (iOS)
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            const permission = await DeviceOrientationEvent.requestPermission();
+            addLog(`방향 센서 권한: ${permission}`);
+        }
+
+        window.addEventListener('deviceorientation', (e) => {
+            userHeading = e.webkitCompassHeading || (360 - e.alpha);
+            document.getElementById('headingInfo').innerText = `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
+        }, true);
+
+        // 3. 서버 통신 시작
+        setInterval(fetchV2XData, 2000);
+        
+        this.disabled = true;
+        this.innerText = "진단 중...";
     };
 });
 
-// 4. 보조 함수들
-function getAddressFromCoords(lat, lng) {
-    if (typeof kakao === 'undefined' || !kakao.maps.services) {
-        addLog("카카오 SDK 로드 실패", 'error');
-        return;
-    }
+// GPS 성공 콜백
+function successGPS(pos) {
+    userPos.lat = pos.coords.latitude;
+    userPos.lng = pos.coords.longitude;
+    
+    document.getElementById('geoCoords').innerText = `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
+    updateStepStatus('gps', 'success', '수신중');
+
+    // 주소 변환 실행
     const geocoder = new kakao.maps.services.Geocoder();
-    geocoder.coord2Address(lng, lat, (result, status) => {
+    geocoder.coord2Address(userPos.lng, userPos.lat, (result, status) => {
         if (status === kakao.maps.services.Status.OK) {
-            document.getElementById('geoAddress').innerText = result[0].address.address_name;
+            const addr = result[0].address.address_name;
+            document.getElementById('geoAddress').innerText = addr;
         }
     });
 }
 
-function updateStepStatus(stepId, status, text) {
-    const dot = document.getElementById(`step-${stepId}`);
-    const label = document.getElementById(`step-${stepId}-val`);
-    if (dot) dot.className = `status-dot dot-${status}`;
-    if (label) {
-        label.innerText = text;
-        label.className = `text-[10px] ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
-    }
+// GPS 실패 콜백
+function errorGPS(err) {
+    addLog(`GPS 수신 실패: ${err.message}`, "error");
+    updateStepStatus('gps', 'error', '실패');
 }
 
-async function fetchData() {
+// 서버 데이터 요청 (V2X)
+async function fetchV2XData() {
     if (!userPos.lat || !userHeading) return;
 
     try {
-        const url = `https://iot.klueware.com/api/v1/front-signal?lat=${userPos.lat}&lng=${userPos.lng}&heading=${userHeading}`;
-        const res = await fetch(url, { headers: { 'X-API-KEY': AUTH_KEY } });
+        // 확장된 5km 반경 로직이 적용된 PHP 엔드포인트 호출
+        const response = await fetch(`https://iot.klueware.com/api/v1/front-signal?lat=${userPos.lat}&lng=${userPos.lng}&heading=${userHeading}`, {
+            headers: { 'X-API-KEY': AUTH_KEY }
+        });
 
-        if (!res.ok) {
-            const err = await res.json();
-            updateStepStatus('nearby', 'error', 'No Match');
-            return;
+        const result = await response.json();
+
+        if (response.ok) {
+            updateStepStatus('nearby', 'success', result.itstNm);
+            updateStepStatus('signal', 'success', '수신완료');
+            updateSignalUI(result);
+        } else {
+            updateStepStatus('nearby', 'error', '매칭없음');
+            addLog(`서버 응답: ${result.message}`, "error");
         }
-
-        const data = await res.json();
-        updateStepStatus('nearby', 'success', data.itstNm);
-        updateStepStatus('signal', 'success', 'Received');
-        
-        // UI 업데이트 로직 (생략 - 이전과 동일)
-        updateSignalUI(data);
-
     } catch (e) {
-        console.error(e);
+        addLog(`통신 에러: ${e.message}`, "error");
+    }
+}
+
+// 기타 UI 보조 함수 (이전과 동일)
+function addLog(msg, type = 'info') {
+    const consoleBox = document.getElementById('logConsole');
+    const item = document.createElement('div');
+    item.className = `log-item ${type === 'error' ? 'text-red-500' : 'text-neutral-400'}`;
+    item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    consoleBox.prepend(item);
+}
+
+function updateStepStatus(stepId, status, text) {
+    const dot = document.getElementById(`step-${stepId}`);
+    const val = document.getElementById(`step-${stepId}-val`);
+    if(dot) dot.className = `status-dot dot-${status}`;
+    if(val) {
+        val.innerText = text;
+        val.className = `text-[10px] ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
     }
 }
 
