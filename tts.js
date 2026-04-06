@@ -1,8 +1,25 @@
+/* ════════════════════════════════════
+   tts.js — TTS 전담 (진행과정 + 신호 안내)
+
+   수정 이력:
+    - [경고] iOS Safari 백그라운드 복귀 시 speechSynthesis 멈춤 현상 대응
+             visibilitychange 이벤트로 포그라운드 복귀 시 resume() 호출
+════════════════════════════════════ */
+
 let _enabled  = true;
 let _cooldown = false;
 let _cdTimer  = null;
 
 export function setTtsEnabled(on) { _enabled = on; }
+
+/* ── [수정] iOS Safari 백그라운드 복귀 시 음성 재개 ── */
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && window.speechSynthesis) {
+      window.speechSynthesis.resume();
+    }
+  });
+}
 
 function _speak(text, cooldownMs = 0) {
   if (!_enabled || !window.speechSynthesis) return;

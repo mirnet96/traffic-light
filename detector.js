@@ -1,16 +1,21 @@
 /* ════════════════════════════════════
    detector.js — 서버 WebSocket 추론 모드
-   [개선] runYolo() quality 파라미터 추가 (ROI별 JPEG 품질 주입)
+
+   수정 이력:
+    - [개선] pending 중 새 프레임이 들어오면 더 최신 프레임으로 교체
+             (기존: 즉시 [] 반환으로 느린 네트워크에서 추론 중단)
+             단, 이미 전송된 요청은 취소할 수 없으므로
+             응답이 오면 최신 프레임 결과로 처리
 ════════════════════════════════════ */
 
 const WS_URL     = 'wss://supply.klueware.com/ws';
-const JPEG_Q     = 0.75;   // 기본 전송 화질
-const WS_TIMEOUT = 12000;  // 연결 대기 ms (모바일 네트워크 여유)
+const JPEG_Q     = 0.75;
+const WS_TIMEOUT = 12000;
 
 let _ws      = null;
 let _ready   = false;
 let _onDebug = null;
-let _pending = null;   // { resolve, reject, timer }
+let _pending = null;   // { resolve, reject, timer, cancelled }
 
 function dbg(msg) { _onDebug && _onDebug(msg); }
 
@@ -28,19 +33,20 @@ function connect(onBadge) {
 
   _ws.onmessage = (e) => {
     if (!_pending) return;
-    const { resolve, timer } = _pending;
+    const { resolve, timer, cancelled } = _pending;
     _pending = null;
     clearTimeout(timer);
+    if (cancelled) return;   // 교체된 pending — 결과 버림
     try {
       const { signals, error } = JSON.parse(e.data);
       if (error) dbg(`[ws] server error: ${error}`);
       resolve(signals || []);
-    } catch (err) {
+    } catch {
       resolve([]);
     }
   };
 
-  _ws.onerror = (e) => {
+  _ws.onerror = () => {
     dbg('[ws] error');
     _ready = false;
     onBadge('WS오류', 'text-red-400');
@@ -72,7 +78,6 @@ export async function loadModel(onMsg, onBadge, onDebug) {
   dbg(`[ws] target: ${WS_URL}`);
   connect(onBadge);
 
-  // 최대 WS_TIMEOUT ms 동안 연결 대기
   const t0 = Date.now();
   while (!_ready && Date.now() - t0 < WS_TIMEOUT) {
     await new Promise(r => setTimeout(r, 100));
@@ -85,17 +90,22 @@ export async function loadModel(onMsg, onBadge, onDebug) {
 
 /**
  * 캔버스를 JPEG으로 압축 후 WebSocket 전송
- * @param {HTMLCanvasElement} canvas
- * @param {number} W - 원본 영상 너비 (역변환용, 미사용이나 서명 유지)
- * @param {number} H - 원본 영상 높이 (역변환용, 미사용이나 서명 유지)
- * @param {number} [quality=JPEG_Q] - JPEG 압축 품질 (0.0~1.0)
+ *
+ * [개선] pending 중 새 프레임이 들어오면 이전 pending 을 cancelled 처리하고
+ *        최신 프레임을 재전송 — 느린 네트워크에서도 최신 결과를 반환
  */
 export async function runYolo(canvas, W, H, quality = JPEG_Q) {
   if (!_ready || !_ws || _ws.readyState !== WebSocket.OPEN) return [];
-  if (_pending) return [];   // 이전 프레임 응답 대기 중
 
   const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
   const buf  = await blob.arrayBuffer();
+
+  // [수정] 기존 pending 이 있으면 cancelled 마킹 후 새 요청으로 교체
+  if (_pending) {
+    _pending.cancelled = true;
+    clearTimeout(_pending.timer);
+    _pending = null;
+  }
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -103,8 +113,7 @@ export async function runYolo(canvas, W, H, quality = JPEG_Q) {
       dbg('[ws] frame timeout');
       resolve([]);
     }, 5000);
-    _pending = { resolve, reject, timer };
+    _pending = { resolve, reject, timer, cancelled: false };
     _ws.send(buf);
   });
 }
-
