@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>V2X 실시간 신호</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0">
+    <style>
+        body { background-color: #000; }
+        .signal-glow-green { box-shadow: 0 0 40px rgba(16, 185, 129, 0.2); }
+        .signal-glow-red { box-shadow: 0 0 40px rgba(239, 68, 68, 0.2); }
+    </style>
+</head>
+<body class="bg-black text-white font-sans max-w-[480px] mx-auto h-[100dvh] flex flex-col overflow-hidden">
+
+    <div id="topbar" class="flex items-center gap-1.5 px-2.5 py-2 bg-black/85 border-b border-white/10 shrink-0 min-w-0">
+        <span class="material-symbols-rounded text-amber-500 text-xl">sensors</span>
+        <span class="text-[13px] font-medium whitespace-nowrap">V2X 데이터 모드</span>
+        <span id="connectionStatus" class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-900/30 text-emerald-400 border border-emerald-500/20">연결됨</span>
+        
+        <div class="flex-1"></div>
+
+        <a href="index.html" class="flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-md bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors whitespace-nowrap shrink-0 border border-white/10">
+            <span class="material-symbols-rounded text-sm leading-none">center_focus_strong</span>
+            <span>AI 모드</span>
+        </a>
+    </div>
+
+    <main class="flex-1 flex flex-col items-center justify-center p-6 gap-8 overflow-y-auto">
+        
+        <div id="signalCircle" class="relative w-64 h-64 rounded-full border-[10px] border-neutral-900 flex flex-col items-center justify-center transition-all duration-500 bg-neutral-900/30 shadow-2xl">
+            <span id="signalIcon" class="material-symbols-rounded !text-6xl mb-1 text-neutral-700">directions_walk</span>
+            <div id="timer" class="text-8xl font-black tracking-tighter tabular-nums text-neutral-700">--</div>
+            <div id="statusText" class="text-xs font-bold uppercase tracking-widest text-neutral-500 mt-2">위치 탐색 중</div>
+            <div id="glow" class="absolute inset-0 rounded-full opacity-10 transition-all duration-500"></div>
+        </div>
+
+        <div class="w-full space-y-2.5">
+            <div class="bg-neutral-900/80 p-4 rounded-2xl border border-white/5 flex items-center gap-4">
+                <span class="material-symbols-rounded text-blue-400 bg-blue-400/10 p-2 rounded-xl">location_on</span>
+                <div class="min-w-0">
+                    <p class="text-[10px] text-neutral-500 font-bold uppercase">현재 교차로</p>
+                    <p id="crossroadName" class="text-sm font-bold truncate text-neutral-200">주변 신호등을 찾는 중...</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+                <div class="bg-neutral-900/80 p-3.5 rounded-2xl border border-white/5 flex items-center gap-3">
+                    <span class="material-symbols-rounded text-neutral-500 text-xl">explore</span>
+                    <div class="min-w-0">
+                        <p class="text-[9px] text-neutral-500 font-bold uppercase leading-none mb-1">내 방위</p>
+                        <p id="headingVal" class="text-xs font-mono font-bold truncate">0° --</p>
+                    </div>
+                </div>
+                <div class="bg-neutral-900/80 p-3.5 rounded-2xl border border-white/5 flex items-center gap-3">
+                    <span class="material-symbols-rounded text-neutral-500 text-xl">near_me</span>
+                    <div class="min-w-0">
+                        <p class="text-[9px] text-neutral-500 font-bold uppercase leading-none mb-1">진행 방향</p>
+                        <p id="directionCode" class="text-xs font-mono font-bold uppercase truncate">READY</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button id="startBtn" class="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white py-4 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
+            <span class="material-symbols-rounded">sensors</span>
+            실시간 데이터 수신 시작
+        </button>
+    </main>
+
+    <footer class="p-4 border-t border-white/5 bg-black">
+        <p class="text-[9px] text-neutral-600 text-center leading-tight uppercase tracking-widest font-medium">
+            Seoul V2X Real-time Signal Data<br>ⓒ Open Data Plaza
+        </p>
+    </footer>
+
+    <script src="api.js"></script>
+</body>
+</html>
