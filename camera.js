@@ -286,66 +286,74 @@ function rgbToHsv(r, g, b) {
 }
 
 /**
- * [개선] 신호등 색상 추정 (영역 분할 + HSV 방식)
+ * [개선] estimateSignalColor (3단 세로형 신호등 대응)
+ * 1단: 빨강 / 2단: 초록 / 3단: 숫자(초록/빨강)
  */
-export function _estimateColor(x1, y1, x2, y2) {
+export function estimateSignalColor(x1, y1, x2, y2) {
   const W = proc.width, H = proc.height;
-  const bx = Math.round(x1 * W), by = Math.round(y1 * H);
-  const bw = Math.round((x2 - x1) * W), bh = Math.round((y2 - y1) * H);
+  const bx = Math.max(0, Math.round(x1 * W)), by = Math.max(0, Math.round(y1 * H));
+  const bw = Math.min(W - bx, Math.round((x2 - x1) * W)), bh = Math.min(H - by, Math.round((y2 - y1) * H));
 
-  if (bw < 5 || bh < 5) return 'unknown';
+  if (bw < 4 || bh < 4) return 'unknown';
 
   try {
     const imgData = procCtx.getImageData(bx, by, bw, bh);
     const px = imgData.data;
 
-    // 1. 상단(Upper)과 하단(Lower) 영역 분리
-    // 보행 신호등 특성상 위쪽은 빨강, 아래쪽은 초록일 확률이 높음
-    let topR = 0, topG = 0, topB = 0, topCnt = 0;
-    let botR = 0, botG = 0, botB = 0, botCnt = 0;
-    const midY = Math.floor(bh / 2);
+    // 영역을 3등분하여 분석 (1단: 0~33%, 2단: 34~66%, 3단: 67~100%)
+    let section = [
+      { r: 0, g: 0, b: 0, cnt: 0 }, // 1단 (Top)
+      { r: 0, g: 0, b: 0, cnt: 0 }, // 2단 (Mid)
+      { r: 0, g: 0, b: 0, cnt: 0 }  // 3단 (Bot)
+    ];
 
     for (let row = 0; row < bh; row++) {
+      let idx = 0;
+      if (row > bh * 0.66) idx = 2;      // 3단
+      else if (row > bh * 0.33) idx = 1; // 2단
+      
       for (let col = 0; col < bw; col++) {
         const i = (row * bw + col) * 4;
-        if (row < midY) {
-          topR += px[i]; topG += px[i+1]; topB += px[i+2]; topCnt++;
-        } else {
-          botR += px[i]; botG += px[i+1]; botB += px[i+2]; botCnt++;
-        }
+        section[idx].r += px[i];
+        section[idx].g += px[i+1];
+        section[idx].b += px[i+2];
+        section[idx].cnt++;
       }
     }
 
-    if (!topCnt || !botCnt) return 'unknown';
+    // 각 단별 HSV 변환 및 판정
+    const results = section.map(s => {
+      if (s.cnt === 0) return { h: 0, s: 0, v: 0 };
+      return rgbToHsv(s.r / s.cnt, s.g / s.cnt, s.b / s.cnt);
+    });
 
-    // 2. HSV 변환을 통한 정밀 판단
-    const [tH, tS, tV] = rgbToHsv(topR/topCnt, topG/topCnt, topB/topCnt);
-    const [bH, bS, bV] = rgbToHsv(botR/botCnt, botG/botCnt, botB/botCnt);
+    const [h1, s1, v1] = results[0]; // 1단
+    const [h2, s2, v2] = results[1]; // 2단
+    const [h3, s3, v3] = results[2]; // 3단
 
-    // 
-
-    // 3. 판정 로직
-    // 빨간색: Hue가 0~20 또는 340~360 범위이면서 채도(S)와 밝기(V)가 일정 수준 이상
-    const isTopRed = (tH < 25 || tH > 335) && tS > 0.3 && tV > 0.3;
+    // --- 판정 로직 ---
     
-    // 초록색: Hue가 100~170 범위이면서 채도(S)와 밝기(V)가 일정 수준 이상
-    const isBotGreen = (bH > 100 && bH < 180) && bS > 0.25 && bV > 0.3;
-
-    // 4. 최종 결과 도출
-    if (isTopRed && !isBotGreen) return 'red';
-    if (isBotGreen && !isTopRed) return 'green';
+    // 1. 빨간불 (1단이 빨간색)
+    const isRed1 = (h1 < 25 || h1 > 335) && s1 > 0.3 && v1 > 0.3;
     
-    // 만약 보행 신호등이 가로형이거나 특이 케이스일 경우 전체 평균으로 보조 판정
-    const [avgH, avgS, avgV] = rgbToHsv((topR+botR)/(topCnt+botCnt), (topG+botG)/(topCnt+botCnt), (topB+botB)/(topCnt+botCnt));
-    if ((avgH < 20 || avgH > 340) && avgS > 0.4) return 'red';
-    if ((avgH > 110 && avgH < 170) && avgS > 0.3) return 'green';
+    // 2. 초록불 (2단이 초록색이거나, 3단 숫자판이 초록색인 경우)
+    const isGreen2 = (h2 > 100 && h2 < 185) && s2 > 0.25 && v2 > 0.3;
+    const isGreen3 = (h3 > 100 && h3 < 185) && s3 > 0.2 && v3 > 0.3; // 숫자 카운트
+
+    // 최종 결정
+    if (isGreen2 || isGreen3) {
+      return 'green'; // 2단 또는 3단(숫자)이 초록색이면 보행 신호
+    }
+    if (isRed1) {
+      return 'red';   // 1단이 빨간색이면 정지 신호
+    }
 
     return 'unknown';
   } catch (e) {
-    console.error('Color estimation error:', e);
     return 'unknown';
   }
 }
+
 
 /* ════════════════════════════════════
    라플라시안 언샤프 마스크 (내부 유틸)
