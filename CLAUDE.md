@@ -50,7 +50,8 @@ https://cdn.jsdelivr.net
 traffic-light/
 ├── index.html          — 구조·설정 화면·Tailwind 클래스
 ├── style.css           — 커스텀 스타일 (토글 스위치 포함)
-├── app.js              — 진입점·카메라·스캔루프·전체화면·이벤트
+├── app.js              — 진입점·이벤트
+├── camera.js           — 카메라·스캔루프·ROI·야간 감지·색상 추정
 ├── ui.js               — setPhase·badge·PiP·fps·scanMsg·야간·디버그
 ├── tts.js              — TTS 전담 (진행과정 + 신호 안내)
 ├── recorder.js         — MediaRecorder 녹화 전담
@@ -60,6 +61,7 @@ traffic-light/
 ├── detector.mediapipe.js — MediaPipe 추론 (예비)
 ├── local-detector.js   — 로컬 YOLO 래퍼 (예비)
 ├── renderer.js         — drawBoxes·renderCards
+├── fullscreen.js       — 전체화면 초해상도 렌더
 ├── README.md
 └── CLAUDE.md
 ```
@@ -68,7 +70,8 @@ traffic-light/
 
 | 파일 | 역할 | 상한 |
 |---|---|---|
-| `app.js` | 진입점·카메라·스캔루프·전체화면·이벤트 | 400줄 |
+| `app.js` | 진입점·이벤트 | 60줄 |
+| `camera.js` | 카메라·스캔루프·ROI·야간 감지·색상 추정 | 180줄 |
 | `ui.js` | setPhase·badge·PiP·fps·scanMsg·야간·디버그 패널 | 200줄 |
 | `tts.js` | TTS 전담 (진행과정·순환문구·신호 안내) | 80줄 |
 | `recorder.js` | MediaRecorder 녹화·다운로드 | 60줄 |
@@ -76,12 +79,14 @@ traffic-light/
 | `detector.js` | WebSocket 연결·send·receive | 100줄 |
 | `detector.yolo.js` | YOLOv8s 로드·Letterbox·추론·NMS | 140줄 |
 | `renderer.js` | drawBoxes·renderCards | 100줄 |
+| `fullscreen.js` | 전체화면 초해상도 렌더·열기·닫기 | 120줄 |
 
 ### 역할 분리 원칙
 
 - `index.html` — 구조와 Tailwind 클래스만. 인라인 스타일 금지.
 - `style.css` — Tailwind 불가 항목만 (토글 스위치, PiP, 스캔라인 등).
-- `app.js` — 모듈 조합 진입점. 전체화면 초해상도 처리 포함.
+- `app.js` — 모듈 조합 진입점. 이벤트 등록만.
+- `camera.js` — 카메라·스캔루프·ROI 처리·야간 감지·색상 추정 전담.
 - `ui.js` — DOM 조작 전담. `showDebug` DOM 유일 소유. 디버그 패널 포함.
 - `tts.js` — DOM 접근 금지. `speechSynthesis` 만 사용.
 - `recorder.js` — `MediaRecorder` 전담. `fs-rec-badge` DOM만 접근 허용.
@@ -89,6 +94,7 @@ traffic-light/
 - `detector.js` — WebSocket 전담. DOM 접근 금지 (디버그 콜백으로 위임).
 - `detector.yolo.js` — YOLOv8s 전용. DOM 접근 완전 금지.
 - `renderer.js` — 그리기만. `onEmpty` 콜백으로 빈 상태 위임.
+- `fullscreen.js` — 전체화면 렌더 전담. `ttsSignal` · `getNightMode` 사용 허용.
 
 ---
 
@@ -105,7 +111,7 @@ traffic-light/
 | 항목 | 값 |
 |---|---|
 | 엔드포인트 | `wss://supply.klueware.com/ws` |
-| 전송 포맷 | JPEG ArrayBuffer (q=0.75) |
+| 전송 포맷 | JPEG ArrayBuffer (ROI별 품질 가변) |
 | 수신 포맷 | JSON `{ signals: [...], error?: string }` |
 | 연결 실패 | 3초 후 자동 재연결 |
 | 프레임 타임아웃 | 5000ms |
@@ -193,34 +199,46 @@ traffic-light/
 
 ```
 매 120ms:
-  1. procCtx.drawImage(video)         // 프레임 캡처
-  2. canvas.toBlob(q=0.75)            // JPEG 압축
-  3. ws.send(ArrayBuffer)             // 서버 전송
-  4. 응답 수신 { signals }
-  5. tickFps()
-  6. updateScanBadge(signals)
-  7. drawBoxes(overlay, signals)
-  8. signals.length > 0 && !fsVisible
+  1. procCtx.drawImage(video)              // 프레임 캡처
+  2. ROI 3종 순환 (_roiPhase % 3)
+       0: 상단 55% 확대 → sharpen(0.4) → JPEG q=0.88  (원거리)
+       1: 전체 프레임 →                   JPEG q=0.75  (근거리)
+       2: 20%~70% 스트립 확대 →           JPEG q=0.82  (중간 거리)
+  3. roiCanvas.toBlob(q) → ws.send()      // ROI별 JPEG 품질로 전송
+  4. 응답 수신 { signals } + 좌표 역변환
+  5. flickering 방지: 빈 결과면 _prevSignals 1프레임 유지
+  6. tickFps()
+  7. updateScanBadge(signals)
+  8. drawBoxes(overlay, signals)
+  9. signals.length > 0
        → estimateSignalColor()
-       → showFullscreen(sig, color)   // 자동 전체화면 (초해상도)
+       → updateFullscreen(sig, color)      // 자동 전체화면 (초해상도)
        → ttsSignal(sig, color)
-  9. renderCards(signals, onTap, showDetEmpty)
-  10. drawPip(proc, overlay)
+  10. renderCards(signals, onTap, showDetEmpty)
+  11. drawPip(proc, overlay)
 ```
+
+### ROI 3종 순환 상세
+
+| phase | 영역 | 확대 | 샤프닝 | JPEG 품질 | 역변환 수식 |
+|---|---|---|---|---|---|
+| 0 | 상단 0~55% | O | O (str=0.4) | 0.88 | `y_orig = y_roi × 0.55` |
+| 1 | 전체 0~100% | — | — | 0.75 | `y_orig = y_roi × 1.0` |
+| 2 | 20%~70% 스트립 | O | — | 0.82 | `y_orig = y_roi × 0.50 + 0.20` |
 
 ### 전체화면 자동 표시
 
-감지 즉시 자동으로 전체화면 표시. `fsVisible` 플래그로 중복 갱신 방지.
-탭하면 닫힘 → `fsVisible = false`.
+감지 즉시 자동으로 전체화면 표시. `_fsVisible` 플래그로 중복 갱신 방지.
+탭하면 닫힘 → `_fsVisible = false`.
 
 ---
 
-## 전체화면 표시 (showFullscreen)
+## 전체화면 표시 (fullscreen.js — showFullscreen)
 
 **UI 구성:** `#fs-canvas` 단독으로 화면 전체를 덮음.
 원형 아이콘·사람 SVG·신호등 텍스트 없음. 신뢰도 % 만 우하단에 작게 표시.
 
-**초해상도 처리 파이프라인 (`app.js — showFullscreen`):**
+**초해상도 처리 파이프라인:**
 
 ```
 1. 크롭  — 박스 중심 기준 2.8배 패딩 영역 (최소 80px)
@@ -255,11 +273,11 @@ traffic-light/
 // 열기 (자동 — 감지 즉시)
 fs.style.display = 'flex';
 fs.classList.add('show');
-fsVisible = true;
+_fsVisible = true;
 
 // 닫기 (탭)
 fs.classList.remove('show');
-fsVisible = false;
+_fsVisible = false;
 // style.display = 'none' 직접 세팅 금지
 ```
 
@@ -270,7 +288,7 @@ fsVisible = false;
 전체화면 표시 직전 `procCtx.getImageData` 로 박스 영역 픽셀 샘플링.
 
 ```js
-// app.js — estimateSignalColor(box, W, H)
+// camera.js — estimateSignalColor(box, W, H)
 // 반환값: 'red' | 'green' | 'unknown'
 if (r > 100 && r > g * 1.5) return 'red';
 if (g > 80  && g > r * 1.2) return 'green';
@@ -295,12 +313,16 @@ return 'unknown';
 ## 핵심 상수
 
 ```js
-// app.js
-SCAN_MS    = 120
-NIGHT_THR  = 60
-FS_PAD     = 2.8      // 전체화면 크롭 배율
-FS_SCALE   = 4        // 업스케일 배율
-FS_SHARP   = 0.55     // 샤프닝 강도
+// camera.js
+SCAN_MS      = 120
+NIGHT_THR    = 60
+ROI_JPEG_Q   = [0.88, 0.75, 0.82]   // phase 0·1·2 품질
+ROI_SHARPEN  = 0.4                   // phase 0 언샤프 마스크 강도
+
+// fullscreen.js
+FS_PAD    = 2.8      // 전체화면 크롭 배율
+FS_SCALE  = 4        // 업스케일 배율
+FS_SHARP  = 0.55     // 샤프닝 강도
 
 // ui.js
 PIP_SM    = { w:120, h:80  }
@@ -319,7 +341,7 @@ TTS_LANG        = 'ko-KR'
 
 // detector.js
 WS_URL      = 'wss://supply.klueware.com/ws'
-JPEG_Q      = 0.75
+JPEG_Q      = 0.75   // 기본값 (runYolo quality 파라미터 기본)
 WS_TIMEOUT  = 12000
 ```
 
@@ -343,7 +365,7 @@ WS_TIMEOUT  = 12000
 ## 디버그 패널 규칙
 
 - `debug-overlay` DOM 생성·조작은 `ui.js` 전용 (`showDebug` 함수)
-- `app.js` 에서 `showDebug` import 후 사용
+- `camera.js` 에서 `showDebug` import 후 사용
 - `detector.js` 는 `onDebug` 콜백으로 주입받아 사용 (DOM 직접 접근 금지)
 - `recorder.js` 는 `setRecorderDebug(fn)` 으로 콜백 주입
 - 디버그 ON 상태에서만 `debug-overlay` 생성
@@ -373,11 +395,12 @@ WS_TIMEOUT  = 12000
 ## Canvas / Context 규칙
 
 ```js
-const procCtx = proc.getContext('2d', { willReadFrequently: true }); // app.js에서만
+const procCtx = proc.getContext('2d', { willReadFrequently: true }); // camera.js에서만
 const pipCtx  = pip.getContext('2d');                                 // ui.js에서만
 // overlay context는 매번 getContext('2d') — willReadFrequently 불필요
 // proc.getContext('2d') 직접 호출 금지 — procCtx 재사용
-// showFullscreen 내 중간 캔버스(mid)는 createElement('canvas')로 생성, 재사용 안 함
+// fullscreen.js 내 중간 캔버스(mid)는 createElement('canvas')로 생성, 재사용 안 함
+// _sharpen() 내 중간 버퍼는 Uint8ClampedArray — 캔버스 생성 없음
 ```
 
 ---
@@ -385,7 +408,7 @@ const pipCtx  = pip.getContext('2d');                                 // ui.js�
 ## 인터벌 관리
 
 ```js
-// app.js
+// camera.js
 let scanTimer  = null;  // setTimeout 기반 → clearTimeout
 let nightTimer = null;  // setInterval 기반 → clearInterval
 
@@ -443,7 +466,7 @@ renderCards(signals, onTap, onEmpty)
 - 파일당 라인 수 상한 준수
 - topbar 한 줄 유지
 - `#fs` 닫기 시 `style.display='none'` 직접 세팅 금지
-- `proc.getContext('2d')` 직접 호출 금지 — `procCtx` 재사용
+- `proc.getContext('2d')` 직접 호출 금지 — `procCtx` 재사용 (camera.js)
 - `scanTimer` → `clearTimeout` / `nightTimer`, `_scanMsgTimer` → `clearInterval`
 - `drawPip(proc, overlay)` 는 스캔 루프 마지막에만 호출
 - `det-empty` 텍스트는 `.scan-msg-text` span만 변경
@@ -451,7 +474,9 @@ renderCards(signals, onTap, onEmpty)
 - `tts.js` DOM 접근 완전 금지 — `speechSynthesis` 만 사용
 - `recorder.js` 는 `#fs-rec-badge` 외 DOM 접근 금지
 - TTS 진행 과정 발화는 쿨다운 없음 / 신호 감지 발화는 4초 쿨다운
-- `showFullscreen` 내 중간 캔버스(`mid`)는 매번 `createElement`로 생성 (재사용 금지)
+- `fullscreen.js` 내 중간 캔버스(`mid`)는 매번 `createElement`로 생성 (재사용 금지)
+- `_sharpen()` 내 버퍼는 `Uint8ClampedArray` 직접 사용 — 캔버스 추가 생성 금지
+- ROI 역변환은 `camera.js` 스캔 루프 내에서만 처리
 - `PERSON_SVG` 상수는 현재 미사용 — 삭제 가능 (하위 호환 보존 중)
 
 ---
@@ -466,3 +491,4 @@ renderCards(signals, onTap, onEmpty)
 - [ ] 접근성: 고대비 모드, 폰트 크기 설정
 - [ ] TTS 속도·음량 사용자 조절
 - [ ] WebGL 기반 초해상도 (현재 Canvas 2D 라플라시안 → GPU 가속)
+- [ ] ROI phase별 서버 응답 신뢰도 통계 수집 → 동적 품질 조정

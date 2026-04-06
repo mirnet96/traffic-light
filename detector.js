@@ -1,10 +1,10 @@
 /* ════════════════════════════════════
    detector.js — 서버 WebSocket 추론 모드
-   detector.yolo.js 의존 없음 (TF.js 불필요)
+   [개선] runYolo() quality 파라미터 추가 (ROI별 JPEG 품질 주입)
 ════════════════════════════════════ */
 
 const WS_URL     = 'wss://supply.klueware.com/ws';
-const JPEG_Q     = 0.75;   // 전송 화질
+const JPEG_Q     = 0.75;   // 기본 전송 화질
 const WS_TIMEOUT = 12000;  // 연결 대기 ms (모바일 네트워크 여유)
 
 let _ws      = null;
@@ -23,7 +23,7 @@ function connect(onBadge) {
   _ws.onopen = () => {
     _ready = true;
     dbg('[ws] connected');
-    onBadge('서버', 'text-green-400');  // 짧게 — topbar 넘침 방지
+    onBadge('서버', 'text-green-400');
   };
 
   _ws.onmessage = (e) => {
@@ -43,14 +43,14 @@ function connect(onBadge) {
   _ws.onerror = (e) => {
     dbg('[ws] error');
     _ready = false;
-    onBadge('WS오류', 'text-red-400');  // 짧게
+    onBadge('WS오류', 'text-red-400');
     _rejectPending('ws error');
   };
 
   _ws.onclose = () => {
     _ready = false;
     dbg('[ws] closed — reconnect in 3s');
-    onBadge('재연결', 'text-yellow-400');  // 짧게
+    onBadge('재연결', 'text-yellow-400');
     _rejectPending('ws closed');
     setTimeout(() => connect(onBadge), 3000);
   };
@@ -83,12 +83,18 @@ export async function loadModel(onMsg, onBadge, onDebug) {
   }
 }
 
-export async function runYolo(canvas, W, H) {
+/**
+ * 캔버스를 JPEG으로 압축 후 WebSocket 전송
+ * @param {HTMLCanvasElement} canvas
+ * @param {number} W - 원본 영상 너비 (역변환용, 미사용이나 서명 유지)
+ * @param {number} H - 원본 영상 높이 (역변환용, 미사용이나 서명 유지)
+ * @param {number} [quality=JPEG_Q] - JPEG 압축 품질 (0.0~1.0)
+ */
+export async function runYolo(canvas, W, H, quality = JPEG_Q) {
   if (!_ready || !_ws || _ws.readyState !== WebSocket.OPEN) return [];
   if (_pending) return [];   // 이전 프레임 응답 대기 중
 
-  // canvas → JPEG Blob → ArrayBuffer
-  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', JPEG_Q));
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
   const buf  = await blob.arrayBuffer();
 
   return new Promise((resolve, reject) => {
@@ -101,3 +107,4 @@ export async function runYolo(canvas, W, H) {
     _ws.send(buf);
   });
 }
+
