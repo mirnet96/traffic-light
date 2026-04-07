@@ -5,9 +5,6 @@ let fetchTimer  = null;
 const AUTH_KEY  = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 const API_BASE  = 'https://iot.klueware.com/api/v1';
 
-// Kakao JS SDK 없이 index.html에서도 동작하도록
-// <script src="//dapi.kakao.com/..."> 라인을 index.html / api.html 에서 제거해도 됩니다
-
 document.addEventListener('DOMContentLoaded', () => {
     addLog('진단 준비 완료. 버튼을 눌러 시작하세요.');
 
@@ -17,9 +14,10 @@ document.addEventListener('DOMContentLoaded', () => {
     startBtn.onclick = async function () {
         this.disabled = true;
         this.innerText = '진단 중...';
+        this.classList.add('opacity-50');
         addLog('진단 프로세스 시작...');
 
-        // iOS 방향 센서 권한
+        // iOS 방향 센서 권한 요청
         if (typeof DeviceOrientationEvent !== 'undefined' &&
             typeof DeviceOrientationEvent.requestPermission === 'function') {
             try {
@@ -30,23 +28,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // 방향 센서 리스너 등록
         window.addEventListener('deviceorientation', (e) => {
             userHeading = e.webkitCompassHeading != null
                 ? e.webkitCompassHeading
                 : (360 - (e.alpha || 0));
-            document.getElementById('headingInfo').innerText =
-                `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
+            
+            const headingInfoEl = document.getElementById('headingInfo');
+            if (headingInfoEl) {
+                headingInfoEl.innerText = `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
+            }
         }, true);
 
+        // GPS 위치 추적 시작
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition(successGPS, errorGPS, {
                 enableHighAccuracy: true,
                 timeout: 10000,
+                maximumAge: 0
             });
         } else {
-            addLog('GPS 미지원', 'error');
+            addLog('GPS 미지원 브라우저입니다.', 'error');
+            updateStepStatus('gps', 'error', '지원불가');
         }
 
+        // 데이터 페칭 루프 시작
         scheduleFetch();
     };
 });
@@ -56,18 +62,20 @@ function scheduleFetch() {
     fetchTimer = setTimeout(async () => {
         await fetchV2XData();
         scheduleFetch();
-    }, 2000);
+    }, 2000); // 2초 간격 갱신
 }
 
 function successGPS(pos) {
     userPos.lat = pos.coords.latitude;
     userPos.lng = pos.coords.longitude;
 
-    document.getElementById('geoCoords').innerText =
-        `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
+    const geoCoordsEl = document.getElementById('geoCoords');
+    if (geoCoordsEl) {
+        geoCoordsEl.innerText = `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
+    }
     updateStepStatus('gps', 'success', '수신중');
 
-    // Kakao JS SDK 대신 백엔드 프록시로 역지오코딩
+    // 백엔드 프록시를 통한 주소 변환
     reverseGeocodeViaProxy(userPos.lat, userPos.lng);
 }
 
@@ -76,54 +84,65 @@ function errorGPS(err) {
     updateStepStatus('gps', 'error', '실패');
 }
 
-// 백엔드 프록시를 통한 역지오코딩 (Kakao JS SDK 불필요)
 async function reverseGeocodeViaProxy(lat, lng) {
     try {
-        const res  = await fetch(`${API_BASE}/geocode?lat=${lat}&lng=${lng}`, {
+        const res = await fetch(`${API_BASE}/geocode?lat=${lat}&lng=${lng}`, {
             headers: { 'X-API-KEY': AUTH_KEY }
         });
+        if (!res.ok) throw new Error('Network response was not ok');
         const data = await res.json();
         const addr = data?.documents?.[0]?.address?.address_name;
-        document.getElementById('geoAddress').innerText = addr || '주소 없음';
+        document.getElementById('geoAddress').innerText = addr || '주소 정보 없음';
     } catch (e) {
         document.getElementById('geoAddress').innerText = '주소 변환 실패';
-        addLog(`역지오코딩 에러: ${e.message}`, 'error');
     }
 }
 
+/**
+ * 서버 API 규격에 맞춘 V2X 데이터 통신
+ */
 async function fetchV2XData() {
     if (userPos.lat === null || userHeading === null) return;
 
-    const url = `${API_BASE}/front-signal` +
-        `?lat=${userPos.lat}&lng=${userPos.lng}&heading=${Math.round(userHeading)}`;
+    // 1. 먼저 주변 교차로를 찾습니다 (/nearby)
+    // 서버 응답이 [ {id: "101", ...}, ... ] 형태인 것을 가정합니다.
+    const nearbyUrl = `${API_BASE}/nearby?lat=${userPos.lat}&lng=${userPos.lng}&radius=1000`;
 
     try {
-        const res = await fetch(url, { headers: { 'X-API-KEY': AUTH_KEY } });
+        const nearbyRes = await fetch(nearbyUrl, { headers: { 'X-API-KEY': AUTH_KEY } });
+        const intersections = await nearbyRes.json();
 
-        const ct = res.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) {
-            const txt = await res.text();
-            addLog(`비정상 응답: ${txt.substring(0, 80)}`, 'error');
-            updateStepStatus('signal', 'error', '에러');
+        if (!Array.isArray(intersections) || intersections.length === 0) {
+            updateStepStatus('nearby', 'error', '근처 없음');
+            updateStepStatus('signal', 'error', '대기');
             resetSignalUI();
             return;
         }
 
-        const result = await res.json();
+        // 가장 가까운 교차로 선택
+        const target = intersections[0];
+        const itstId = target.id || target.itstId;
+        const itstNm = target.n || target.itstNm || '알 수 없는 교차로';
 
-        if (res.ok) {
-            updateStepStatus('nearby', 'success', result.itstNm || '매칭됨');
+        updateStepStatus('nearby', 'success', itstNm);
+
+        // 2. 선택된 교차로의 신호 정보를 가져옵니다 (/signal/{id})
+        const signalUrl = `${API_BASE}/signal/${itstId}`;
+        const signalRes = await fetch(signalUrl, { headers: { 'X-API-KEY': AUTH_KEY } });
+        const signalData = await signalRes.json();
+
+        if (signalData && signalData.status === 'success') {
             updateStepStatus('signal', 'success', '수신완료');
-            updateSignalUI(result);
+            updateSignalUI(signalData);
         } else {
-            updateStepStatus('nearby', 'error', '매칭없음');
-            updateStepStatus('signal', 'error', '없음');
-            addLog(`서버: ${result.message || JSON.stringify(result)}`, 'error');
+            updateStepStatus('signal', 'error', '데이터없음');
+            addLog(`신호 데이터 없음: ${itstNm}`, 'info');
             resetSignalUI();
         }
+
     } catch (e) {
         addLog(`통신 에러: ${e.message}`, 'error');
-        updateStepStatus('signal', 'error', '에러');
+        updateStepStatus('signal', 'error', '통신오류');
         resetSignalUI();
     }
 }
@@ -133,43 +152,62 @@ function updateSignalUI(data) {
     const statusEl = document.getElementById('statusText');
     const glowEl   = document.getElementById('glow');
     const cardEl   = document.getElementById('signalCard');
-    const phase    = (data.phase || '').toLowerCase();
+    
+    // 데이터 구조에 따른 필드 매핑 (phaseNm 또는 phase)
+    const phaseRaw = data.phase || '';
+    const phase    = phaseRaw.toLowerCase();
+    const remain   = data.remainSec != null ? data.remainSec : '--';
 
-    timerEl.innerText = data.remainSec != null ? data.remainSec : '--';
+    if (timerEl) timerEl.innerText = remain;
 
-    if (phase === 'green') {
-        timerEl.style.color      = '#00ee44';
-        statusEl.innerText       = '보행 신호 — 건너도 됩니다';
-        statusEl.style.color     = '#00ee44';
-        glowEl.style.background  = 'radial-gradient(ellipse at center, #00ee4420 0%, transparent 70%)';
-        cardEl.style.borderColor = '#00ee4430';
-    } else if (phase === 'red') {
-        timerEl.style.color      = '#ff3322';
-        statusEl.innerText       = '정지 신호 — 기다려 주세요';
-        statusEl.style.color     = '#ff3322';
-        glowEl.style.background  = 'radial-gradient(ellipse at center, #ff332220 0%, transparent 70%)';
-        cardEl.style.borderColor = '#ff332230';
+    if (phase.includes('green')) {
+        if (timerEl) timerEl.style.color = '#00ee44';
+        if (statusEl) {
+            statusEl.innerText = '보행 신호 — 건너도 됩니다';
+            statusEl.style.color = '#00ee44';
+        }
+        if (glowEl) glowEl.style.background = 'radial-gradient(ellipse at center, #00ee4420 0%, transparent 70%)';
+        if (cardEl) cardEl.style.borderColor = '#00ee4430';
+    } else if (phase.includes('red')) {
+        if (timerEl) timerEl.style.color = '#ff3322';
+        if (statusEl) {
+            statusEl.innerText = '정지 신호 — 기다려 주세요';
+            statusEl.style.color = '#ff3322';
+        }
+        if (glowEl) glowEl.style.background = 'radial-gradient(ellipse at center, #ff332220 0%, transparent 70%)';
+        if (cardEl) cardEl.style.borderColor = '#ff332230';
     } else {
-        timerEl.style.color      = '#4b5563';
-        statusEl.innerText       = data.itstNm ? `교차로: ${data.itstNm}` : '신호 수신 중';
-        statusEl.style.color     = '#6b7280';
-        glowEl.style.background  = '';
-        cardEl.style.borderColor = '';
+        if (timerEl) timerEl.style.color = '#9ca3af';
+        if (statusEl) {
+            statusEl.innerText = data.itstNm ? `${data.itstNm}` : '신호 수신 대기';
+            statusEl.style.color = '#9ca3af';
+        }
+        if (glowEl) glowEl.style.background = '';
+        if (cardEl) cardEl.style.borderColor = '';
     }
 }
 
 function resetSignalUI() {
-    document.getElementById('timer').innerText        = '--';
-    document.getElementById('timer').style.color      = '#374151';
-    document.getElementById('statusText').innerText   = '수신 대기 중';
-    document.getElementById('statusText').style.color = '#4b5563';
-    document.getElementById('glow').style.background  = '';
+    const timerEl = document.getElementById('timer');
+    const statusTextEl = document.getElementById('statusText');
+    const glowEl = document.getElementById('glow');
+
+    if (timerEl) {
+        timerEl.innerText = '--';
+        timerEl.style.color = '#374151';
+    }
+    if (statusTextEl) {
+        statusTextEl.innerText = '주변 교차로 탐색 중';
+        statusTextEl.style.color = '#4b5563';
+    }
+    if (glowEl) glowEl.style.background = '';
 }
 
 function addLog(msg, type = 'info') {
-    const box  = document.getElementById('logConsole');
+    const box = document.getElementById('logConsole');
+    if (!box) return;
     const item = document.createElement('div');
-    item.className = `log-item ${type === 'error' ? 'text-red-500' : 'text-neutral-400'}`;
+    item.className = `log-item py-0.5 border-b border-white/5 ${type === 'error' ? 'text-red-400' : 'text-neutral-400'}`;
     item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
     box.prepend(item);
 }
@@ -180,7 +218,7 @@ function updateStepStatus(stepId, status, text) {
     if (dot) dot.className = `status-dot dot-${status}`;
     if (val) {
         val.innerText = text;
-        val.className = `text-[10px] ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
+        val.className = `text-[10px] uppercase font-bold ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
     }
 }
 
