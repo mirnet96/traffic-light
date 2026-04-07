@@ -7,15 +7,45 @@
  *  - [버그] setInterval 중복 등록 위험 → intervalId 변수로 관리
  *  - [개선] iOS DeviceOrientation 권한 요청을 GPS보다 먼저 처리
  *  - [개선] fetchV2XData를 setTimeout 체인으로 변경 (요청 중첩 방지)
+ *  - [수정] CORS 에러 대응: no-cors 모드 + 응답 타입 체크 추가
+ *  - [수정] Kakao SDK 로드 완료 후 역지오코딩 재시도 로직 추가
  */
 
 let userPos     = { lat: null, lng: null };
-let userHeading = null;   // [수정] 초기값 null — 0° (정북) 과 미수신을 구별
+let userHeading = null;
 let fetchTimer  = null;
+let lastGeocodePending = false; // Kakao 로드 전 GPS 수신 시 재시도 플래그
 
 const AUTH_KEY = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 
-/* ─── 버튼 이벤트는 Kakao SDK와 무관하게 DOM 준비 즉시 등록 ─── */
+/* ─── Kakao SDK 로드 완료 감지 ─── */
+function waitForKakao(callback, retries = 20) {
+    if (typeof kakao !== 'undefined' && kakao.maps && kakao.maps.services) {
+        callback();
+    } else if (retries > 0) {
+        setTimeout(() => waitForKakao(callback, retries - 1), 300);
+    } else {
+        addLog('Kakao SDK 로드 실패 — 주소 표시 불가', 'error');
+    }
+}
+
+/* ─── 역지오코딩 (Kakao SDK 로드 보장 후 실행) ─── */
+function reverseGeocode(lat, lng) {
+    waitForKakao(() => {
+        const geocoder = new kakao.maps.services.Geocoder();
+        geocoder.coord2Address(lng, lat, (result, status) => {
+            if (status === kakao.maps.services.Status.OK) {
+                document.getElementById('geoAddress').innerText =
+                    result[0].address.address_name;
+            } else {
+                document.getElementById('geoAddress').innerText = '주소 변환 실패';
+                addLog('역지오코딩 실패: ' + status, 'error');
+            }
+        });
+    });
+}
+
+/* ─── 버튼 이벤트 ─── */
 document.addEventListener('DOMContentLoaded', () => {
     addLog('진단 준비 완료. 버튼을 눌러 시작하세요.');
 
@@ -27,8 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
         this.innerText = '진단 중...';
         addLog('진단 프로세스 시작...');
 
-        // [수정] iOS에서 DeviceOrientation 권한은 사용자 제스처 직후(동기)에 요청해야 팝업이 뜸
-        // GPS watchPosition(비동기) 등록 전에 먼저 처리
+        // iOS DeviceOrientation 권한 (사용자 제스처 직후)
         if (typeof DeviceOrientationEvent !== 'undefined' &&
             typeof DeviceOrientationEvent.requestPermission === 'function') {
             try {
@@ -47,17 +76,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
         }, true);
 
-        // GPS 추적 시작 — Kakao SDK는 successGPS 콜백 시점에 이미 로드 완료 상태
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition(successGPS, errorGPS, {
                 enableHighAccuracy: true,
-                timeout: 5000,
+                timeout: 10000,
             });
         } else {
             addLog('이 기기는 GPS를 지원하지 않습니다.', 'error');
         }
 
-        // [수정] setInterval 대신 setTimeout 체인 — 응답 완료 후 재스케줄하여 중첩 방지
         scheduleFetch();
     };
 });
@@ -67,7 +94,7 @@ function scheduleFetch() {
     clearTimeout(fetchTimer);
     fetchTimer = setTimeout(async () => {
         await fetchV2XData();
-        scheduleFetch();   // 응답 완료(또는 에러) 후 다음 요청 예약
+        scheduleFetch();
     }, 2000);
 }
 
@@ -80,16 +107,8 @@ function successGPS(pos) {
         `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
     updateStepStatus('gps', 'success', '수신중');
 
-    // Kakao SDK가 로드된 경우에만 역지오코딩 실행
-    if (typeof kakao !== 'undefined' && kakao.maps && kakao.maps.services) {
-        const geocoder = new kakao.maps.services.Geocoder();
-        geocoder.coord2Address(userPos.lng, userPos.lat, (result, status) => {
-            if (status === kakao.maps.services.Status.OK) {
-                document.getElementById('geoAddress').innerText =
-                    result[0].address.address_name;
-            }
-        });
-    }
+    // [수정] Kakao SDK 로드 완료 여부와 무관하게 reverseGeocode 호출 (내부에서 대기)
+    reverseGeocode(userPos.lat, userPos.lng);
 }
 
 /* ─── GPS 실패 콜백 ─── */
@@ -100,26 +119,42 @@ function errorGPS(err) {
 
 /* ─── V2X 서버 요청 ─── */
 async function fetchV2XData() {
-    // [수정] userHeading !== null 로 변경 — heading 0° (정북) 도 정상 처리
     if (userPos.lat === null || userHeading === null) return;
 
+    const url =
+        `https://iot.klueware.com/api/v1/front-signal` +
+        `?lat=${userPos.lat}&lng=${userPos.lng}&heading=${Math.round(userHeading)}`;
+
     try {
-        const response = await fetch(
-            `https://iot.klueware.com/api/v1/front-signal` +
-            `?lat=${userPos.lat}&lng=${userPos.lng}&heading=${userHeading}`,
-            { headers: { 'X-API-KEY': AUTH_KEY } }
-        );
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'X-API-KEY': AUTH_KEY },
+            // [수정] CORS 프리플라이트 없이 요청. 단, 서버가 Access-Control-Allow-Origin 헤더를
+            //        반환하지 않으면 응답 본문을 읽을 수 없으므로 서버 설정이 선행되어야 합니다.
+            //        서버가 이미 CORS를 허용하는 경우 아래 mode는 생략해도 됩니다.
+        });
+
+        // [수정] 응답이 JSON인지 Content-Type으로 먼저 확인
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const rawText = await response.text();
+            addLog(`비정상 응답 (JSON 아님): ${rawText.substring(0, 80)}`, 'error');
+            updateStepStatus('nearby', 'error', '응답오류');
+            updateStepStatus('signal', 'error', '에러');
+            resetSignalUI();
+            return;
+        }
 
         const result = await response.json();
 
         if (response.ok) {
             updateStepStatus('nearby', 'success', result.itstNm || '매칭됨');
             updateStepStatus('signal', 'success', '수신완료');
-            updateSignalUI(result);   // [수정] 이전: 함수 미정의로 ReferenceError 발생
+            updateSignalUI(result);
         } else {
             updateStepStatus('nearby', 'error', '매칭없음');
             updateStepStatus('signal', 'error', '없음');
-            addLog(`서버 응답: ${result.message}`, 'error');
+            addLog(`서버 오류 ${response.status}: ${result.message || JSON.stringify(result)}`, 'error');
             resetSignalUI();
         }
     } catch (e) {
@@ -130,47 +165,45 @@ async function fetchV2XData() {
 }
 
 /* ─── 신호 UI 갱신 ─── */
-// [수정] 이전 코드에 함수 정의 없음 — 신규 구현
 function updateSignalUI(data) {
-    const timerEl     = document.getElementById('timer');
-    const statusEl    = document.getElementById('statusText');
-    const glowEl      = document.getElementById('glow');
-    const cardEl      = document.getElementById('signalCard');
+    const timerEl  = document.getElementById('timer');
+    const statusEl = document.getElementById('statusText');
+    const glowEl   = document.getElementById('glow');
+    const cardEl   = document.getElementById('signalCard');
 
-    // 서버 응답 필드: remainSec(잔여 초), phase('green'|'red'|...), itstNm(교차로명)
     const remainSec = data.remainSec != null ? data.remainSec : '--';
     const phase     = (data.phase || '').toLowerCase();
 
     timerEl.innerText = remainSec;
 
     if (phase === 'green') {
-        timerEl.style.color    = '#00ee44';
-        statusEl.innerText     = '보행 신호 — 건너도 됩니다';
-        statusEl.style.color   = '#00ee44';
+        timerEl.style.color      = '#00ee44';
+        statusEl.innerText       = '보행 신호 — 건너도 됩니다';
+        statusEl.style.color     = '#00ee44';
         glowEl.style.background  = 'radial-gradient(ellipse at center, #00ee4420 0%, transparent 70%)';
         cardEl.style.borderColor = '#00ee4430';
     } else if (phase === 'red') {
-        timerEl.style.color    = '#ff3322';
-        statusEl.innerText     = '정지 신호 — 기다려 주세요';
-        statusEl.style.color   = '#ff3322';
+        timerEl.style.color      = '#ff3322';
+        statusEl.innerText       = '정지 신호 — 기다려 주세요';
+        statusEl.style.color     = '#ff3322';
         glowEl.style.background  = 'radial-gradient(ellipse at center, #ff332220 0%, transparent 70%)';
         cardEl.style.borderColor = '#ff332230';
     } else {
-        timerEl.style.color    = '#4b5563';
-        statusEl.innerText     = data.itstNm ? `교차로: ${data.itstNm}` : '신호 수신 중';
-        statusEl.style.color   = '#6b7280';
+        timerEl.style.color      = '#4b5563';
+        statusEl.innerText       = data.itstNm ? `교차로: ${data.itstNm}` : '신호 수신 중';
+        statusEl.style.color     = '#6b7280';
         glowEl.style.background  = '';
         cardEl.style.borderColor = '';
     }
 }
 
-/* ─── 신호 UI 초기화 (매칭 없음·에러) ─── */
+/* ─── 신호 UI 초기화 ─── */
 function resetSignalUI() {
-    document.getElementById('timer').innerText       = '--';
-    document.getElementById('timer').style.color     = '#374151';
-    document.getElementById('statusText').innerText  = '수신 대기 중';
+    document.getElementById('timer').innerText        = '--';
+    document.getElementById('timer').style.color      = '#374151';
+    document.getElementById('statusText').innerText   = '수신 대기 중';
     document.getElementById('statusText').style.color = '#4b5563';
-    document.getElementById('glow').style.background = '';
+    document.getElementById('glow').style.background  = '';
 }
 
 /* ─── 공통 헬퍼 ─── */
@@ -187,8 +220,8 @@ function updateStepStatus(stepId, status, text) {
     const val = document.getElementById(`step-${stepId}-val`);
     if (dot) dot.className = `status-dot dot-${status}`;
     if (val) {
-        val.innerText   = text;
-        val.className   = `text-[10px] ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
+        val.innerText = text;
+        val.className = `text-[10px] ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
     }
 }
 
