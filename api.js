@@ -1,12 +1,55 @@
 let userPos     = { lat: null, lng: null };
 let userHeading = null;
 let fetchTimer  = null;
+let debugMode   = false;
 
 const AUTH_KEY  = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 const API_BASE  = 'https://iot.klueware.com/api/v1';
 
+// ── 방위 → 보행신호 필드 매핑 (API 응답 필드명 기준) ──────────────────────
+// 방위각을 8방위로 나눈 뒤 해당 방향의 보행신호 잔여시간(센티초) 필드를 선택합니다.
+const HEADING_MAP = [
+    { dir: '북',   min: 337.5, max: 360,   pdKey: 'ntPdsgRmdrCs', stKey: 'ntStsgRmdrCs', phKey: 'ntPhaseNm' },
+    { dir: '북',   min: 0,     max: 22.5,  pdKey: 'ntPdsgRmdrCs', stKey: 'ntStsgRmdrCs', phKey: 'ntPhaseNm' },
+    { dir: '북동', min: 22.5,  max: 67.5,  pdKey: 'nePdsgRmdrCs', stKey: 'neStsgRmdrCs', phKey: 'nePhaseNm' },
+    { dir: '동',   min: 67.5,  max: 112.5, pdKey: 'etPdsgRmdrCs', stKey: 'etStsgRmdrCs', phKey: 'etPhaseNm' },
+    { dir: '남동', min: 112.5, max: 157.5, pdKey: 'sePdsgRmdrCs', stKey: 'seStsgRmdrCs', phKey: 'sePhaseNm' },
+    { dir: '남',   min: 157.5, max: 202.5, pdKey: 'stPdsgRmdrCs', stKey: 'stStsgRmdrCs', phKey: 'stPhaseNm' },
+    { dir: '남서', min: 202.5, max: 247.5, pdKey: 'swPdsgRmdrCs', stKey: 'swStsgRmdrCs', phKey: 'swPhaseNm' },
+    { dir: '서',   min: 247.5, max: 292.5, pdKey: 'wtPdsgRmdrCs', stKey: 'wtStsgRmdrCs', phKey: 'wtPhaseNm' },
+    { dir: '북서', min: 292.5, max: 337.5, pdKey: 'nwPdsgRmdrCs', stKey: 'nwStsgRmdrCs', phKey: 'nwPhaseNm' },
+];
+
+function getDirectionByHeading(heading) {
+    const h = ((heading % 360) + 360) % 360;
+    for (const entry of HEADING_MAP) {
+        if (entry.min <= entry.max) {
+            if (h >= entry.min && h < entry.max) return entry;
+        } else {
+            if (h >= entry.min || h < entry.max) return entry;
+        }
+    }
+    return HEADING_MAP[0];
+}
+
+// ── DOM 준비 ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     addLog('진단 준비 완료. 버튼을 눌러 시작하세요.');
+
+    // 디버그 토글
+    const debugToggle = document.getElementById('debugToggle');
+    const debugPanel  = document.getElementById('debugPanel');
+    if (debugToggle && debugPanel) {
+        debugToggle.addEventListener('click', () => {
+            debugMode = !debugMode;
+            debugPanel.classList.toggle('hidden', !debugMode);
+            debugToggle.innerHTML = debugMode
+                ? '<span class="material-symbols-rounded text-[16px]">bug_report</span><span>Debug ON</span>'
+                : '<span class="material-symbols-rounded text-[16px]">bug_report</span><span>Debug</span>';
+            debugToggle.classList.toggle('text-amber-400', debugMode);
+            debugToggle.classList.toggle('border-amber-400/40', debugMode);
+        });
+    }
 
     const startBtn = document.getElementById('startBtn');
     if (!startBtn) return;
@@ -28,19 +71,20 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 방향 센서 리스너 등록
+        // 방향 센서 리스너
         window.addEventListener('deviceorientation', (e) => {
             userHeading = e.webkitCompassHeading != null
                 ? e.webkitCompassHeading
                 : (360 - (e.alpha || 0));
-            
+
             const headingInfoEl = document.getElementById('headingInfo');
             if (headingInfoEl) {
-                headingInfoEl.innerText = `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
+                const dir = getDirectionByHeading(userHeading);
+                headingInfoEl.innerText = `${Math.round(userHeading)}° (${dir.dir})`;
             }
         }, true);
 
-        // GPS 위치 추적 시작
+        // GPS 추적
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition(successGPS, errorGPS, {
                 enableHighAccuracy: true,
@@ -52,19 +96,20 @@ document.addEventListener('DOMContentLoaded', () => {
             updateStepStatus('gps', 'error', '지원불가');
         }
 
-        // 데이터 페칭 루프 시작
         scheduleFetch();
     };
 });
 
+// ── 폴링 루프 ─────────────────────────────────────────────────────────────────
 function scheduleFetch() {
     clearTimeout(fetchTimer);
     fetchTimer = setTimeout(async () => {
         await fetchV2XData();
         scheduleFetch();
-    }, 2000); // 2초 간격 갱신
+    }, 2000);
 }
 
+// ── GPS ───────────────────────────────────────────────────────────────────────
 function successGPS(pos) {
     userPos.lat = pos.coords.latitude;
     userPos.lng = pos.coords.longitude;
@@ -74,8 +119,6 @@ function successGPS(pos) {
         geoCoordsEl.innerText = `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
     }
     updateStepStatus('gps', 'success', '수신중');
-
-    // 백엔드 프록시를 통한 주소 변환
     reverseGeocodeViaProxy(userPos.lat, userPos.lng);
 }
 
@@ -98,14 +141,15 @@ async function reverseGeocodeViaProxy(lat, lng) {
     }
 }
 
-/**
- * 서버 API 규격에 맞춘 V2X 데이터 통신
- */
+// ── V2X 메인 로직 ─────────────────────────────────────────────────────────────
 async function fetchV2XData() {
-    if (userPos.lat === null || userHeading === null) return;
+    if (userPos.lat === null) return;
 
-    // 1. 먼저 주변 교차로를 찾습니다 (/nearby)
-    // 서버 응답이 [ {id: "101", ...}, ... ] 형태인 것을 가정합니다.
+    // heading이 없으면 북쪽으로 기본 처리
+    const heading = userHeading ?? 0;
+    const dirInfo = getDirectionByHeading(heading);
+
+    // heading을 쿼리로 백엔드에 전달 (백엔드가 방향별 필드 파싱에 활용 가능)
     const nearbyUrl = `${API_BASE}/nearby?lat=${userPos.lat}&lng=${userPos.lng}&radius=1000`;
 
     try {
@@ -119,21 +163,52 @@ async function fetchV2XData() {
             return;
         }
 
-        // 가장 가까운 교차로 선택
-        const target = intersections[0];
-        const itstId = target.id || target.itstId;
-        const itstNm = target.n || target.itstNm || '알 수 없는 교차로';
+        const target  = intersections[0];
+        const itstId  = target.id || target.itstId;
+        const itstNm  = target.n  || target.itstNm || '알 수 없는 교차로';
 
         updateStepStatus('nearby', 'success', itstNm);
+        addLog(`교차로 매칭: ${itstNm} (${itstId})`, 'info');
 
-        // 2. 선택된 교차로의 신호 정보를 가져옵니다 (/signal/{id})
-        const signalUrl = `${API_BASE}/signal/${itstId}`;
+        // heading을 백엔드에 전달하여 방향별 신호 반환 유도
+        const signalUrl = `${API_BASE}/signal/${itstId}?heading=${Math.round(heading)}`;
         const signalRes = await fetch(signalUrl, { headers: { 'X-API-KEY': AUTH_KEY } });
         const signalData = await signalRes.json();
 
         if (signalData && signalData.status === 'success') {
             updateStepStatus('signal', 'success', '수신완료');
-            updateSignalUI(signalData);
+
+            // raw data에서 방향별 보행신호 파싱
+            const raw = signalData.data || signalData;
+            const pdCs = raw[dirInfo.pdKey];  // 보행신호 잔여시간 (센티초)
+
+            // 보행신호 잔여시간이 있으면 우선 사용, 없으면 서버 phase/remainSec 사용
+            if (pdCs != null && pdCs > 0) {
+                const remainSec = Math.round(pdCs / 10); // 센티초 → 초
+                updateSignalUI({
+                    phase:     'green',          // 보행신호 잔여시간 > 0 이면 보행 가능(녹색)
+                    remainSec: remainSec,
+                    itstNm:    itstNm,
+                    dirName:   dirInfo.dir,
+                    fromRaw:   true,
+                });
+            } else {
+                // 보행신호가 0이거나 없는 경우 → 적색(대기) 또는 서버 phase 사용
+                // 반대 방향 직진신호가 있으면 대기 중 직진신호 잔여 표시 가능
+                const stCs = raw[dirInfo.stKey]; // 직진 잔여시간 참고용
+                const waitSec = stCs != null ? Math.round(stCs / 10) : (signalData.remainSec || 0);
+                updateSignalUI({
+                    phase:     'red',
+                    remainSec: waitSec,
+                    itstNm:    itstNm,
+                    dirName:   dirInfo.dir,
+                    fromRaw:   true,
+                });
+            }
+
+            // 디버그 패널 갱신
+            updateDebugPanel(signalData, raw, dirInfo, heading);
+
         } else {
             updateStepStatus('signal', 'error', '데이터없음');
             addLog(`신호 데이터 없음: ${itstNm}`, 'info');
@@ -147,62 +222,92 @@ async function fetchV2XData() {
     }
 }
 
+// ── 디버그 패널 ───────────────────────────────────────────────────────────────
+function updateDebugPanel(signalData, raw, dirInfo, heading) {
+    if (!debugMode) return;
+
+    const panel = document.getElementById('debugContent');
+    if (!panel) return;
+
+    // 방향별 보행신호 8방위 전체 출력
+    const dirs = [
+        { label: '북(N)',  pd: 'ntPdsgRmdrCs', st: 'ntStsgRmdrCs' },
+        { label: '동(E)',  pd: 'etPdsgRmdrCs', st: 'etStsgRmdrCs' },
+        { label: '남(S)',  pd: 'stPdsgRmdrCs', st: 'stStsgRmdrCs' },
+        { label: '서(W)',  pd: 'wtPdsgRmdrCs', st: 'wtStsgRmdrCs' },
+        { label: '북동',   pd: 'nePdsgRmdrCs', st: 'neStsgRmdrCs' },
+        { label: '남동',   pd: 'sePdsgRmdrCs', st: 'seStsgRmdrCs' },
+        { label: '남서',   pd: 'swPdsgRmdrCs', st: 'swStsgRmdrCs' },
+        { label: '북서',   pd: 'nwPdsgRmdrCs', st: 'nwStsgRmdrCs' },
+    ];
+
+    const rows = dirs.map(d => {
+        const pd = raw?.[d.pd];
+        const st = raw?.[d.st];
+        const isActive = d.pd === dirInfo.pdKey;
+        const pdSec = pd != null ? (pd / 10).toFixed(1) + 's' : '-';
+        const stSec = st != null ? (st / 10).toFixed(1) + 's' : '-';
+        return `<div class="flex justify-between items-center py-0.5 px-1 rounded ${isActive ? 'bg-blue-900/40 text-blue-300' : ''}">
+            <span class="w-10 text-[10px] font-bold">${d.label}</span>
+            <span class="text-[9px] text-emerald-400">보행: ${pdSec}</span>
+            <span class="text-[9px] text-amber-400">직진: ${stSec}</span>
+        </div>`;
+    }).join('');
+
+    panel.innerHTML = `
+        <div class="text-[9px] text-neutral-500 mb-1">heading: ${Math.round(heading)}° → 선택방위: <span class="text-blue-400">${dirInfo.dir}</span></div>
+        <div class="text-[9px] text-neutral-500 mb-2">itstNm: ${signalData.itstNm || '-'} / phase: ${signalData.phase || '-'} / remain: ${signalData.remainSec ?? '-'}s</div>
+        ${rows}
+        <div class="mt-2 text-[9px] text-neutral-600 break-all">${JSON.stringify(raw).slice(0, 300)}…</div>
+    `;
+}
+
+// ── UI 업데이트 ───────────────────────────────────────────────────────────────
 function updateSignalUI(data) {
     const timerEl  = document.getElementById('timer');
     const statusEl = document.getElementById('statusText');
     const glowEl   = document.getElementById('glow');
     const cardEl   = document.getElementById('signalCard');
-    
-    // 데이터 구조에 따른 필드 매핑 (phaseNm 또는 phase)
-    const phaseRaw = data.phase || '';
-    const phase    = phaseRaw.toLowerCase();
-    const remain   = data.remainSec != null ? data.remainSec : '--';
+    const dirEl    = document.getElementById('directionBadge');
+
+    const phase  = (data.phase || '').toLowerCase();
+    const remain = data.remainSec != null ? data.remainSec : '--';
+    const dirName = data.dirName || '';
 
     if (timerEl) timerEl.innerText = remain;
+    if (dirEl && dirName) dirEl.innerText = `${dirName} 방향 보행신호`;
 
     if (phase.includes('green')) {
         if (timerEl) timerEl.style.color = '#00ee44';
-        if (statusEl) {
-            statusEl.innerText = '보행 신호 — 건너도 됩니다';
-            statusEl.style.color = '#00ee44';
-        }
-        if (glowEl) glowEl.style.background = 'radial-gradient(ellipse at center, #00ee4420 0%, transparent 70%)';
-        if (cardEl) cardEl.style.borderColor = '#00ee4430';
+        if (statusEl) { statusEl.innerText = '보행 신호 — 건너도 됩니다'; statusEl.style.color = '#00ee44'; }
+        if (glowEl)  glowEl.style.background = 'radial-gradient(ellipse at center, #00ee4425 0%, transparent 70%)';
+        if (cardEl)  cardEl.style.borderColor = '#00ee4430';
     } else if (phase.includes('red')) {
         if (timerEl) timerEl.style.color = '#ff3322';
-        if (statusEl) {
-            statusEl.innerText = '정지 신호 — 기다려 주세요';
-            statusEl.style.color = '#ff3322';
-        }
-        if (glowEl) glowEl.style.background = 'radial-gradient(ellipse at center, #ff332220 0%, transparent 70%)';
-        if (cardEl) cardEl.style.borderColor = '#ff332230';
+        if (statusEl) { statusEl.innerText = '정지 신호 — 기다려 주세요'; statusEl.style.color = '#ff3322'; }
+        if (glowEl)  glowEl.style.background = 'radial-gradient(ellipse at center, #ff332225 0%, transparent 70%)';
+        if (cardEl)  cardEl.style.borderColor = '#ff332230';
     } else {
         if (timerEl) timerEl.style.color = '#9ca3af';
-        if (statusEl) {
-            statusEl.innerText = data.itstNm ? `${data.itstNm}` : '신호 수신 대기';
-            statusEl.style.color = '#9ca3af';
-        }
-        if (glowEl) glowEl.style.background = '';
-        if (cardEl) cardEl.style.borderColor = '';
+        if (statusEl) { statusEl.innerText = data.itstNm || '신호 수신 대기'; statusEl.style.color = '#9ca3af'; }
+        if (glowEl)  glowEl.style.background = '';
+        if (cardEl)  cardEl.style.borderColor = '';
     }
 }
 
 function resetSignalUI() {
-    const timerEl = document.getElementById('timer');
-    const statusTextEl = document.getElementById('statusText');
-    const glowEl = document.getElementById('glow');
+    const timerEl    = document.getElementById('timer');
+    const statusEl   = document.getElementById('statusText');
+    const glowEl     = document.getElementById('glow');
+    const dirEl      = document.getElementById('directionBadge');
 
-    if (timerEl) {
-        timerEl.innerText = '--';
-        timerEl.style.color = '#374151';
-    }
-    if (statusTextEl) {
-        statusTextEl.innerText = '주변 교차로 탐색 중';
-        statusTextEl.style.color = '#4b5563';
-    }
-    if (glowEl) glowEl.style.background = '';
+    if (timerEl)  { timerEl.innerText = '--'; timerEl.style.color = '#374151'; }
+    if (statusEl) { statusEl.innerText = '주변 교차로 탐색 중'; statusEl.style.color = '#4b5563'; }
+    if (glowEl)   glowEl.style.background = '';
+    if (dirEl)    dirEl.innerText = '';
 }
 
+// ── 공용 유틸 ─────────────────────────────────────────────────────────────────
 function addLog(msg, type = 'info') {
     const box = document.getElementById('logConsole');
     if (!box) return;

@@ -6,91 +6,175 @@
     <title>V2X 데이터 진단 모드</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
-        body { background-color: #000; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
-        .dot-waiting { background-color: #4b5563; }
-        .dot-success { background-color: #10b981; }
-        .dot-error { background-color: #ef4444; }
-        .log-item { border-left: 2px solid #334155; padding-left: 8px; margin-bottom: 4px; font-family: monospace; font-size: 10px; }
+        body { background-color: #050505; font-family: 'Noto Sans KR', sans-serif; }
+        .mono { font-family: 'Space Mono', monospace; }
+
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .dot-waiting { background-color: #374151; }
+        .dot-success { background-color: #10b981; box-shadow: 0 0 6px #10b981aa; }
+        .dot-error   { background-color: #ef4444; box-shadow: 0 0 6px #ef4444aa; }
+
+        .log-item { border-left: 2px solid #1e293b; padding-left: 8px; margin-bottom: 3px;
+                    font-family: 'Space Mono', monospace; font-size: 9px; line-height: 1.6; }
+
+        /* 신호 타이머 숫자 — 크고 굵게 */
+        #timer { font-family: 'Space Mono', monospace; transition: color 0.4s ease; }
+
+        /* 카드 배경 미세 노이즈 느낌 */
+        .card-bg {
+            background: linear-gradient(145deg, #111 0%, #0d0d0d 100%);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        /* 신호카드 테두리 트랜지션 */
+        #signalCard { transition: border-color 0.5s ease; }
+
+        /* 방위 뱃지 */
+        #directionBadge {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #6b7280;
+            transition: color 0.4s;
+        }
+
+        /* 디버그 패널 스크롤 */
+        #debugContent { font-family: 'Space Mono', monospace; }
+
+        /* 펄스 애니메이션 (신호 대기 중) */
+        @keyframes pulse-ring {
+            0%   { opacity: 0.15; transform: scale(0.95); }
+            50%  { opacity: 0.35; transform: scale(1.02); }
+            100% { opacity: 0.15; transform: scale(0.95); }
+        }
+        #glow { animation: pulse-ring 3s ease-in-out infinite; }
+
+        /* step 텍스트 말줄임 */
+        .step-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </style>
 </head>
-<body class="bg-black text-white font-sans max-w-[480px] mx-auto h-[100dvh] flex flex-col overflow-hidden">
+<body class="text-white max-w-[480px] mx-auto h-[100dvh] flex flex-col overflow-hidden">
 
-    <div class="flex items-center gap-1.5 px-3 py-2 bg-neutral-900 border-b border-white/10 shrink-0">
-        <span class="material-symbols-rounded text-blue-400">analytics</span>
-        <span class="text-xs font-bold uppercase tracking-wider">V2X Diagnostic Mode</span>
+    <!-- 헤더 -->
+    <div class="flex items-center gap-2 px-4 py-2.5 bg-neutral-950 border-b border-white/[0.07] shrink-0">
+        <span class="material-symbols-rounded text-blue-400 text-[20px]">analytics</span>
+        <span class="text-[11px] font-bold uppercase tracking-widest text-neutral-300">V2X Diagnostic</span>
         <div class="flex-1"></div>
-        <a href="index.html" class="text-[11px] px-2 py-1 rounded bg-neutral-800 border border-white/10 text-neutral-400">AI 모드 전환</a>
+
+        <!-- 디버그 토글 -->
+        <button id="debugToggle"
+            class="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border border-white/10 text-neutral-500 transition-colors">
+            <span class="material-symbols-rounded text-[16px]">bug_report</span>
+            <span>Debug</span>
+        </button>
+
+        <a href="index.html"
+            class="text-[10px] px-2.5 py-1 rounded-lg bg-neutral-800 border border-white/10 text-neutral-400 ml-1">
+            AI 모드
+        </a>
     </div>
 
-    <main class="flex-1 overflow-y-auto p-4 space-y-4">
+    <main class="flex-1 overflow-y-auto p-4 space-y-3">
 
-        <div id="signalCard" class="bg-neutral-900 rounded-3xl p-6 border border-white/5 flex flex-col items-center relative overflow-hidden">
-            <div id="timer" class="text-8xl font-black tabular-nums text-neutral-800 transition-colors">--</div>
-            <div id="statusText" class="text-sm font-bold text-neutral-600 mt-2">수신 대기 중</div>
-            <div id="glow" class="absolute inset-0 opacity-5 pointer-events-none"></div>
+        <!-- ① 신호 타이머 카드 -->
+        <div id="signalCard" class="card-bg rounded-3xl p-6 flex flex-col items-center relative overflow-hidden">
+            <!-- 방위 뱃지 -->
+            <div id="directionBadge" class="mb-1 h-4"></div>
+
+            <!-- 타이머 숫자 -->
+            <div id="timer" class="text-[88px] font-black leading-none tabular-nums text-neutral-800">--</div>
+
+            <!-- 초 단위 표시 -->
+            <div class="text-[11px] text-neutral-700 mono mt-0.5 tracking-widest">SECONDS</div>
+
+            <!-- 상태 텍스트 -->
+            <div id="statusText" class="text-sm font-bold text-neutral-600 mt-3">수신 대기 중</div>
+
+            <!-- 글로우 -->
+            <div id="glow" class="absolute inset-0 pointer-events-none"></div>
         </div>
 
-        <div class="bg-neutral-900 rounded-2xl p-4 border border-white/5 space-y-3">
+        <!-- ② 위치 / 방위 카드 -->
+        <div class="card-bg rounded-2xl p-4 space-y-3">
             <div class="flex items-start gap-3">
-                <span class="material-symbols-rounded text-blue-400 mt-0.5">my_location</span>
+                <span class="material-symbols-rounded text-blue-400 text-[20px] mt-0.5">my_location</span>
                 <div class="min-w-0 flex-1">
-                    <p class="text-[10px] text-neutral-500 font-bold uppercase">Current Location</p>
-                    <p id="geoCoords" class="text-xs font-mono text-blue-300">Lat: -- / Lng: --</p>
+                    <p class="text-[9px] text-neutral-500 font-bold uppercase tracking-widest mb-0.5">Current Location</p>
+                    <p id="geoCoords" class="mono text-[11px] text-blue-300">Lat: -- / Lng: --</p>
                     <p id="geoAddress" class="text-sm font-medium mt-1 text-neutral-200 truncate">주소를 불러오는 중...</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3 border-t border-white/5 pt-3">
-                <span class="material-symbols-rounded text-amber-400">explore</span>
+            <div class="flex items-center gap-3 border-t border-white/[0.06] pt-3">
+                <span class="material-symbols-rounded text-amber-400 text-[20px]">explore</span>
                 <div>
-                    <p class="text-[10px] text-neutral-500 font-bold uppercase">Compass Heading</p>
-                    <p id="headingInfo" class="text-sm font-mono font-bold text-amber-200">0° (탐색 전)</p>
+                    <p class="text-[9px] text-neutral-500 font-bold uppercase tracking-widest mb-0.5">Compass Heading</p>
+                    <p id="headingInfo" class="mono text-sm font-bold text-amber-200">0° (탐색 전)</p>
                 </div>
             </div>
         </div>
 
-        <div class="bg-neutral-900 rounded-2xl p-4 border border-white/5 space-y-4">
-            <h3 class="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Connection Pipeline</h3>
+        <!-- ③ Connection Pipeline -->
+        <div class="card-bg rounded-2xl p-4 space-y-3">
+            <h3 class="text-[9px] font-black text-neutral-600 uppercase tracking-widest">Connection Pipeline</h3>
+            <div class="space-y-2.5">
 
-            <div class="space-y-3">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <div id="step-gps" class="status-dot dot-waiting"></div>
-                        <span class="text-xs">Step 1: GPS 위경도 수신</span>
+                        <span class="text-[12px]">Step 1 — GPS 위경도</span>
                     </div>
-                    <span id="step-gps-val" class="text-[10px] text-neutral-500">Wait</span>
+                    <span id="step-gps-val" class="text-[10px] text-neutral-600 mono">Wait</span>
                 </div>
+
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <div id="step-nearby" class="status-dot dot-waiting"></div>
-                        <span class="text-xs">Step 2: 주변 교차로 매칭</span>
+                        <span class="text-[12px]">Step 2 — 교차로 매칭</span>
                     </div>
-                    <span id="step-nearby-val" class="text-[10px] text-neutral-500">Wait</span>
+                    <span id="step-nearby-val" class="text-[10px] text-neutral-600 mono step-name">Wait</span>
                 </div>
+
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <div id="step-signal" class="status-dot dot-waiting"></div>
-                        <span class="text-xs">Step 3: 실시간 신호 응답</span>
+                        <span class="text-[12px]">Step 3 — 보행 신호 수신</span>
                     </div>
-                    <span id="step-signal-val" class="text-[10px] text-neutral-500">Wait</span>
+                    <span id="step-signal-val" class="text-[10px] text-neutral-600 mono">Wait</span>
                 </div>
+
             </div>
         </div>
 
-        <div class="bg-black rounded-xl p-3 border border-neutral-800 h-32 overflow-y-auto" id="logConsole">
-            <div class="text-[9px] text-blue-500 font-bold mb-2 uppercase">[System Log]</div>
+        <!-- ④ 디버그 패널 (기본 hidden) -->
+        <div id="debugPanel" class="hidden card-bg rounded-2xl p-3 border border-amber-400/20 space-y-2">
+            <div class="flex items-center gap-1.5 mb-1">
+                <span class="material-symbols-rounded text-amber-400 text-[14px]">bug_report</span>
+                <span class="text-[9px] font-black uppercase tracking-widest text-amber-400">Debug — 방향별 신호 원시 데이터</span>
+            </div>
+            <div id="debugContent" class="text-[9px] text-neutral-500 space-y-0.5">
+                <p class="text-neutral-600">진단 시작 후 데이터가 여기에 표시됩니다.</p>
+            </div>
+        </div>
+
+        <!-- ⑤ 시스템 로그 -->
+        <div class="rounded-xl p-3 bg-black border border-neutral-900 h-28 overflow-y-auto" id="logConsole">
+            <div class="text-[9px] text-blue-600 font-bold mb-1.5 uppercase tracking-widest mono">[System Log]</div>
         </div>
 
     </main>
 
-    <!-- [수정] Kakao SDK + api.js 각 1회만 로드 (기존: 각 2회 중복) -->
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=ed22d5504be53d988c4ba7fecd99a7b2&libraries=services"></script>
-
-    <div class="p-4 bg-neutral-900 border-t border-white/10 shrink-0">
-        <button id="startBtn" class="w-full bg-blue-600 py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-900/40">진단 시작</button>
+    <!-- 하단 버튼 -->
+    <div class="p-4 bg-neutral-950 border-t border-white/[0.07] shrink-0">
+        <button id="startBtn"
+            class="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.98] py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-900/30 transition-all">
+            진단 시작
+        </button>
     </div>
 
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=ed22d5504be53d988c4ba7fecd99a7b2&libraries=services"></script>
     <script src="api.js"></script>
 </body>
 </html>
