@@ -15,9 +15,9 @@ let fetchTimer  = null;
 
 const AUTH_KEY = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 
-/* ─── Kakao SDK 로드 완료 후 실행 ─── */
-kakao.maps.load(() => {
-    addLog('카카오 SDK 로드 완료');
+/* ─── 버튼 이벤트는 Kakao SDK와 무관하게 DOM 준비 즉시 등록 ─── */
+document.addEventListener('DOMContentLoaded', () => {
+    addLog('진단 준비 완료. 버튼을 눌러 시작하세요.');
 
     const startBtn = document.getElementById('startBtn');
     if (!startBtn) return;
@@ -47,7 +47,7 @@ kakao.maps.load(() => {
                 `${Math.round(userHeading)}° (${getDirName(userHeading)})`;
         }, true);
 
-        // GPS 추적 시작
+        // GPS 추적 시작 — Kakao SDK는 successGPS 콜백 시점에 이미 로드 완료 상태
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition(successGPS, errorGPS, {
                 enableHighAccuracy: true,
@@ -80,13 +80,16 @@ function successGPS(pos) {
         `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
     updateStepStatus('gps', 'success', '수신중');
 
-    const geocoder = new kakao.maps.services.Geocoder();
-    geocoder.coord2Address(userPos.lng, userPos.lat, (result, status) => {
-        if (status === kakao.maps.services.Status.OK) {
-            document.getElementById('geoAddress').innerText =
-                result[0].address.address_name;
-        }
-    });
+    // Kakao SDK가 로드된 경우에만 역지오코딩 실행
+    if (typeof kakao !== 'undefined' && kakao.maps && kakao.maps.services) {
+        const geocoder = new kakao.maps.services.Geocoder();
+        geocoder.coord2Address(userPos.lng, userPos.lat, (result, status) => {
+            if (status === kakao.maps.services.Status.OK) {
+                document.getElementById('geoAddress').innerText =
+                    result[0].address.address_name;
+            }
+        });
+    }
 }
 
 /* ─── GPS 실패 콜백 ─── */
