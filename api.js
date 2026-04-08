@@ -3,11 +3,14 @@ let userHeading = null;
 let fetchTimer  = null;
 let debugMode   = false;
 
+// ── 로컬 카운트다운 상태 ──────────────────────────────────────────────────────
+let countdownTimer  = null;   // setInterval 핸들
+let countdownValue  = null;   // 현재 표시 중인 초
+let countdownPhase  = null;   // 현재 phase ('green' | 'red')
+
 const AUTH_KEY  = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 const API_BASE  = 'https://iot.klueware.com/api/v1';
 
-// ── 방위 → 보행신호 필드 매핑 (API 응답 필드명 기준) ──────────────────────
-// 방위각을 8방위로 나눈 뒤 해당 방향의 보행신호 잔여시간(센티초) 필드를 선택합니다.
 const HEADING_MAP = [
     { dir: '북',   min: 337.5, max: 360,   pdKey: 'ntPdsgRmdrCs', stKey: 'ntStsgRmdrCs', phKey: 'ntPhaseNm' },
     { dir: '북',   min: 0,     max: 22.5,  pdKey: 'ntPdsgRmdrCs', stKey: 'ntStsgRmdrCs', phKey: 'ntPhaseNm' },
@@ -36,7 +39,6 @@ function getDirectionByHeading(heading) {
 document.addEventListener('DOMContentLoaded', () => {
     addLog('진단 준비 완료. 버튼을 눌러 시작하세요.');
 
-    // 디버그 토글
     const debugToggle = document.getElementById('debugToggle');
     const debugPanel  = document.getElementById('debugPanel');
     if (debugToggle && debugPanel) {
@@ -60,7 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
         this.classList.add('opacity-50');
         addLog('진단 프로세스 시작...');
 
-        // iOS 방향 센서 권한 요청
         if (typeof DeviceOrientationEvent !== 'undefined' &&
             typeof DeviceOrientationEvent.requestPermission === 'function') {
             try {
@@ -71,7 +72,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // 방향 센서 리스너
         window.addEventListener('deviceorientation', (e) => {
             userHeading = e.webkitCompassHeading != null
                 ? e.webkitCompassHeading
@@ -84,7 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, true);
 
-        // GPS 추적
         if (navigator.geolocation) {
             navigator.geolocation.watchPosition(successGPS, errorGPS, {
                 enableHighAccuracy: true,
@@ -109,15 +108,51 @@ function scheduleFetch() {
     }, 2000);
 }
 
+// ── 로컬 카운트다운 ───────────────────────────────────────────────────────────
+/**
+ * API에서 새 잔여시간(초)을 받으면 이 함수로 카운트다운을 (재)시작합니다.
+ * 1초마다 화면 숫자를 -1 하므로 폴링 주기와 무관하게 부드럽게 줄어듭니다.
+ */
+function startCountdown(remainSec, phase) {
+    // 이전 타이머 정리
+    clearInterval(countdownTimer);
+
+    countdownValue = remainSec;
+    countdownPhase = phase;
+
+    // 즉시 반영
+    applyTimerDisplay(countdownValue, countdownPhase);
+
+    countdownTimer = setInterval(() => {
+        if (countdownValue <= 0) {
+            clearInterval(countdownTimer);
+            return;
+        }
+        countdownValue -= 1;
+        applyTimerDisplay(countdownValue, countdownPhase);
+    }, 1000);
+}
+
+function applyTimerDisplay(sec, phase) {
+    const timerEl = document.getElementById('timer');
+    if (timerEl) timerEl.innerText = sec;
+}
+
+function stopCountdown() {
+    clearInterval(countdownTimer);
+    countdownValue = null;
+    countdownPhase = null;
+}
+
 // ── GPS ───────────────────────────────────────────────────────────────────────
 function successGPS(pos) {
     userPos.lat = pos.coords.latitude;
     userPos.lng = pos.coords.longitude;
 
     const geoCoordsEl = document.getElementById('geoCoords');
-    if (geoCoordsEl) {
+    if (geoCoordsEl)
         geoCoordsEl.innerText = `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
-    }
+
     updateStepStatus('gps', 'success', '수신중');
     reverseGeocodeViaProxy(userPos.lat, userPos.lng);
 }
@@ -145,11 +180,9 @@ async function reverseGeocodeViaProxy(lat, lng) {
 async function fetchV2XData() {
     if (userPos.lat === null) return;
 
-    // heading이 없으면 북쪽으로 기본 처리
     const heading = userHeading ?? 0;
     const dirInfo = getDirectionByHeading(heading);
 
-    // heading을 쿼리로 백엔드에 전달 (백엔드가 방향별 필드 파싱에 활용 가능)
     const nearbyUrl = `${API_BASE}/nearby?lat=${userPos.lat}&lng=${userPos.lng}&radius=1000`;
 
     try {
@@ -170,7 +203,6 @@ async function fetchV2XData() {
         updateStepStatus('nearby', 'success', itstNm);
         addLog(`교차로 매칭: ${itstNm} (${itstId})`, 'info');
 
-        // heading을 백엔드에 전달하여 방향별 신호 반환 유도
         const signalUrl = `${API_BASE}/signal/${itstId}?heading=${Math.round(heading)}`;
         const signalRes = await fetch(signalUrl, { headers: { 'X-API-KEY': AUTH_KEY } });
         const signalData = await signalRes.json();
@@ -178,46 +210,45 @@ async function fetchV2XData() {
         if (signalData && signalData.status === 'success') {
             updateStepStatus('signal', 'success', '수신완료');
 
-            // raw data에서 방향별 보행신호 파싱
-            const raw = signalData.data || signalData;
+            const raw  = signalData.data || signalData;
             const pdCs = raw[dirInfo.pdKey];  // 보행신호 잔여시간 (센티초)
 
-            // 보행신호 잔여시간이 있으면 우선 사용, 없으면 서버 phase/remainSec 사용
             if (pdCs != null && pdCs > 0) {
-                const remainSec = Math.round(pdCs / 10); // 센티초 → 초
+                // ✅ 센티초 → 초: / 100
+                const remainSec = Math.round(pdCs / 100);
                 updateSignalUI({
-                    phase:     'green',          // 보행신호 잔여시간 > 0 이면 보행 가능(녹색)
+                    phase:     'green',
                     remainSec: remainSec,
                     itstNm:    itstNm,
                     dirName:   dirInfo.dir,
-                    fromRaw:   true,
                 });
+                startCountdown(remainSec, 'green');
             } else {
-                // 보행신호가 0이거나 없는 경우 → 적색(대기) 또는 서버 phase 사용
-                // 반대 방향 직진신호가 있으면 대기 중 직진신호 잔여 표시 가능
-                const stCs = raw[dirInfo.stKey]; // 직진 잔여시간 참고용
-                const waitSec = stCs != null ? Math.round(stCs / 10) : (signalData.remainSec || 0);
+                const stCs    = raw[dirInfo.stKey];
+                // ✅ 센티초 → 초: / 100
+                const waitSec = stCs != null ? Math.round(stCs / 100) : (signalData.remainSec || 0);
                 updateSignalUI({
                     phase:     'red',
                     remainSec: waitSec,
                     itstNm:    itstNm,
                     dirName:   dirInfo.dir,
-                    fromRaw:   true,
                 });
+                startCountdown(waitSec, 'red');
             }
 
-            // 디버그 패널 갱신
             updateDebugPanel(signalData, raw, dirInfo, heading);
 
         } else {
             updateStepStatus('signal', 'error', '데이터없음');
             addLog(`신호 데이터 없음: ${itstNm}`, 'info');
+            stopCountdown();
             resetSignalUI();
         }
 
     } catch (e) {
         addLog(`통신 에러: ${e.message}`, 'error');
         updateStepStatus('signal', 'error', '통신오류');
+        stopCountdown();
         resetSignalUI();
     }
 }
@@ -229,7 +260,6 @@ function updateDebugPanel(signalData, raw, dirInfo, heading) {
     const panel = document.getElementById('debugContent');
     if (!panel) return;
 
-    // 방향별 보행신호 8방위 전체 출력
     const dirs = [
         { label: '북(N)',  pd: 'ntPdsgRmdrCs', st: 'ntStsgRmdrCs' },
         { label: '동(E)',  pd: 'etPdsgRmdrCs', st: 'etStsgRmdrCs' },
@@ -245,8 +275,9 @@ function updateDebugPanel(signalData, raw, dirInfo, heading) {
         const pd = raw?.[d.pd];
         const st = raw?.[d.st];
         const isActive = d.pd === dirInfo.pdKey;
-        const pdSec = pd != null ? (pd / 10).toFixed(1) + 's' : '-';
-        const stSec = st != null ? (st / 10).toFixed(1) + 's' : '-';
+        // ✅ 디버그 패널도 센티초 → 초: / 100
+        const pdSec = pd != null ? (pd / 100).toFixed(1) + 's' : '-';
+        const stSec = st != null ? (st / 100).toFixed(1) + 's' : '-';
         return `<div class="flex justify-between items-center py-0.5 px-1 rounded ${isActive ? 'bg-blue-900/40 text-blue-300' : ''}">
             <span class="w-10 text-[10px] font-bold">${d.label}</span>
             <span class="text-[9px] text-emerald-400">보행: ${pdSec}</span>
@@ -264,34 +295,36 @@ function updateDebugPanel(signalData, raw, dirInfo, heading) {
 
 // ── UI 업데이트 ───────────────────────────────────────────────────────────────
 function updateSignalUI(data) {
-    const timerEl  = document.getElementById('timer');
-    const statusEl = document.getElementById('statusText');
-    const glowEl   = document.getElementById('glow');
-    const cardEl   = document.getElementById('signalCard');
-    const dirEl    = document.getElementById('directionBadge');
+    const statusEl  = document.getElementById('statusText');
+    const glowEl    = document.getElementById('glow');
+    const cardEl    = document.getElementById('signalCard');
+    const dirEl     = document.getElementById('directionBadge');
+    const itstNmEl  = document.getElementById('itstNmDisplay');
+    const timerEl   = document.getElementById('timer');
 
-    const phase  = (data.phase || '').toLowerCase();
-    const remain = data.remainSec != null ? data.remainSec : '--';
+    const phase   = (data.phase || '').toLowerCase();
     const dirName = data.dirName || '';
+    const itstNm  = data.itstNm  || '';
 
-    if (timerEl) timerEl.innerText = remain;
-    if (dirEl && dirName) dirEl.innerText = `${dirName} 방향 보행신호`;
+    // 교차로명 + 방향 표시
+    if (dirEl)    dirEl.innerText    = dirName ? `${dirName} 방향` : '';
+    if (itstNmEl) itstNmEl.innerText = itstNm;
 
     if (phase.includes('green')) {
-        if (timerEl) timerEl.style.color = '#00ee44';
+        if (timerEl)  timerEl.style.color  = '#00ee44';
         if (statusEl) { statusEl.innerText = '보행 신호 — 건너도 됩니다'; statusEl.style.color = '#00ee44'; }
-        if (glowEl)  glowEl.style.background = 'radial-gradient(ellipse at center, #00ee4425 0%, transparent 70%)';
-        if (cardEl)  cardEl.style.borderColor = '#00ee4430';
+        if (glowEl)   glowEl.style.background = 'radial-gradient(ellipse at center, #00ee4425 0%, transparent 70%)';
+        if (cardEl)   cardEl.style.borderColor = '#00ee4430';
     } else if (phase.includes('red')) {
-        if (timerEl) timerEl.style.color = '#ff3322';
+        if (timerEl)  timerEl.style.color  = '#ff3322';
         if (statusEl) { statusEl.innerText = '정지 신호 — 기다려 주세요'; statusEl.style.color = '#ff3322'; }
-        if (glowEl)  glowEl.style.background = 'radial-gradient(ellipse at center, #ff332225 0%, transparent 70%)';
-        if (cardEl)  cardEl.style.borderColor = '#ff332230';
+        if (glowEl)   glowEl.style.background = 'radial-gradient(ellipse at center, #ff332225 0%, transparent 70%)';
+        if (cardEl)   cardEl.style.borderColor = '#ff332230';
     } else {
-        if (timerEl) timerEl.style.color = '#9ca3af';
-        if (statusEl) { statusEl.innerText = data.itstNm || '신호 수신 대기'; statusEl.style.color = '#9ca3af'; }
-        if (glowEl)  glowEl.style.background = '';
-        if (cardEl)  cardEl.style.borderColor = '';
+        if (timerEl)  timerEl.style.color  = '#9ca3af';
+        if (statusEl) { statusEl.innerText = itstNm || '신호 수신 대기'; statusEl.style.color = '#9ca3af'; }
+        if (glowEl)   glowEl.style.background = '';
+        if (cardEl)   cardEl.style.borderColor = '';
     }
 }
 
@@ -300,11 +333,13 @@ function resetSignalUI() {
     const statusEl   = document.getElementById('statusText');
     const glowEl     = document.getElementById('glow');
     const dirEl      = document.getElementById('directionBadge');
+    const itstNmEl   = document.getElementById('itstNmDisplay');
 
     if (timerEl)  { timerEl.innerText = '--'; timerEl.style.color = '#374151'; }
     if (statusEl) { statusEl.innerText = '주변 교차로 탐색 중'; statusEl.style.color = '#4b5563'; }
     if (glowEl)   glowEl.style.background = '';
     if (dirEl)    dirEl.innerText = '';
+    if (itstNmEl) itstNmEl.innerText = '';
 }
 
 // ── 공용 유틸 ─────────────────────────────────────────────────────────────────
@@ -325,9 +360,4 @@ function updateStepStatus(stepId, status, text) {
         val.innerText = text;
         val.className = `text-[10px] uppercase font-bold ${status === 'success' ? 'text-emerald-400' : 'text-red-400'}`;
     }
-}
-
-function getDirName(h) {
-    const dirs = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
-    return dirs[Math.round(h / 45) % 8];
 }

@@ -20,31 +20,22 @@
         .log-item { border-left: 2px solid #1e293b; padding-left: 8px; margin-bottom: 3px;
                     font-family: 'Space Mono', monospace; font-size: 9px; line-height: 1.6; }
 
-        /* 신호 타이머 숫자 — 크고 굵게 */
         #timer { font-family: 'Space Mono', monospace; transition: color 0.4s ease; }
 
-        /* 카드 배경 미세 노이즈 느낌 */
         .card-bg {
             background: linear-gradient(145deg, #111 0%, #0d0d0d 100%);
             border: 1px solid rgba(255,255,255,0.06);
         }
 
-        /* 신호카드 테두리 트랜지션 */
         #signalCard { transition: border-color 0.5s ease; }
 
-        /* 방위 뱃지 */
         #directionBadge {
-            font-size: 10px;
             letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #6b7280;
             transition: color 0.4s;
         }
 
-        /* 디버그 패널 스크롤 */
         #debugContent { font-family: 'Space Mono', monospace; }
 
-        /* 펄스 애니메이션 (신호 대기 중) */
         @keyframes pulse-ring {
             0%   { opacity: 0.15; transform: scale(0.95); }
             50%  { opacity: 0.35; transform: scale(1.02); }
@@ -52,7 +43,6 @@
         }
         #glow { animation: pulse-ring 3s ease-in-out infinite; }
 
-        /* step 텍스트 말줄임 */
         .step-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </style>
 </head>
@@ -64,7 +54,6 @@
         <span class="text-[11px] font-bold uppercase tracking-widest text-neutral-300">V2X Diagnostic</span>
         <div class="flex-1"></div>
 
-        <!-- 디버그 토글 -->
         <button id="debugToggle"
             class="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border border-white/10 text-neutral-500 transition-colors">
             <span class="material-symbols-rounded text-[16px]">bug_report</span>
@@ -81,8 +70,13 @@
 
         <!-- ① 신호 타이머 카드 -->
         <div id="signalCard" class="card-bg rounded-3xl p-6 flex flex-col items-center relative overflow-hidden">
-            <!-- 방위 뱃지 -->
-            <div id="directionBadge" class="mb-1 h-4"></div>
+
+            <!-- 교차로명 — 크고 굵게 -->
+            <div id="itstNmDisplay"
+                 class="text-[15px] font-black text-neutral-300 tracking-tight text-center leading-snug min-h-[1.4em]"></div>
+
+            <!-- 방향 뱃지 -->
+            <div id="directionBadge" class="mt-1 mb-2 h-5 text-[13px] font-bold text-blue-400 tracking-widest"></div>
 
             <!-- 타이머 숫자 -->
             <div id="timer" class="text-[88px] font-black leading-none tabular-nums text-neutral-800">--</div>
