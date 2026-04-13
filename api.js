@@ -215,7 +215,7 @@ async function fetchV2XData() {
 
             if (pdCs != null && pdCs > 0) {
                 // ✅ 센티초 → 초: / 100
-                const remainSec = Math.round(pdCs / 100);
+                const remainSec = Math.round(pdCs / 1 );
                 updateSignalUI({
                     phase:     'green',
                     remainSec: remainSec,
