@@ -115,7 +115,7 @@ function scheduleFetch() {
     fetchTimer = setTimeout(async () => {
         await fetchV2XData();
         scheduleFetch();
-    }, 2000);
+    }, 1000);
 }
 
 // ── 로컬 카운트다운 ───────────────────────────────────────────────────────────
