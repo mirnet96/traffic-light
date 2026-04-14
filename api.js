@@ -4,9 +4,18 @@ let fetchTimer    = null;
 let debugMode     = false;
 
 // ── 로컬 카운트다운 상태 ──────────────────────────────────────────────────────
-let countdownTimer  = null;   // setInterval 핸들
-let countdownValue  = null;   // 현재 표시 중인 초
-let countdownPhase  = null;   // 현재 phase ('green' | 'red')
+let countdownTimer  = null;
+let countdownValue  = null;
+let countdownPhase  = null;
+
+// ── 위치 기반 재조회 상태 ──────────────────────────────────────────────────────
+let lastGeocodedPos  = { lat: null, lng: null };  // 마지막 주소 조회 위치
+let lastNearbyPos    = { lat: null, lng: null };  // 마지막 교차로 조회 위치
+let cachedItstId     = null;
+let cachedItstNm     = null;
+
+const GEO_THRESHOLD    = 30;   // 주소 재조회 거리 (m)
+const NEARBY_THRESHOLD = 50;   // 교차로 재조회 거리 (m)
 
 const AUTH_KEY  = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 const API_BASE  = 'https://iot.klueware.com/api/v1';
@@ -23,6 +32,17 @@ const HEADING_MAP = [
     { dir: '서',   min: 247.5, max: 292.5, prefix: 'wt', pdKey: 'wtPdsgRmdrCs', stKey: 'wtStsgRmdrCs', mirror: 'et' },
     { dir: '북서', min: 292.5, max: 337.5, prefix: 'nw', pdKey: 'nwPdsgRmdrCs', stKey: 'nwStsgRmdrCs', mirror: 'se' },
 ];
+
+// ── 유틸: 두 좌표 사이 거리 계산 (m) ─────────────────────────────────────────
+function calcDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+        * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // 특정 방향의 모든 데이터가 비었는지 체크하는 함수
 function isDirectionTotallyEmpty(raw, prefix) {
@@ -55,6 +75,11 @@ document.addEventListener('DOMContentLoaded', () => {
         debugToggle.addEventListener('click', () => {
             debugMode = !debugMode;
             debugPanel.classList.toggle('hidden', !debugMode);
+
+            // Debug 전용 패널들 토글
+            document.getElementById('pipelinePanel')?.classList.toggle('hidden', !debugMode);
+            document.getElementById('logPanel')?.classList.toggle('hidden', !debugMode);
+
             debugToggle.innerHTML = debugMode
                 ? '<span class="material-symbols-rounded text-[16px]">bug_report</span><span>Debug ON</span>'
                 : '<span class="material-symbols-rounded text-[16px]">bug_report</span><span>Debug</span>';
@@ -109,11 +134,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 });
 
-// ── 폴링 루프 ─────────────────────────────────────────────────────────────────
+// ── 폴링 루프 (신호등: 1초) ───────────────────────────────────────────────────
 function scheduleFetch() {
     clearTimeout(fetchTimer);
     fetchTimer = setTimeout(async () => {
-        await fetchV2XData();
+        await fetchSignalOnly();
         scheduleFetch();
     }, 1000);
 }
@@ -121,20 +146,9 @@ function scheduleFetch() {
 // ── 로컬 카운트다운 ───────────────────────────────────────────────────────────
 function startCountdown(remainSec, phase) {
     clearInterval(countdownTimer);
-    countdownValue = Math.round(remainSec / 10 );
+    countdownValue = Math.round(remainSec / 10);
     countdownPhase = phase;
     applyTimerDisplay(countdownValue, countdownPhase);
-
-    /*
-    countdownTimer = setInterval(() => {
-        if (countdownValue <= 0) {
-            clearInterval(countdownTimer);
-            return;
-        }
-        countdownValue -= 1;
-        applyTimerDisplay(countdownValue, countdownPhase);
-    }, 1000);
-    */
 }
 
 function applyTimerDisplay(sec, phase) {
@@ -150,14 +164,37 @@ function stopCountdown() {
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
 function successGPS(pos) {
-    userPos.lat = pos.coords.latitude;
-    userPos.lng = pos.coords.longitude;
+    const newLat = pos.coords.latitude;
+    const newLng = pos.coords.longitude;
+
+    userPos.lat = newLat;
+    userPos.lng = newLng;
+
     const geoCoordsEl = document.getElementById('geoCoords');
     if (geoCoordsEl)
-        geoCoordsEl.innerText = `Lat: ${userPos.lat.toFixed(6)} / Lng: ${userPos.lng.toFixed(6)}`;
+        geoCoordsEl.innerText = `Lat: ${newLat.toFixed(6)} / Lng: ${newLng.toFixed(6)}`;
 
     updateStepStatus('gps', 'success', '수신중');
-    reverseGeocodeViaProxy(userPos.lat, userPos.lng);
+
+    // 주소: 첫 수신이거나 GEO_THRESHOLD 이상 이동했을 때만 재조회
+    const geoDist = (lastGeocodedPos.lat !== null)
+        ? calcDistance(lastGeocodedPos.lat, lastGeocodedPos.lng, newLat, newLng)
+        : Infinity;
+
+    if (geoDist >= GEO_THRESHOLD) {
+        lastGeocodedPos = { lat: newLat, lng: newLng };
+        reverseGeocodeViaProxy(newLat, newLng);
+    }
+
+    // 교차로: 첫 수신이거나 NEARBY_THRESHOLD 이상 이동했을 때만 재조회
+    const nearbyDist = (lastNearbyPos.lat !== null)
+        ? calcDistance(lastNearbyPos.lat, lastNearbyPos.lng, newLat, newLng)
+        : Infinity;
+
+    if (nearbyDist >= NEARBY_THRESHOLD) {
+        lastNearbyPos = { lat: newLat, lng: newLng };
+        fetchNearbyIntersection(newLat, newLng);
+    }
 }
 
 function errorGPS(err) {
@@ -179,72 +216,78 @@ async function reverseGeocodeViaProxy(lat, lng) {
     }
 }
 
-// ── V2X 메인 로직 (강화된 미러링 및 단위 변환 적용) ──────────────────────────────
-async function fetchV2XData() {
-    if (userPos.lat === null) return;
-
-    const heading = userHeading ?? 0;
-    const dirInfo = getDirectionByHeading(heading);
-    const nearbyUrl = `${API_BASE}/nearby?lat=${userPos.lat}&lng=${userPos.lng}&radius=1000`;
-
+// ── 교차로 조회 (이동 시에만) ─────────────────────────────────────────────────
+async function fetchNearbyIntersection(lat, lng) {
+    const nearbyUrl = `${API_BASE}/nearby?lat=${lat}&lng=${lng}&radius=1000`;
     try {
         const nearbyRes = await fetch(nearbyUrl, { headers: { 'X-API-KEY': AUTH_KEY } });
         const intersections = await nearbyRes.json();
 
         if (!Array.isArray(intersections) || intersections.length === 0) {
             updateStepStatus('nearby', 'error', '근처 없음');
+            cachedItstId = null;
+            cachedItstNm = null;
             resetSignalUI();
             return;
         }
 
         const target  = intersections[0];
-        const itstId  = target.id || target.itstId;
-        const itstNm  = target.n  || target.itstNm || '알 수 없는 교차로';
+        cachedItstId  = target.id || target.itstId;
+        cachedItstNm  = target.n  || target.itstNm || '알 수 없는 교차로';
+        updateStepStatus('nearby', 'success', cachedItstNm);
+        addLog(`교차로 갱신: ${cachedItstNm}`);
+    } catch (e) {
+        addLog(`교차로 조회 에러: ${e.message}`, 'error');
+        updateStepStatus('nearby', 'error', '통신오류');
+    }
+}
 
-        updateStepStatus('nearby', 'success', itstNm);
+// ── 신호 조회만 (1초 주기) ────────────────────────────────────────────────────
+async function fetchSignalOnly() {
+    if (userPos.lat === null || cachedItstId === null) return;
 
-        const signalRes = await fetch(`${API_BASE}/signal/${itstId}?heading=${Math.round(heading)}`, {
+    const heading = userHeading ?? 0;
+    const dirInfo = getDirectionByHeading(heading);
+
+    try {
+        const signalRes = await fetch(`${API_BASE}/signal/${cachedItstId}?heading=${Math.round(heading)}`, {
             headers: { 'X-API-KEY': AUTH_KEY }
         });
         const signalData = await signalRes.json();
 
-        const timestampEl    = document.getElementById('timestamp');
+        const timestampEl = document.getElementById('timestamp');
 
         if (signalData && signalData.status === 'success') {
             updateStepStatus('signal', 'success', '수신완료');
-
             timestampEl.innerText = signalData.timestamp;
 
             const raw = signalData.data.data || signalData.data;
             let currentPrefix = dirInfo.prefix;
             let mirrored = false;
 
-            // ✅ 강화된 조건: 현재 방향의 모든 데이터가 비었을 때만 미러링(Mirror) 시도
             if (isDirectionTotallyEmpty(raw, currentPrefix)) {
                 currentPrefix = dirInfo.mirror;
                 mirrored = true;
             }
 
-            const pdCs = raw[currentPrefix + 'PdsgRmdrCs']; 
+            const pdCs = raw[currentPrefix + 'PdsgRmdrCs'];
             const stCs = raw[currentPrefix + 'StsgRmdrCs'];
 
             if (pdCs != null && pdCs !== "") {
-                // ✅ 데시초(/10) 변환 적용
                 const remainSec = Math.round(Number(pdCs) / 10);
                 updateSignalUI({
                     phase: 'green',
                     remainSec: remainSec,
-                    itstNm: itstNm + (mirrored ? " (미러링)" : ""),
+                    itstNm: cachedItstNm + (mirrored ? " (미러링)" : ""),
                     dirName: dirInfo.dir,
                 });
                 startCountdown(remainSec, 'green');
             } else if (stCs != null && stCs !== "") {
-                // ✅ 데시초(/10) 변환 적용
                 const waitSec = Math.round(Number(stCs) / 10);
                 updateSignalUI({
                     phase: 'red',
                     remainSec: waitSec,
-                    itstNm: itstNm + (mirrored ? " (미러링)" : ""),
+                    itstNm: cachedItstNm + (mirrored ? " (미러링)" : ""),
                     dirName: dirInfo.dir,
                 });
                 startCountdown(waitSec, 'red');
@@ -258,7 +301,6 @@ async function fetchV2XData() {
             updateStepStatus('signal', 'error', '데이터없음');
             stopCountdown();
             resetSignalUI();
-
             timestampEl.innerText = '-';
         }
     } catch (e) {
