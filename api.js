@@ -208,8 +208,12 @@ async function fetchV2XData() {
         });
         const signalData = await signalRes.json();
 
+        const timestampEl    = document.getElementById('timestamp');
+
         if (signalData && signalData.status === 'success') {
             updateStepStatus('signal', 'success', '수신완료');
+
+            timestampEl.innerText = signalData.timestamp;
 
             const raw = signalData.data.data || signalData.data;
             let currentPrefix = dirInfo.prefix;
@@ -254,6 +258,8 @@ async function fetchV2XData() {
             updateStepStatus('signal', 'error', '데이터없음');
             stopCountdown();
             resetSignalUI();
+
+            timestampEl.innerText = '-';
         }
     } catch (e) {
         addLog(`통신 에러: ${e.message}`, 'error');
