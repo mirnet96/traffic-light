@@ -35,7 +35,10 @@
         <div id="signalCard" class="card-bg rounded-3xl p-6 flex flex-col items-center relative overflow-hidden">
             <div id="itstNmDisplay" class="text-[22px] font-black text-white text-center leading-tight min-h-[1.4em]">교차로 대기 중</div>
             <div id="directionBadge" class="mt-1 mb-2 h-5 text-[14px] font-bold text-blue-400 tracking-widest"></div>
+
+            <!-- 타이머 -->
             <div id="timer" class="text-[84px] font-black leading-none tabular-nums text-neutral-800">--</div>
+
             <div class="text-[10px] text-neutral-600 mono mt-2 tracking-[0.3em]">DEC SECONDS</div>
             <div id="statusText" class="text-sm font-bold text-neutral-600 mt-3">수신 대기 중</div>
             <div id="glow" class="absolute inset-0 pointer-events-none"></div>
@@ -80,6 +83,7 @@
             <div id="debugContent" class="text-[9px] text-neutral-500 space-y-0.5"></div>
         </div>
 
+        <!-- 로그정보 -->
         <div class="rounded-xl p-3 bg-black border border-neutral-900 h-24 overflow-y-auto" id="logConsole"></div>
     </main>
 

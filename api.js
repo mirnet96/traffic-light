@@ -121,10 +121,11 @@ function scheduleFetch() {
 // ── 로컬 카운트다운 ───────────────────────────────────────────────────────────
 function startCountdown(remainSec, phase) {
     clearInterval(countdownTimer);
-    countdownValue = Math.round(remainSec);
+    countdownValue = Math.round(remainSec / 10 );
     countdownPhase = phase;
     applyTimerDisplay(countdownValue, countdownPhase);
 
+    /*
     countdownTimer = setInterval(() => {
         if (countdownValue <= 0) {
             clearInterval(countdownTimer);
@@ -133,6 +134,7 @@ function startCountdown(remainSec, phase) {
         countdownValue -= 1;
         applyTimerDisplay(countdownValue, countdownPhase);
     }, 1000);
+    */
 }
 
 function applyTimerDisplay(sec, phase) {
