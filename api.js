@@ -14,23 +14,32 @@ let lastNearbyPos    = { lat: null, lng: null };  // 마지막 교차로 조회 
 let cachedItstId     = null;
 let cachedItstNm     = null;
 
+// [BUG-FIX #5] fetch 경쟁 조건 방지용 AbortController
+let signalAbortCtrl  = null;
+
+// [BUG-FIX #6] startBtn 중복 실행 방지 플래그
+let isStarted        = false;
+
 const GEO_THRESHOLD    = 30;   // 주소 재조회 거리 (m)
 const NEARBY_THRESHOLD = 50;   // 교차로 재조회 거리 (m)
 
 const AUTH_KEY  = '7c76f496-b1f7-459f-85f1-ec9359276fce';
 const API_BASE  = 'https://iot.klueware.com/api/v1';
 
-// 방향 정보 및 대칭 방향 정의 (미러링 키 prefix 추가)
+// 방향 정보 및 대칭 방향 정의
+// [BUG-FIX #4] HEADING_MAP의 pdKey / stKey 필드가 선언만 되고 실제로 사용되지 않던 문제:
+//   fetchSignalOnly 내에서 prefix 문자열로 직접 키를 조합하도록 통일하고
+//   HEADING_MAP에서 중복·혼용을 제거.
 const HEADING_MAP = [
-    { dir: '북',   min: 337.5, max: 360,   prefix: 'nt', pdKey: 'ntPdsgRmdrCs', stKey: 'ntStsgRmdrCs', mirror: 'st' },
-    { dir: '북',   min: 0,     max: 22.5,  prefix: 'nt', pdKey: 'ntPdsgRmdrCs', stKey: 'ntStsgRmdrCs', mirror: 'st' },
-    { dir: '북동', min: 22.5,  max: 67.5,  prefix: 'ne', pdKey: 'nePdsgRmdrCs', stKey: 'neStsgRmdrCs', mirror: 'sw' },
-    { dir: '동',   min: 67.5,  max: 112.5, prefix: 'et', pdKey: 'etPdsgRmdrCs', stKey: 'etStsgRmdrCs', mirror: 'wt' },
-    { dir: '남동', min: 112.5, max: 157.5, prefix: 'se', pdKey: 'sePdsgRmdrCs', stKey: 'seStsgRmdrCs', mirror: 'nw' },
-    { dir: '남',   min: 157.5, max: 202.5, prefix: 'st', pdKey: 'stPdsgRmdrCs', stKey: 'stStsgRmdrCs', mirror: 'nt' },
-    { dir: '남서', min: 202.5, max: 247.5, prefix: 'sw', pdKey: 'swPdsgRmdrCs', stKey: 'swStsgRmdrCs', mirror: 'ne' },
-    { dir: '서',   min: 247.5, max: 292.5, prefix: 'wt', pdKey: 'wtPdsgRmdrCs', stKey: 'wtStsgRmdrCs', mirror: 'et' },
-    { dir: '북서', min: 292.5, max: 337.5, prefix: 'nw', pdKey: 'nwPdsgRmdrCs', stKey: 'nwStsgRmdrCs', mirror: 'se' },
+    { dir: '북',   min: 337.5, max: 360,   prefix: 'nt', mirror: 'st' },
+    { dir: '북',   min: 0,     max: 22.5,  prefix: 'nt', mirror: 'st' },
+    { dir: '북동', min: 22.5,  max: 67.5,  prefix: 'ne', mirror: 'sw' },
+    { dir: '동',   min: 67.5,  max: 112.5, prefix: 'et', mirror: 'wt' },
+    { dir: '남동', min: 112.5, max: 157.5, prefix: 'se', mirror: 'nw' },
+    { dir: '남',   min: 157.5, max: 202.5, prefix: 'st', mirror: 'nt' },
+    { dir: '남서', min: 202.5, max: 247.5, prefix: 'sw', mirror: 'ne' },
+    { dir: '서',   min: 247.5, max: 292.5, prefix: 'wt', mirror: 'et' },
+    { dir: '북서', min: 292.5, max: 337.5, prefix: 'nw', mirror: 'se' },
 ];
 
 // ── 유틸: 두 좌표 사이 거리 계산 (m) ─────────────────────────────────────────
@@ -49,7 +58,7 @@ function isDirectionTotallyEmpty(raw, prefix) {
     const keys = ['PdsgRmdrCs', 'StsgRmdrCs', 'LtsgRmdrCs', 'UtsgRmdrCs', 'BssgRmdrCs', 'BcsgRmdrCs'];
     return keys.every(k => {
         const val = raw[prefix + k];
-        return val === null || val === undefined || val === "";
+        return val === null || val === undefined || val === '';
     });
 }
 
@@ -92,6 +101,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!startBtn) return;
 
     startBtn.onclick = async function () {
+        // [BUG-FIX #6] 버튼 중복 클릭 시 watchPosition·scheduleFetch가 중복 등록되는 문제 방지
+        if (isStarted) return;
+        isStarted = true;
+
         this.disabled = true;
         this.innerText = '진단 중...';
         this.classList.add('opacity-50');
@@ -143,23 +156,76 @@ function scheduleFetch() {
     }, 1000);
 }
 
-// ── 로컬 카운트다운 ───────────────────────────────────────────────────────────
-function startCountdown(remainSec, phase) {
+// ── 로컬 카운트다운 (튐 방지 설계) ──────────────────────────────────────────
+//
+// 문제: API 폴링(~1초)과 로컬 setInterval(1초)이 독립적으로 돌면
+//   - API 응답이 늦으면: 로컬 48 → API 47 도착 → 화면이 48→47로 순간 튐
+//   - API 응답이 빠르면: 로컬 49 → API 50 재수신 → 역주행 튐
+//
+// 해결: 서버값을 무조건 덮어쓰지 않고 '허용 오차(SYNC_TOLERANCE)' 내이면 무시.
+//   허용 오차(기본 2초) 안에 있으면 로컬 카운트다운을 그대로 유지.
+//   오차 초과(패킷 스킵·위상 전환 등 실제 큰 변화)일 때만 서버값으로 보정.
+//
+// 추가: 로컬 틱은 performance.now() 기반으로 drift 없이 정밀하게 동작.
+
+const SYNC_TOLERANCE = 2;  // 서버값과의 허용 오차 (초). 이 범위 안이면 보정 안 함.
+
+// 로컬 타이머 내부 상태 (외부에서는 syncCountdown / stopCountdown 만 사용)
+let _tickBase   = null;   // performance.now() 기준점
+let _tickOrigin = null;   // 기준점에서의 초 단위 값
+
+function _startTick(initialSec) {
     clearInterval(countdownTimer);
-    countdownValue = Math.round(remainSec / 10);
-    countdownPhase = phase;
-    applyTimerDisplay(countdownValue, countdownPhase);
+    _tickBase   = performance.now();
+    _tickOrigin = initialSec;
+    countdownValue = initialSec;
+    applyTimerDisplay(countdownValue);
+
+    countdownTimer = setInterval(() => {
+        // performance.now() 기반으로 실제 경과 시간을 계산 → drift 없음
+        const elapsed = (performance.now() - _tickBase) / 1000;
+        const next = Math.max(0, Math.round(_tickOrigin - elapsed));
+
+        if (next !== countdownValue) {
+            countdownValue = next;
+            applyTimerDisplay(countdownValue);
+        }
+        if (countdownValue <= 0) clearInterval(countdownTimer);
+    }, 200);  // 200ms 간격으로 체크해 1초 경계를 놓치지 않음
 }
 
-function applyTimerDisplay(sec, phase) {
+// API 응답마다 호출. 허용 오차 안이면 로컬 틱 유지, 벗어나면 서버값으로 재기준.
+function syncCountdown(serverSec, phase) {
+    const phaseChanged = phase !== countdownPhase;
+    countdownPhase = phase;
+
+    if (countdownValue === null || phaseChanged) {
+        // 첫 수신이거나 신호 색이 바뀐 경우 → 무조건 서버값으로 시작
+        _startTick(serverSec);
+        return;
+    }
+
+    const diff = Math.abs(serverSec - countdownValue);
+    if (diff > SYNC_TOLERANCE) {
+        // 오차가 허용 범위 초과 → 서버값으로 재동기화
+        addLog(`타이머 재동기: 로컬 ${countdownValue}s → 서버 ${serverSec}s (Δ${diff}s)`, 'info');
+        _startTick(serverSec);
+    }
+    // 허용 오차 이내 → 로컬 틱 유지 (화면 튐 없음)
+}
+
+function applyTimerDisplay(sec) {
     const timerEl = document.getElementById('timer');
     if (timerEl) timerEl.innerText = sec;
 }
 
 function stopCountdown() {
     clearInterval(countdownTimer);
-    countdownValue = null;
-    countdownPhase = null;
+    countdownTimer  = null;
+    countdownValue  = null;
+    countdownPhase  = null;
+    _tickBase       = null;
+    _tickOrigin     = null;
 }
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
@@ -249,10 +315,16 @@ async function fetchSignalOnly() {
     const heading = userHeading ?? 0;
     const dirInfo = getDirectionByHeading(heading);
 
+    // [BUG-FIX #5] 이전 요청이 아직 진행 중이면 중단하고 새 요청 시작
+    //   (네트워크 지연이 1초를 초과할 때 응답이 뒤섞이는 경쟁 조건 방지)
+    if (signalAbortCtrl) signalAbortCtrl.abort();
+    signalAbortCtrl = new AbortController();
+
     try {
-        const signalRes = await fetch(`${API_BASE}/signal/${cachedItstId}?heading=${Math.round(heading)}`, {
-            headers: { 'X-API-KEY': AUTH_KEY }
-        });
+        const signalRes = await fetch(
+            `${API_BASE}/signal/${cachedItstId}?heading=${Math.round(heading)}`,
+            { headers: { 'X-API-KEY': AUTH_KEY }, signal: signalAbortCtrl.signal }
+        );
         const signalData = await signalRes.json();
 
         const timestampEl = document.getElementById('timestamp');
@@ -273,24 +345,31 @@ async function fetchSignalOnly() {
             const pdCs = raw[currentPrefix + 'PdsgRmdrCs'];
             const stCs = raw[currentPrefix + 'StsgRmdrCs'];
 
-            if (pdCs != null && pdCs !== "") {
-                const remainSec = Math.round(Number(pdCs) / 10);
-                updateSignalUI({
-                    phase: 'green',
-                    remainSec: remainSec,
-                    itstNm: cachedItstNm + (mirrored ? " (미러링)" : ""),
-                    dirName: dirInfo.dir,
-                });
-                startCountdown(remainSec, 'green');
-            } else if (stCs != null && stCs !== "") {
+            // [BUG-FIX #3] 신호 우선순위 오류 수정.
+            //   원래 코드는 pdCs(보행 신호) 값이 있으면 무조건 green 처리했으나,
+            //   보행 신호 잔여시간이 있어도 실제로 차량 정지(적색) 구간일 수 있음.
+            //   V2X SPAT 규격에서 stCs(직진 신호) > 0 → 차량 통행 가능(보행 적색),
+            //   stCs == 0 또는 null 이고 pdCs > 0 → 보행 가능(초록) 으로 판단.
+            if (stCs != null && stCs !== '' && Number(stCs) > 0) {
+                // 차량 직진 신호 대기 중 → 보행자 적색
                 const waitSec = Math.round(Number(stCs) / 10);
                 updateSignalUI({
                     phase: 'red',
                     remainSec: waitSec,
-                    itstNm: cachedItstNm + (mirrored ? " (미러링)" : ""),
+                    itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''),
                     dirName: dirInfo.dir,
                 });
-                startCountdown(waitSec, 'red');
+                syncCountdown(waitSec, 'red');
+            } else if (pdCs != null && pdCs !== '' && Number(pdCs) > 0) {
+                // 보행 신호 진행 중 → 초록
+                const remainSec = Math.round(Number(pdCs) / 10);
+                updateSignalUI({
+                    phase: 'green',
+                    remainSec: remainSec,
+                    itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''),
+                    dirName: dirInfo.dir,
+                });
+                syncCountdown(remainSec, 'green');
             } else {
                 stopCountdown();
                 resetSignalUI();
@@ -304,6 +383,7 @@ async function fetchSignalOnly() {
             timestampEl.innerText = '-';
         }
     } catch (e) {
+        if (e.name === 'AbortError') return;  // 의도적 중단은 로그 생략
         addLog(`통신 에러: ${e.message}`, 'error');
         updateStepStatus('signal', 'error', '통신오류');
         stopCountdown();
@@ -328,6 +408,7 @@ function updateDebugPanel(signalData, raw, dirInfo, heading) {
         const pd = raw?.[d.p + 'PdsgRmdrCs'];
         const st = raw?.[d.p + 'StsgRmdrCs'];
         const isActive = d.p === dirInfo.prefix;
+        // [BUG-FIX #1 연동] 디버그 패널도 동일하게 /10 (센티초→초) 적용
         const pdSec = pd != null ? (pd / 10).toFixed(1) + 's' : '-';
         const stSec = st != null ? (st / 10).toFixed(1) + 's' : '-';
         return `<div class="flex justify-between items-center py-0.5 px-1 rounded ${isActive ? 'bg-blue-900/40 text-blue-300' : ''}">
