@@ -6,6 +6,10 @@
              (기존: 즉시 [] 반환으로 느린 네트워크에서 추론 중단)
              단, 이미 전송된 요청은 취소할 수 없으므로
              응답이 오면 최신 프레임 결과로 처리
+    - [변경] 추론 모델 YOLOv8s → YOLOv11s
+    - [변경] 서버 입력 해상도 1280×1280 대응
+    - [추가] SAHI 타일 슬라이싱 지원
+             runYoloSahi(tiles[]) — 타일 배열을 순차 전송 후 결과 반환
 ════════════════════════════════════ */
 
 const WS_URL     = 'wss://supply.klueware.com/ws';
@@ -70,6 +74,37 @@ function _rejectPending(reason) {
   reject(new Error(reason));
 }
 
+/* ── 단일 프레임 전송 (내부용) ── */
+function _sendFrame(buf) {
+  return new Promise((resolve, reject) => {
+    if (_pending) {
+      _pending.cancelled = true;
+      clearTimeout(_pending.timer);
+      _pending.resolve([]);
+      _pending = null;
+    }
+
+    const timer = setTimeout(() => {
+      if (_pending && _pending.timer === timer) {
+        _pending = null;
+        dbg('[ws] frame timeout');
+        resolve([]);
+      }
+    }, 5000);
+
+    _pending = { resolve, reject, timer, cancelled: false };
+
+    try {
+      _ws.send(buf);
+    } catch (err) {
+      dbg(`[ws] send error: ${err.message}`);
+      clearTimeout(timer);
+      _pending = null;
+      resolve([]);
+    }
+  });
+}
+
 /* ── 공개 API ── */
 export async function loadModel(onMsg, onBadge, onDebug) {
   _onDebug = onDebug;
@@ -89,14 +124,13 @@ export async function loadModel(onMsg, onBadge, onDebug) {
 }
 
 /**
- * [개선] WebSocket의 출력 버퍼가 쌓였는지 확인하는 로직 추가
- * 브라우저 큐에 데이터가 너무 많이 쌓여있으면 전송을 건너뜁니다.
+ * 단일 캔버스 추론 (기존 인터페이스 유지)
+ * YOLOv11s, 입력 해상도 1280 대응
  */
 export async function runYolo(canvas, W, H, quality = JPEG_Q) {
   if (!_ready || !_ws || _ws.readyState !== WebSocket.OPEN) return [];
 
-  // 네트워크 전송 큐가 꽉 찼다면 현재 프레임은 버림 (네트워크 지연 대응)
-  if (_ws.bufferedAmount > 2 * 1024 * 1024) { // 예: 2MB 이상 쌓였을 때
+  if (_ws.bufferedAmount > 2 * 1024 * 1024) {
     dbg('[ws] skip frame: network buffer full');
     return [];
   }
@@ -105,32 +139,45 @@ export async function runYolo(canvas, W, H, quality = JPEG_Q) {
   if (!blob) return [];
   const buf = await blob.arrayBuffer();
 
-  if (_pending) {
-    _pending.cancelled = true;
-    clearTimeout(_pending.timer);
-    // 기존 resolve를 빈 배열로 닫아주어 메모리 누수나 dangling promise 방지
-    _pending.resolve([]); 
-    _pending = null;
+  return _sendFrame(buf);
+}
+
+/**
+ * SAHI 타일 슬라이싱 추론
+ * tiles: [{ canvas, offsetX, offsetY, scaleX, scaleY, quality }]
+ * 각 타일을 순차 전송하고 좌표를 원본 공간으로 역변환하여 합산 반환
+ * 호출자(camera.js)에서 NMS 수행
+ */
+export async function runYoloSahi(tiles) {
+  if (!_ready || !_ws || _ws.readyState !== WebSocket.OPEN) return [];
+  if (_ws.bufferedAmount > 2 * 1024 * 1024) {
+    dbg('[ws] skip SAHI: network buffer full');
+    return [];
   }
 
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (_pending && _pending.timer === timer) {
-        _pending = null;
-        dbg('[ws] frame timeout');
-        resolve([]);
-      }
-    }, 5000);
+  const allSignals = [];
 
-    _pending = { resolve, reject, timer, cancelled: false };
-    
-    try {
-      _ws.send(buf);
-    } catch (err) {
-      dbg(`[ws] send error: ${err.message}`);
-      clearTimeout(timer);
-      _pending = null;
-      resolve([]);
+  for (const tile of tiles) {
+    const { canvas, offsetX, offsetY, scaleX, scaleY, quality = JPEG_Q } = tile;
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+    if (!blob) continue;
+    const buf  = await blob.arrayBuffer();
+    const sigs = await _sendFrame(buf);
+
+    // 타일 좌표 → 원본 공간 역변환
+    for (const s of sigs) {
+      const [y1, x1, y2, x2] = s.box;
+      allSignals.push({
+        ...s,
+        box: [
+          y1 * scaleY + offsetY,
+          x1 * scaleX + offsetX,
+          y2 * scaleY + offsetY,
+          x2 * scaleX + offsetX,
+        ],
+      });
     }
-  });
+  }
+
+  return allSignals;
 }

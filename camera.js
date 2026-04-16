@@ -7,18 +7,23 @@
     - [버그] stale 신호가 updateFullscreen/renderCards 로 전달되어
              TTS 재발화·카운트 오동작하던 문제 수정
              (stale 신호는 drawBoxes 만 통과, fullscreen·TTS 스킵)
+    - [변경] 추론 모델 YOLOv8s → YOLOv11s
+    - [변경] 서버 입력 해상도 1280 대응 — ROI 캔버스 1280 상한 클램핑
+    - [추가] SAHI(Slicing Aided Hyper Inference) 적용
+             ROI phase 1(전체) 프레임을 2×2 타일로 분할하여 추론 후
+             좌표 역변환 + NMS 병합 → 원거리·소형 신호등 감지율 향상
 ════════════════════════════════════ */
 
-import { loadModel, runYolo }          from './detector.js';
-import { drawBoxes, renderCards }      from './renderer.js';
-import { cfg, readConfig }             from './settings.js';
-import { setTtsEnabled, ttsPhase }     from './tts.js';
-import { startRecording }              from './recorder.js';
+import { loadModel, runYolo, runYoloSahi } from './detector.js';
+import { drawBoxes, renderCards }           from './renderer.js';
+import { cfg, readConfig }                  from './settings.js';
+import { setTtsEnabled, ttsPhase }          from './tts.js';
+import { startRecording }                   from './recorder.js';
 import { setDebugEnabled, showDebug, setPhase,
          setBadge, updateScanBadge, tickFps,
-         applyNight, drawPip, showDetEmpty }  from './ui.js';
-import { updateFullscreen }            from './fullscreen.js';
-import { setRecorderDebug }            from './recorder.js';
+         applyNight, drawPip, showDetEmpty } from './ui.js';
+import { updateFullscreen }                 from './fullscreen.js';
+import { setRecorderDebug }                 from './recorder.js';
 
 /* ── DOM (모듈 로드 시 한 번만 조회) ── */
 const video    = document.getElementById('video');
@@ -41,7 +46,12 @@ export let phase     = 'init';
 let lastVW = 0, lastVH = 0;
 
 /* ── ROI 설정 상수 ── */
-const ROI_JPEG_Q = [0.88, 0.75, 0.82];
+const ROI_JPEG_Q   = [0.88, 0.75, 0.82];
+const MAX_SIDE     = 1280;   // YOLOv11s 입력 상한
+
+/* ── SAHI 상수 ── */
+const SAHI_OVERLAP = 0.15;   // 타일 간 겹침 비율
+const SAHI_NMS_IOU = 0.45;   // SAHI 결과 병합 NMS IOU 임계값
 
 /* ════════════════════════════════════
    카메라
@@ -105,6 +115,75 @@ export async function startCamera(facing) {
 }
 
 /* ════════════════════════════════════
+   SAHI 타일 생성
+   원본 캔버스를 2×2 타일로 분할 (SAHI_OVERLAP 겹침)
+   반환: detector.js runYoloSahi 형식 tiles[]
+════════════════════════════════════ */
+function _buildSahiTiles(srcCanvas, W, H) {
+  const cols   = 2, rows = 2;
+  const tileW  = Math.round(W / cols * (1 + SAHI_OVERLAP));
+  const tileH  = Math.round(H / rows * (1 + SAHI_OVERLAP));
+  const stepX  = Math.round(W / cols);
+  const stepY  = Math.round(H / rows);
+
+  const tiles = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const sx  = col * stepX;
+      const sy  = row * stepY;
+      const sw  = Math.min(tileW, W - sx);
+      const sh  = Math.min(tileH, H - sy);
+
+      // 타일 캔버스 — 1280 상한 클램핑
+      const dw  = Math.min(sw, MAX_SIDE);
+      const dh  = Math.min(sh, MAX_SIDE);
+      const tc  = document.createElement('canvas');
+      tc.width  = dw;
+      tc.height = dh;
+      const tctx = tc.getContext('2d');
+      tctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, dw, dh);
+
+      tiles.push({
+        canvas:  tc,
+        // 역변환: tile 좌표(0~1) → 원본(0~1)
+        offsetX: sx / W,
+        offsetY: sy / H,
+        scaleX:  sw / W,
+        scaleY:  sh / H,
+        quality: ROI_JPEG_Q[1],
+      });
+    }
+  }
+  return tiles;
+}
+
+/* ════════════════════════════════════
+   SAHI NMS — 타일 병합 후 중복 제거
+════════════════════════════════════ */
+function _sahiNms(dets) {
+  if (!dets.length) return [];
+  dets.sort((a, b) => b.score - a.score);
+  const kept = [], used = new Set();
+  for (let i = 0; i < dets.length; i++) {
+    if (used.has(i)) continue;
+    kept.push(dets[i]);
+    for (let j = i + 1; j < dets.length; j++) {
+      if (!used.has(j) && _iou(dets[i].box, dets[j].box) > SAHI_NMS_IOU)
+        used.add(j);
+    }
+  }
+  return kept;
+}
+
+function _iou(a, b) {
+  const iy1 = Math.max(a[0], b[0]), ix1 = Math.max(a[1], b[1]);
+  const iy2 = Math.min(a[2], b[2]), ix2 = Math.min(a[3], b[3]);
+  const inter = Math.max(0, iy2 - iy1) * Math.max(0, ix2 - ix1);
+  if (!inter) return 0;
+  return inter / ((a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter);
+}
+
+/* ════════════════════════════════════
    스캔 루프
 ════════════════════════════════════ */
 function startScan() {
@@ -124,64 +203,83 @@ function startScan() {
         procCtx.drawImage(video, 0, 0, W, H);
 
         if (!roiCanvas) roiCanvas = document.createElement('canvas');
-        roiCanvas.width  = W;
-        roiCanvas.height = H;
-        const rctx = roiCanvas.getContext('2d');
-
         const rp = _roiPhase % 3;
         _roiPhase++;
 
         let yOffset = 0;
         let yScale  = 1.0;
 
+        // ROI 캔버스 크기: 1280 상한 클램핑
+        let roiW = W, roiH = H;
+
         switch (rp) {
           case 0:
-            rctx.drawImage(proc, 0, 0, W, Math.round(H * 0.55), 0, 0, W, H);
+            roiH = Math.round(H * 0.55);
+            roiW = Math.min(W, MAX_SIDE);
+            roiCanvas.width  = roiW;
+            roiCanvas.height = Math.min(roiH, MAX_SIDE);
+            roiCanvas.getContext('2d').drawImage(proc, 0, 0, W, roiH, 0, 0, roiW, Math.min(roiH, MAX_SIDE));
             yScale  = 0.55;
             yOffset = 0;
             break;
           case 1:
-            rctx.drawImage(proc, 0, 0, W, H, 0, 0, W, H);
+            roiW = Math.min(W, MAX_SIDE);
+            roiH = Math.min(H, MAX_SIDE);
+            roiCanvas.width  = roiW;
+            roiCanvas.height = roiH;
+            roiCanvas.getContext('2d').drawImage(proc, 0, 0, W, H, 0, 0, roiW, roiH);
             yScale  = 1.0;
             yOffset = 0;
             break;
-          case 2:
-            rctx.drawImage(
-              proc,
-              0, Math.round(H * 0.20), W, Math.round(H * 0.50),
-              0, 0, W, H
-            );
+          case 2: {
+            const srcY = Math.round(H * 0.20);
+            const srcH = Math.round(H * 0.50);
+            roiW = Math.min(W, MAX_SIDE);
+            roiH = Math.min(srcH, MAX_SIDE);
+            roiCanvas.width  = roiW;
+            roiCanvas.height = roiH;
+            roiCanvas.getContext('2d').drawImage(proc, 0, srcY, W, srcH, 0, 0, roiW, roiH);
             yScale  = 0.50;
             yOffset = 0.20;
             break;
+          }
         }
 
         if (rp === 0) {
-          _sharpen(rctx, W, H, 0.4);
+          _sharpen(roiCanvas.getContext('2d'), roiCanvas.width, roiCanvas.height, 0.4);
         }
 
         let signals = [];
         try {
-          const raw = await runYolo(roiCanvas, W, H, ROI_JPEG_Q[rp]);
-          signals = raw.map(s => {
-            const [y1, x1, y2, x2] = s.box;
-            return {
-              ...s,
-              box: [
-                y1 * yScale + yOffset,
-                x1,
-                y2 * yScale + yOffset,
-                x2,
-              ],
-            };
-          }).filter(s => (s.box[2] - s.box[0]) >= 0.02);
+          let raw;
+          if (rp === 1) {
+            // phase 1(전체 프레임)에 SAHI 적용
+            const tiles = _buildSahiTiles(proc, W, H);
+            const sahiRaw = await runYoloSahi(tiles);
+            raw = _sahiNms(sahiRaw).filter(s => (s.box[2] - s.box[0]) >= 0.02);
+            showDebug(`[sahi] tiles:${tiles.length} raw:${sahiRaw.length} → nms:${raw.length}`);
+          } else {
+            const rawArr = await runYolo(roiCanvas, roiCanvas.width, roiCanvas.height, ROI_JPEG_Q[rp]);
+            raw = rawArr.map(s => {
+              const [y1, x1, y2, x2] = s.box;
+              return {
+                ...s,
+                box: [
+                  y1 * yScale + yOffset,
+                  x1,
+                  y2 * yScale + yOffset,
+                  x2,
+                ],
+              };
+            }).filter(s => (s.box[2] - s.box[0]) >= 0.02);
+          }
+          signals = raw;
         } catch (e) {
           console.warn('scan error:', e);
           setBadge('스캔 오류', 'text-red-400');
         }
 
-        /* ── [수정] flickering 방지: stale 마킹 분리 ── */
-        // stale 신호는 drawBoxes 에만 쓰고 fullscreen·TTS 는 스킵
+        /* ── flickering 방지: stale 마킹 분리 ── */
         const freshSignals = signals.filter(s => !s._stale);
         const displaySignals = signals.length === 0 && _prevSignals.length > 0
           ? _prevSignals.map(s => ({ ...s, _stale: true }))
@@ -190,11 +288,9 @@ function startScan() {
         _prevSignals = freshSignals;
 
         tickFps();
-        // 배지·카드 카운트는 fresh 기준
         updateScanBadge(freshSignals);
         drawBoxes(overlay.getContext('2d'), displaySignals, W, H);
 
-        // [수정] fullscreen·TTS 는 stale 이 아닌 fresh 신호만 처리
         if (freshSignals.length > 0) {
           const top   = freshSignals[0];
           const [y1, x1, y2, x2] = top.box;
@@ -240,7 +336,7 @@ function startNightCheck() {
 
 /* ════════════════════════════════════
    신호등 색상 추정
-   [수정] 시그니처: (x1, y1, x2, y2) — 호출부도 동일하게 수정
+   시그니처: (x1, y1, x2, y2) — 호출부도 동일하게 수정
 ════════════════════════════════════ */
 function rgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;

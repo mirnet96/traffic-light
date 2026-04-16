@@ -25,7 +25,7 @@
 | 마크업 | HTML5 |
 | 스타일 | Tailwind CSS (CDN) + style.css (커스텀 보완) |
 | 아이콘 | Google Material Symbols Rounded (FILL=1) |
-| 추론 | 서버 WebSocket (wss://supply.klueware.com/ws) |
+| 추론 | 서버 WebSocket (wss://supply.klueware.com/ws) — YOLOv11s 1280 + SAHI |
 | 음성 | Web Speech API (SpeechSynthesisUtterance, ko-KR) |
 | 녹화 | MediaRecorder API (video/webm;codecs=vp8) |
 | 모듈 시스템 | ES Module (import/export) |
@@ -102,24 +102,42 @@ traffic-light/
 
 ---
 
-## 추론 방식: 서버 WebSocket
+## 추론 방식: 서버 WebSocket — YOLOv11s 1280
 
 ```
 클라이언트                         서버
   │                                 │
   │── JPEG ArrayBuffer ────────────>│
-  │                                 │ YOLOv8 추론
+  │                                 │ YOLOv11s 1280 추론
   │<─ { signals, error } JSON ──────│
 ```
 
 | 항목 | 값 |
 |---|---|
 | 엔드포인트 | wss://supply.klueware.com/ws |
-| 전송 포맷 | JPEG ArrayBuffer (ROI별 품질 가변) |
+| 모델 | YOLOv11s, 입력 해상도 1280×1280 |
+| 전송 포맷 | JPEG ArrayBuffer (ROI별 품질 가변, 1280 클램핑) |
 | 수신 포맷 | JSON { signals: [...], error?: string } |
 | 연결 실패 | 3초 후 자동 재연결 |
 | 프레임 타임아웃 | 5000ms |
 | pending 중 새 프레임 | cancelled 마킹 후 최신 프레임으로 교체 전송 |
+
+### SAHI (Slicing Aided Hyper Inference)
+
+phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
+원거리·소형 신호등 감지율 향상 목적.
+
+```
+전체 프레임 → 2×2 타일 (overlap=0.15) → 각 타일 순차 전송 → 좌표 역변환 → NMS(iou=0.45) 병합
+```
+
+| 항목 | 값 |
+|---|---|
+| 타일 구성 | 2×2 (4개) |
+| 겹침 비율 | SAHI_OVERLAP = 0.15 |
+| 병합 NMS IOU | SAHI_NMS_IOU = 0.45 |
+| 적용 phase | ROI phase 1 (전체 프레임) 전용 |
+| 타일 캔버스 크기 | 1280 상한 클램핑 |
 
 ---
 
@@ -209,7 +227,7 @@ traffic-light/
        0: 상단 55% 확대 → sharpen(0.4) → JPEG q=0.88  (원거리)
        1: 전체 프레임                   → JPEG q=0.75  (근거리)
        2: 20%~70% 스트립 확대           → JPEG q=0.82  (중간 거리)
-  3. roiCanvas.toBlob(q) → ws.send()
+  3. roiCanvas.toBlob(q) → ws.send()  /  phase 1은 SAHI 2×2 타일 분할 전송 후 NMS 병합
   4. 응답 수신 { signals } + 좌표 역변환
   5. flickering 방지: 빈 결과면 _prevSignals 1프레임 유지 (stale 마킹)
        stale 신호는 drawBoxes 에만 사용
@@ -306,7 +324,7 @@ traffic-light/
 ## 핵심 상수
 
 ```
-camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75,0.82], ROI_SHARPEN=0.4
+camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75,0.82], ROI_SHARPEN=0.4, MAX_SIDE=1280, SAHI_OVERLAP=0.15, SAHI_NMS_IOU=0.45
 fullscreen.js: FS_PAD=2.8, FS_SCALE=4, FS_SHARP=0.55
 ui.js:       PIP_SM={w:120,h:80}, PIP_LG={w:200,h:130}
 tts.js:      TTS_COOLDOWN_MS=4000, TTS_RATE=1.05, TTS_LANG='ko-KR'
