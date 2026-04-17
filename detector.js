@@ -12,7 +12,7 @@
              runYoloSahi(tiles[]) — 타일 배열을 순차 전송 후 결과 반환
 ════════════════════════════════════ */
 
-const WS_URL     = 'wss://supply.klueware.com/ws';
+const WS_URL     = 'wss://supply.klueware.com/yolo/ws';
 const JPEG_Q     = 0.75;
 const WS_TIMEOUT = 12000;
 
