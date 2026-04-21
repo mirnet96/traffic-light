@@ -6,9 +6,10 @@
              visibilitychange 이벤트로 포그라운드 복귀 시 resume() 호출
 ════════════════════════════════════ */
 
-let _enabled  = true;
-let _cooldown = false;
-let _cdTimer  = null;
+let _enabled      = true;
+let _cooldown     = false;
+let _cdTimer      = null;
+let _lastSigColor = null;   // green→red 전환 감지용
 
 export function setTtsEnabled(on) { _enabled = on; }
 
@@ -21,9 +22,9 @@ if (typeof document !== 'undefined') {
   });
 }
 
-function _speak(text, cooldownMs = 0) {
+function _speak(text, cooldownMs = 0, force = false) {
   if (!_enabled || !window.speechSynthesis) return;
-  if (_cooldown) return;
+  if (_cooldown && !force) return;
   speechSynthesis.cancel();
   const utt  = new SpeechSynthesisUtterance(text);
   utt.lang   = 'ko-KR';
@@ -72,5 +73,8 @@ export function ttsSignal(sig, color) {
          : color === 'red'   ? '적색 신호등 감지'
          : '신호등 감지됨';
   }
-  _speak(text, 4000);
+  /* green → red 전환은 쿨다운 무시 (안전 우선) */
+  const isGreenToRed = _lastSigColor === 'green' && color === 'red';
+  _lastSigColor = color;
+  _speak(text, 4000, isGreenToRed);
 }

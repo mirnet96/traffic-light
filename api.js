@@ -20,6 +20,11 @@ let signalAbortCtrl  = null;
 // [BUG-FIX #6] startBtn 중복 실행 방지 플래그
 let isStarted        = false;
 
+// ── 경찰청 계획 기반 예측 상태 ────────────────────────────────────────────────
+let cachedPlan       = null;   // { cycle, pdGreen, stGreen } (초 단위)
+let planFetchedId    = null;   // 계획 캐시된 itstId
+let _planEstActive   = false;  // 예측 모드 활성 여부
+
 const GEO_THRESHOLD    = 30;   // 주소 재조회 거리 (m)
 const NEARBY_THRESHOLD = 50;   // 교차로 재조회 거리 (m)
 
@@ -266,7 +271,7 @@ async function fetchNearbyIntersection(lat, lng) {
     }
 }
 
-// ── 신호 조회 (데이터 구조 대응 수정) ─────────────────────────────────────────────
+// ── 신호 조회 (t-data 실패 시 경찰청 계획 기반 예측 fallback) ─────────────────
 async function fetchSignalOnly() {
     if (userPos.lat === null || cachedItstId === null) return;
     const heading = userHeading ?? 0;
@@ -274,6 +279,8 @@ async function fetchSignalOnly() {
 
     if (signalAbortCtrl) signalAbortCtrl.abort();
     signalAbortCtrl = new AbortController();
+
+    let tDataOk = false;
 
     try {
         const signalRes = await fetch(
@@ -284,9 +291,6 @@ async function fetchSignalOnly() {
         const timestampEl = document.getElementById('timestamp');
 
         if (signalData && (signalData.status === 'success' || signalData.data)) {
-            updateStepStatus('signal', 'success', '수신완료');
-            if (timestampEl) timestampEl.innerText = signalData.timestamp || new Date().toLocaleTimeString();
-
             const raw = signalData.data?.data || signalData.data || signalData;
             let currentPrefix = dirInfo.prefix;
             let mirrored = false;
@@ -299,28 +303,174 @@ async function fetchSignalOnly() {
             const pdCs = raw[currentPrefix + 'PdsgRmdrCs'];
             const stCs = raw[currentPrefix + 'StsgRmdrCs'];
 
-            if (stCs != null && stCs !== '' && Number(stCs) > 0) {
-                const waitSec = Math.round(Number(stCs) / 10);
-                updateSignalUI({ phase: 'red', remainSec: waitSec, itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''), dirName: dirInfo.dir });
-                syncCountdown(waitSec, 'red');
-            } else if (pdCs != null && pdCs !== '' && Number(pdCs) > 0) {
-                const remainSec = Math.round(Number(pdCs) / 10);
-                updateSignalUI({ phase: 'green', remainSec: remainSec, itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''), dirName: dirInfo.dir });
-                syncCountdown(remainSec, 'green');
-            } else {
-                stopCountdown();
-                resetSignalUI();
+            if ((stCs != null && stCs !== '' && Number(stCs) > 0) ||
+                (pdCs != null && pdCs !== '' && Number(pdCs) > 0)) {
+                tDataOk = true;
+                _planEstActive = false;
+                updateStepStatus('signal', 'success', '수신완료');
+                if (timestampEl) timestampEl.innerText = signalData.timestamp || new Date().toLocaleTimeString();
+
+                if (stCs != null && stCs !== '' && Number(stCs) > 0) {
+                    const waitSec = Math.round(Number(stCs) / 10);
+                    updateSignalUI({ phase: 'red', remainSec: waitSec, itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''), dirName: dirInfo.dir });
+                    syncCountdown(waitSec, 'red');
+                } else {
+                    const remainSec = Math.round(Number(pdCs) / 10);
+                    updateSignalUI({ phase: 'green', remainSec: remainSec, itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''), dirName: dirInfo.dir });
+                    syncCountdown(remainSec, 'green');
+                }
+                updateDebugPanel(signalData, raw, dirInfo, heading);
             }
-            updateDebugPanel(signalData, raw, dirInfo, heading);
-        } else {
-            updateStepStatus('signal', 'error', '데이터없음');
-            stopCountdown();
-            resetSignalUI();
         }
     } catch (e) {
         if (e.name === 'AbortError') return;
         updateStepStatus('signal', 'error', '통신오류');
     }
+
+    // t-data 에서 유효한 잔여시간을 못 받았으면 경찰청 계획 기반 예측
+    if (!tDataOk) {
+        updateStepStatus('signal', 'error', '예측 모드');
+        await _fallbackPlanEstimate(dirInfo);
+    }
+}
+
+// ── 경찰청 계획 기반 예측 ─────────────────────────────────────────────────────
+// 흐름:
+//   1. /intersection-plan/{itstId} → 운영계획(A·B링 현시값) 취득
+//   2. 현재 시각 기준으로 해당 시간대 계획(OPER_PLAN_HH:MI) 선택
+//   3. 주기(cycle) 내 보행(pdGreen)·직진(stGreen) 구간 추정
+//   4. 현재 초를 cycle로 나눈 나머지로 잔여시간 역산
+//   5. UI에 "(예측)" 표기와 함께 표시
+async function _fallbackPlanEstimate(dirInfo) {
+    if (!cachedItstId) return;
+
+    // 계획 데이터 캐시 (동일 교차로면 재사용)
+    if (planFetchedId !== cachedItstId || !cachedPlan) {
+        cachedPlan = await _fetchIntersectionPlan(cachedItstId);
+        planFetchedId = cachedItstId;
+    }
+
+    if (!cachedPlan) {
+        // 계획도 없으면 UI 초기화
+        if (!_planEstActive) {
+            stopCountdown();
+            resetSignalUI();
+        }
+        return;
+    }
+
+    _planEstActive = true;
+    const now = new Date();
+    const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+
+    // 현재 시각이 어느 시간대 계획에 속하는지 찾기
+    const plan = _selectActivePlan(cachedPlan.plans, now.getHours(), now.getMinutes());
+    if (!plan) { resetSignalUI(); return; }
+
+    const cycle     = plan.cycle;      // 전체 주기 (초)
+    const pdGreen   = plan.pdGreen;    // 보행신호 녹색 구간 (초)
+    const stGreen   = plan.stGreen;    // 직진신호 녹색 구간 (초, 보행 전 선행)
+
+    if (!cycle || cycle <= 0) { resetSignalUI(); return; }
+
+    // 주기 내 현재 위치 (오프셋 반영)
+    const offset  = plan.offset || 0;
+    const posInCycle = ((nowSec - offset) % cycle + cycle) % cycle;
+
+    // 신호 구간 레이아웃: [직진 stGreen초] → [보행 pdGreen초] → [나머지 적색]
+    let phase, remainSec;
+    if (posInCycle < stGreen) {
+        // 직진(차량) 신호 중 — 보행 적색
+        phase     = 'red';
+        remainSec = Math.round(stGreen - posInCycle + pdGreen);
+        // 직진 끝나면 보행 녹색이므로 남은 직진 + 보행 시작까지 = 직진 잔여
+        // 사용자 입장: 아직 건너면 안 됨 → 보행 시작까지 남은 시간
+        remainSec = Math.round(stGreen - posInCycle);
+    } else if (posInCycle < stGreen + pdGreen) {
+        // 보행 녹색 구간
+        phase     = 'green';
+        remainSec = Math.round(stGreen + pdGreen - posInCycle);
+    } else {
+        // 나머지 적색 (보행 종료 후 다음 주기까지)
+        phase     = 'red';
+        remainSec = Math.round(cycle - posInCycle + stGreen);
+    }
+
+    const label = cachedItstNm ? `${cachedItstNm} (예측)` : '예측';
+    updateSignalUI({ phase, remainSec, itstNm: label, dirName: dirInfo.dir });
+    syncCountdown(remainSec, phase);
+
+    // 예측 타임스탬프
+    const tsEl = document.getElementById('timestamp');
+    if (tsEl) tsEl.innerText = `예측 · ${now.toLocaleTimeString()} · 주기${cycle}s`;
+
+    addLog(`[예측] phase=${phase} remain=${remainSec}s cycle=${cycle}s pos=${Math.round(posInCycle)}s`);
+}
+
+// ── 경찰청 /intersection-plan API 호출 및 파싱 ────────────────────────────────
+async function _fetchIntersectionPlan(itstId) {
+    try {
+        const res = await fetch(
+            `${API_BASE}/intersection-plan/${itstId}`,
+            { headers: { 'X-API-KEY': AUTH_KEY } }
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+
+        // 서버가 { items: [...] } 또는 배열 직접 반환 등 형식 대응
+        const items = Array.isArray(data) ? data
+            : data?.response?.body?.items?.item
+            ?? data?.items
+            ?? data?.data
+            ?? null;
+
+        if (!items || !items.length) return null;
+
+        // 시간대별 운영계획 파싱
+        // 경찰청 운영계획 필드: OPER_PLAN_HH, OPER_PLAN_MI, INT_OPER_CYCLE_VAL,
+        //   A_RING_1..8_PHASE_VAL, B_RING_1..8_PHASE_VAL (단위: 0.1초)
+        const plans = items.map(item => {
+            const hh     = parseInt(item.OPER_PLAN_HH ?? item.operPlanHh ?? 0, 10);
+            const mi     = parseInt(item.OPER_PLAN_MI ?? item.operPlanMi ?? 0, 10);
+            const cycle  = Math.round((parseInt(item.INT_OPER_CYCLE_VAL ?? item.intOperCycleVal ?? 0, 10)) / 10);
+            const offset = Math.round((parseInt(item.INT_OPER_OFFSET_VAL ?? item.intOperOffsetVal ?? 0, 10)) / 10);
+
+            // A링 현시값 합산 (0.1초 단위 → 초)
+            const aRings = [1,2,3,4,5,6,7,8].map(i =>
+                Math.round((parseInt(item[`A_RING_${i}_PHASE_VAL`] ?? item[`aRing${i}PhaseVal`] ?? 0, 10)) / 10)
+            );
+
+            // 관례적 레이아웃: A링 1~2 = 직진(차량), A링 3~4 = 보행 녹색
+            // 실제 교차로마다 다르나 전형적 4현시 기준 추정
+            const stGreen = (aRings[0] || 0) + (aRings[1] || 0);
+            const pdGreen = (aRings[2] || 0) + (aRings[3] || 0);
+
+            return { hh, mi, cycle, offset, stGreen, pdGreen };
+        }).filter(p => p.cycle > 0);
+
+        if (!plans.length) return null;
+        addLog(`[계획] ${plans.length}개 시간대 로드`);
+        return { plans };
+    } catch (e) {
+        addLog(`[계획] 조회 실패: ${e.message}`, 'error');
+        return null;
+    }
+}
+
+// 현재 시각에 해당하는 운영계획 선택 (가장 최근 시작 시간)
+function _selectActivePlan(plans, curHH, curMI) {
+    if (!plans?.length) return null;
+    const curMin = curHH * 60 + curMI;
+    let best = null, bestMin = -1;
+    for (const p of plans) {
+        const planMin = p.hh * 60 + p.mi;
+        if (planMin <= curMin && planMin > bestMin) {
+            bestMin = planMin;
+            best    = p;
+        }
+    }
+    // 00:00 이후 첫 계획이 아직 없으면 마지막 계획(전날 이월) 사용
+    return best ?? plans[plans.length - 1];
 }
 
 // ── 디버그 패널 ───────────────────────────────────────────────────────────────
@@ -357,30 +507,50 @@ function updateSignalUI(data) {
     const dirEl     = document.getElementById('directionBadge');
     const itstNmEl  = document.getElementById('itstNmDisplay');
     const timerEl   = document.getElementById('timer');
+    const tsEl      = document.getElementById('timestamp');
+    const isEst     = data.itstNm?.includes('(예측)');
 
-    if (dirEl) dirEl.innerText = data.dirName ? `${data.dirName} 방향` : '';
-    if (itstNmEl) itstNmEl.innerText = data.itstNm || '';
+    if (dirEl)    dirEl.innerText = data.dirName ? `${data.dirName} 방향` : '';
+    if (itstNmEl) {
+        itstNmEl.innerText = data.itstNm || '';
+        itstNmEl.classList.toggle('estimated', !!isEst);
+    }
+    if (tsEl) tsEl.classList.toggle('estimated', !!isEst);
+
+    // Pipeline step-plan 상태 반영
+    updateStepStatus('plan', isEst ? 'success' : 'error', isEst ? '예측 중' : '-');
 
     if (data.phase === 'green') {
-        if (timerEl) timerEl.style.color = '#00ee44';
-        if (statusEl) { statusEl.innerText = '보행 신호 — 건너도 됩니다'; statusEl.style.color = '#00ee44'; }
+        if (timerEl) timerEl.style.color = isEst ? '#86efac' : '#00ee44';
+        if (statusEl) {
+            statusEl.innerText = isEst ? '보행 신호 (예측) — 참고용' : '보행 신호 — 건너도 됩니다';
+            statusEl.style.color = isEst ? '#86efac' : '#00ee44';
+        }
         if (glowEl) glowEl.style.background = 'radial-gradient(ellipse at center, #00ee4425 0%, transparent 70%)';
-        if (cardEl) cardEl.style.borderColor = '#00ee4430';
+        if (cardEl) cardEl.style.borderColor = isEst ? '#86efac30' : '#00ee4430';
     } else {
-        if (timerEl) timerEl.style.color = '#ff3322';
-        if (statusEl) { statusEl.innerText = '정지 신호 — 기다려 주세요'; statusEl.style.color = '#ff3322'; }
+        if (timerEl) timerEl.style.color = isEst ? '#fca5a5' : '#ff3322';
+        if (statusEl) {
+            statusEl.innerText = isEst ? '정지 신호 (예측) — 참고용' : '정지 신호 — 기다려 주세요';
+            statusEl.style.color = isEst ? '#fca5a5' : '#ff3322';
+        }
         if (glowEl) glowEl.style.background = 'radial-gradient(ellipse at center, #ff332225 0%, transparent 70%)';
-        if (cardEl) cardEl.style.borderColor = '#ff332230';
+        if (cardEl) cardEl.style.borderColor = isEst ? '#fca5a530' : '#ff332230';
     }
 }
 
 function resetSignalUI() {
-    const timerEl = document.getElementById('timer');
+    const timerEl  = document.getElementById('timer');
     const itstNmEl = document.getElementById('itstNmDisplay');
     const statusEl = document.getElementById('statusText');
-    if (timerEl) { timerEl.innerText = '--'; timerEl.style.color = '#374151'; }
+    const glowEl   = document.getElementById('glow');
+    const cardEl   = document.getElementById('signalCard');
+    if (timerEl)  { timerEl.innerText = '--'; timerEl.style.color = '#374151'; }
     if (itstNmEl) itstNmEl.innerText = '교차로 탐색 중...';
     if (statusEl) { statusEl.innerText = '데이터 대기 중'; statusEl.style.color = '#6b7280'; }
+    if (glowEl)   glowEl.style.background = '';
+    if (cardEl)   cardEl.style.borderColor = '';
+    _planEstActive = false;
 }
 
 function addLog(msg, type = 'info') {
