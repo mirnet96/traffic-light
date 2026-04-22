@@ -13,6 +13,9 @@
     - [개선] _sharpen 버퍼 재사용 (매 프레임 GC 방지)
     - [개선] 전체화면 닫힐 때 _lastFsSig 리셋 → 재감지 TTS 재발화 보장
     - [버그] 병합 오류로 생긴 주석 잔재 제거
+    - [개선] estimateSignalColor — 초록 배경 오판 방지
+             밝기 상위 10%(15%→10%), 초록 채도 임계값 0.40(0.25→), 색상 범위 95~175(190→)
+             상단 초록 단독 감지 시 배경 간판으로 간주 → unknown 처리
 ════════════════════════════════════ */
 
 import { loadModel, runYolo, runYoloSahi } from './detector.js';
@@ -407,17 +410,20 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       lum[i] = px[o] * 0.299 + px[o+1] * 0.587 + px[o+2] * 0.114;
     }
 
-    /* 2. 상위 15% 밝기 임계값 */
-    const thr = lum.slice().sort()[Math.floor(total * 0.85)];
+    /* 2. 상위 10% 밝기 임계값 (강화: 15→10%, 등면 발광 픽셀만 선별) */
+    const thr = lum.slice().sort()[Math.floor(total * 0.90)];
 
-    /* 3. 상위 15% 픽셀을 상·중·하 3구간으로 집계 */
+    /* 3. 상위 10% 픽셀을 상·중·하 3구간으로 집계
+          보행신호등 박스는 등면이 상단에 위치하므로
+          상단 40%를 zone 0(빨강 판정), 중단 30%를 zone 1(초록 판정),
+          하단 30%를 zone 2(숫자판 초록)로 분리 */
     const sec = [
       { r: 0, g: 0, b: 0, cnt: 0 },
       { r: 0, g: 0, b: 0, cnt: 0 },
       { r: 0, g: 0, b: 0, cnt: 0 },
     ];
     for (let row = 0; row < bh; row++) {
-      const zone = row < bh * 0.33 ? 0 : row < bh * 0.66 ? 1 : 2;
+      const zone = row < bh * 0.40 ? 0 : row < bh * 0.70 ? 1 : 2;
       for (let col = 0; col < bw; col++) {
         const i = row * bw + col;
         if (lum[i] < thr) continue;
@@ -429,14 +435,26 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       }
     }
 
-    /* 4. 구간별 HSV 판정 */
+    /* 4. 구간별 HSV 판정
+          초록 임계값을 강화(채도 0.25→0.40, 색상 범위 95~175 → 배경 간판과 분리)
+          빨강 임계값도 강화(채도 0.35→0.45) */
     const [h0,s0,v0] = sec[0].cnt ? _rgbToHsv(sec[0].r/sec[0].cnt, sec[0].g/sec[0].cnt, sec[0].b/sec[0].cnt) : [0,0,0];
     const [h1,s1,v1] = sec[1].cnt ? _rgbToHsv(sec[1].r/sec[1].cnt, sec[1].g/sec[1].cnt, sec[1].b/sec[1].cnt) : [0,0,0];
     const [h2,s2,v2] = sec[2].cnt ? _rgbToHsv(sec[2].r/sec[2].cnt, sec[2].g/sec[2].cnt, sec[2].b/sec[2].cnt) : [0,0,0];
 
-    const isRed    = (h0 < 25 || h0 > 335) && s0 > 0.35 && v0 > 0.35;
-    const isGreenM = (h1 > 95 && h1 < 190) && s1 > 0.25 && v1 > 0.30;
-    const isGreenB = (h2 > 95 && h2 < 190) && s2 > 0.20 && v2 > 0.30;
+    /* 빨강: 채도·명도 임계값 강화 (배경 노이즈 제거) */
+    const isRed = (h0 < 20 || h0 > 340) && s0 > 0.45 && v0 > 0.40;
+
+    /* 초록: 색상 범위 좁힘(95~175) + 채도 강화(0.40) + 명도 강화(0.35)
+             → 연두색 배경 간판(채도 낮음)과 분리 */
+    const isGreenM = (h1 > 95 && h1 < 175) && s1 > 0.40 && v1 > 0.35;
+    const isGreenB = (h2 > 95 && h2 < 175) && s2 > 0.35 && v2 > 0.35;
+
+    /* 5. 상단 구간에 강한 초록이 있으면 배경 간판으로 간주 → unknown 처리
+          (신호등 등면이 상단에 있을 경우 초록 등이 켜진 것이므로 예외 허용하지 않음)
+          단, zone0에 초록이 감지되면서 zone1에도 없으면 배경으로 판정 */
+    const isGreenTop = (h0 > 95 && h0 < 175) && s0 > 0.40 && v0 > 0.35;
+    if (isGreenTop && !isGreenM && !isGreenB) return 'unknown';
 
     if (isGreenM || isGreenB) return 'green';
     if (isRed)                return 'red';

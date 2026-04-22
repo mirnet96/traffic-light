@@ -277,10 +277,15 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
   const color = estimateSignalColor(x1, y1, x2, y2);
   [중요] box 배열을 직접 전달하지 말 것
 
-판정 로직 (HSV 기반 3단 분석):
-  상단(0~33%): 빨간불  Hue<25||>335, S>0.3, V>0.3
-  중단(33~66%): 초록불  Hue 100~185, S>0.25, V>0.3
-  하단(66~100%): 숫자판 초록  Hue 100~185, S>0.2, V>0.3
+판정 로직 (HSV 기반 3단 분석 — 배경 오판 방지 강화):
+  샘플링: 밝기 상위 10% 픽셀만 사용 (등면 발광 픽셀 선별)
+  구간 분리:
+    상단(0~40%): 빨간불  Hue<20||>340, S>0.45, V>0.40
+    중단(40~70%): 초록불  Hue 95~175, S>0.40, V>0.35
+    하단(70~100%): 숫자판 초록  Hue 95~175, S>0.35, V>0.35
+  배경 간판 오판 방지:
+    상단 구간에만 초록(S>0.40)이 감지되고 중·하단에 없으면 → unknown
+    (신호등 초록 등면은 중·하단에도 반드시 초록 픽셀이 분포함)
   우선순위: green(중·하단) > red(상단) > unknown
 
 ---
@@ -325,6 +330,7 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 
 ```
 camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75,0.82], ROI_SHARPEN=0.4, MAX_SIDE=1280, SAHI_OVERLAP=0.15, SAHI_NMS_IOU=0.45
+             COLOR_LUM_TOP=0.10, COLOR_RED_S=0.45, COLOR_RED_V=0.40, COLOR_GREEN_S=0.40, COLOR_GREEN_HUE=[95,175]
 fullscreen.js: FS_PAD=2.8, FS_SCALE=4, FS_SHARP=0.55
 ui.js:       PIP_SM={w:120,h:80}, PIP_LG={w:200,h:130}
 tts.js:      TTS_COOLDOWN_MS=4000, TTS_RATE=1.05, TTS_LANG='ko-KR'
@@ -383,6 +389,7 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - proc.getContext('2d') 직접 호출 금지
 - api.html 에 Kakao SDK·api.js 스크립트 태그 각 1개만
 - estimateSignalColor 인자: (x1,y1,x2,y2) 좌표 4개 (box 배열 전달 금지)
+- estimateSignalColor 배경 오판 방지: 상단 구간 초록 단독 감지 시 unknown 처리 (중·하단 초록 없으면 배경 간판으로 간주)
 - userHeading 초기값 null — 0(정북) 과 미수신 구별
 - stale 신호는 drawBoxes 에만 사용, fullscreen·TTS·카드 카운트 전달 금지
 - detector.js·detector.yolo.js DOM 접근 완전 금지
@@ -398,7 +405,7 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 
 ## 향후 로드맵
 
-- [ ] 신호등 색상 판별 정확도 개선 (픽셀 샘플링 → 서버 측 색상 분류)
+- [ ] 신호등 색상 판별 정확도 개선 (배경 간판 오판 감소 완료 → 픽셀 샘플링 → 서버 측 색상 분류)
 - [ ] 카운트다운 타이머
 - [ ] AI-Hub 데이터셋 기반 YOLOv8s fine-tuning
 - [ ] PWA Service Worker
