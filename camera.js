@@ -7,6 +7,8 @@
     - [변경] 추론 모델 YOLOv8s → YOLOv11s / 입력 해상도 1280 대응
     - [추가] SAHI 2×2 타일 슬라이싱
     - [추가] 가로형 차량 신호등 필터 (_isPedestrianShape)
+    - [개선] 종횡비 상한 추가 — H/W > 2.5 이면 3구 차량 신호등으로 제거
+             보행 신호등(2구) H/W ≈ 1.5~2.5 / 차량등(3구) H/W ≈ 2.5~3.5
     - [추가] box 비율 기반 isPedestrian 자동 추정
     - [개선] estimateSignalColor — 밝기 상위 15% 픽셀만 샘플링
     - [개선] stale 유지 타임스탬프 기반 350ms
@@ -196,21 +198,34 @@ function _iou(a, b) {
 
 /* ════════════════════════════════════
    신호등 형태 필터
-   가로형(width > height×1.8) 및 최소 높이 2% 미만 제거
+   ┌──────────────────────────────────────┐
+   │  신호등 종류별 종횡비(H/W) 기준:      │
+   │  · 보행 신호등(2구 세로): 1.5 ~ 2.5  │
+   │  · 차량 신호등(3구 세로): 2.5 ~ 3.5+ │
+   │  → H/W > 2.5 이면 차량등으로 제거    │
+   │  · 가로형(H/W < 0.56): 제거          │
+   │  · 최소 높이 2% 미만: 제거           │
+   └──────────────────────────────────────┘
 ════════════════════════════════════ */
+const PED_RATIO_MIN = 0.56;   // 가로형 상한 (H/W < 이 값이면 제거)
+const PED_RATIO_MAX = 2.5;    // 차량 신호등 하한 (H/W > 이 값이면 차량등으로 제거)
+
 function _isPedestrianShape(box) {
   const [y1, x1, y2, x2] = box;
   const bh = y2 - y1;
   const bw = x2 - x1;
-  if (bh < 0.02) return false;
-  if (bw > bh * 1.8) return false;
+  if (bh < 0.02) return false;                    // 너무 작음
+  const ratio = bh / bw;
+  if (ratio < PED_RATIO_MIN) return false;         // 가로형 → 차량 방향등 등
+  if (ratio > PED_RATIO_MAX) return false;         // 지나치게 세로 → 3구 차량 신호등
   return true;
 }
 
 /* box 세로/가로 비율로 보행신호 여부 추정 */
 function _isPedestrianByRatio(box) {
   const [y1, x1, y2, x2] = box;
-  return (y2 - y1) > (x2 - x1) * 1.8;
+  const ratio = (y2 - y1) / (x2 - x1);
+  return ratio >= PED_RATIO_MIN && ratio <= PED_RATIO_MAX;
 }
 
 /* ════════════════════════════════════
