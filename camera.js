@@ -18,6 +18,13 @@
     - [개선] estimateSignalColor — 초록 배경 오판 방지
              밝기 상위 10%(15%→10%), 초록 채도 임계값 0.40(0.25→), 색상 범위 95~175(190→)
              상단 초록 단독 감지 시 배경 간판으로 간주 → unknown 처리
+    - [개선] 밝기 분산 필터 추가 — 단색 구조물(기둥·콘크리트) unknown 처리
+             lumVar < 150 이면 신호등 등면 아님으로 판정
+    - [개선] 초록 임계값 추가 강화 — 채도 0.45, 명도 0.40, 색상 범위 95~165
+             고가도로 초록 페인트 오감지 억제
+    - [개선] _isPedestrianShape — 최소 너비 조건(0.010) 추가, 종횡비 0.65~2.2로 좁힘
+             기둥·지지대 오감지 방지
+    - [개선] estimateSignalColor unknown 시 fullscreen 갱신 억제
 ════════════════════════════════════ */
 
 import { loadModel, runYolo, runYoloSahi } from './detector.js';
@@ -207,21 +214,24 @@ function _iou(a, b) {
    │  · 최소 높이 2% 미만: 제거           │
    └──────────────────────────────────────┘
 ════════════════════════════════════ */
-const PED_RATIO_MIN = 0.56;   // 가로형 상한 (H/W < 이 값이면 제거)
-const PED_RATIO_MAX = 2.5;    // 차량 신호등 하한 (H/W > 이 값이면 차량등으로 제거)
+const PED_RATIO_MIN  = 0.65;   // 가로형 상한 (H/W < 이 값이면 제거, 0.56→0.65 강화)
+const PED_RATIO_MAX  = 2.2;    // 차량 신호등 하한 (H/W > 이 값이면 제거, 2.5→2.2 강화)
+const PED_MIN_HEIGHT = 0.025;  // 박스 높이 최소값 (정규화, 2%→2.5%)
+const PED_MIN_WIDTH  = 0.010;  // 박스 너비 최소값 (정규화) — 기둥 폭 오감지 방지
 
 function _isPedestrianShape(box) {
   const [y1, x1, y2, x2] = box;
   const bh = y2 - y1;
   const bw = x2 - x1;
-  if (bh < 0.02) return false;                    // 너무 작음
+  if (bh < PED_MIN_HEIGHT) return false;           // 너무 작음 (높이)
+  if (bw < PED_MIN_WIDTH)  return false;           // 너무 좁음 (기둥 오감지 방지)
   const ratio = bh / bw;
   if (ratio < PED_RATIO_MIN) return false;         // 가로형 → 차량 방향등 등
   if (ratio > PED_RATIO_MAX) return false;         // 지나치게 세로 → 3구 차량 신호등
   return true;
 }
 
-/* box 세로/가로 비율로 보행신호 여부 추정 */
+/* box 세로/가로 비율로 보행신호 여부 추정 (강화된 상수 공유) */
 function _isPedestrianByRatio(box) {
   const [y1, x1, y2, x2] = box;
   const ratio = (y2 - y1) / (x2 - x1);
@@ -339,9 +349,15 @@ function startScan() {
           const [y1, x1, y2, x2] = top.box;
           const color = estimateSignalColor(x1, y1, x2, y2);
           showDebug(`[color] ${color} isPed=${top.isPedestrian} score=${top.score.toFixed(2)}`);
-          _lastFsColor = color;
-          _lastFsSig   = top;
-          updateFullscreen(top, color);
+          if (color !== 'unknown') {
+            /* 색상이 명확한 경우만 전체화면 갱신 */
+            _lastFsColor = color;
+            _lastFsSig   = top;
+            updateFullscreen(top, color);
+          } else {
+            /* unknown: stale 만료 전이면 이전 신호 유지, 아니면 전체화면 닫지 않고 유지만 */
+            showDebug('[color] unknown → fullscreen 갱신 억제');
+          }
         } else if (_lastFsSig && displaySignals.some(s => s._stale)) {
           /* stale: 전체화면 좌표 유지, TTS 재발화 없음 */
           updateFullscreen(_lastFsSig, _lastFsColor);
@@ -425,10 +441,21 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       lum[i] = px[o] * 0.299 + px[o+1] * 0.587 + px[o+2] * 0.114;
     }
 
-    /* 2. 상위 10% 밝기 임계값 (강화: 15→10%, 등면 발광 픽셀만 선별) */
+    /* 2. 밝기 분산 검사 — 분산이 매우 낮으면 단색 구조물(기둥 등) → unknown
+          신호등 등면은 등이 켜진 구간에 국부 고휘도가 있어 분산이 높음
+          임계값 150: 회색 기둥(분산 ~30~80), 콘크리트 구조물(~50~120) 제거 */
+    let lumMean = 0;
+    for (let i = 0; i < total; i++) lumMean += lum[i];
+    lumMean /= total;
+    let lumVar = 0;
+    for (let i = 0; i < total; i++) lumVar += (lum[i] - lumMean) ** 2;
+    lumVar /= total;
+    if (lumVar < 150) return 'unknown';   // 단색 구조물 — 기둥·콘크리트 등
+
+    /* 3. 상위 10% 밝기 임계값 (강화: 15→10%, 등면 발광 픽셀만 선별) */
     const thr = lum.slice().sort()[Math.floor(total * 0.90)];
 
-    /* 3. 상위 10% 픽셀을 상·중·하 3구간으로 집계
+    /* 4. 상위 10% 픽셀을 상·중·하 3구간으로 집계
           보행신호등 박스는 등면이 상단에 위치하므로
           상단 40%를 zone 0(빨강 판정), 중단 30%를 zone 1(초록 판정),
           하단 30%를 zone 2(숫자판 초록)로 분리 */
@@ -450,25 +477,23 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       }
     }
 
-    /* 4. 구간별 HSV 판정
-          초록 임계값을 강화(채도 0.25→0.40, 색상 범위 95~175 → 배경 간판과 분리)
-          빨강 임계값도 강화(채도 0.35→0.45) */
+    /* 5. 구간별 HSV 판정
+          초록 임계값 추가 강화(채도 0.40→0.45, 명도 0.35→0.40)
+          빨강 임계값도 강화(채도 0.45→0.50) */
     const [h0,s0,v0] = sec[0].cnt ? _rgbToHsv(sec[0].r/sec[0].cnt, sec[0].g/sec[0].cnt, sec[0].b/sec[0].cnt) : [0,0,0];
     const [h1,s1,v1] = sec[1].cnt ? _rgbToHsv(sec[1].r/sec[1].cnt, sec[1].g/sec[1].cnt, sec[1].b/sec[1].cnt) : [0,0,0];
     const [h2,s2,v2] = sec[2].cnt ? _rgbToHsv(sec[2].r/sec[2].cnt, sec[2].g/sec[2].cnt, sec[2].b/sec[2].cnt) : [0,0,0];
 
-    /* 빨강: 채도·명도 임계값 강화 (배경 노이즈 제거) */
-    const isRed = (h0 < 20 || h0 > 340) && s0 > 0.45 && v0 > 0.40;
+    /* 빨강: 채도·명도 임계값 강화 */
+    const isRed = (h0 < 20 || h0 > 340) && s0 > 0.50 && v0 > 0.45;
 
-    /* 초록: 색상 범위 좁힘(95~175) + 채도 강화(0.40) + 명도 강화(0.35)
-             → 연두색 배경 간판(채도 낮음)과 분리 */
-    const isGreenM = (h1 > 95 && h1 < 175) && s1 > 0.40 && v1 > 0.35;
-    const isGreenB = (h2 > 95 && h2 < 175) && s2 > 0.35 && v2 > 0.35;
+    /* 초록: 색상 범위 좁힘(95~165, 175→165) + 채도·명도 강화
+             고가도로 초록 페인트(채도 높지만 발광 없음 → 밝기 분산으로 1차 걸러짐) */
+    const isGreenM = (h1 > 95 && h1 < 165) && s1 > 0.45 && v1 > 0.40;
+    const isGreenB = (h2 > 95 && h2 < 165) && s2 > 0.40 && v2 > 0.40;
 
-    /* 5. 상단 구간에 강한 초록이 있으면 배경 간판으로 간주 → unknown 처리
-          (신호등 등면이 상단에 있을 경우 초록 등이 켜진 것이므로 예외 허용하지 않음)
-          단, zone0에 초록이 감지되면서 zone1에도 없으면 배경으로 판정 */
-    const isGreenTop = (h0 > 95 && h0 < 175) && s0 > 0.40 && v0 > 0.35;
+    /* 6. 상단 구간에 강한 초록이 있으면 배경 간판으로 간주 → unknown 처리 */
+    const isGreenTop = (h0 > 95 && h0 < 165) && s0 > 0.45 && v0 > 0.40;
     if (isGreenTop && !isGreenM && !isGreenB) return 'unknown';
 
     if (isGreenM || isGreenB) return 'green';
