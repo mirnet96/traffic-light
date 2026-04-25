@@ -8,23 +8,20 @@
     - [추가] SAHI 2×2 타일 슬라이싱
     - [추가] 가로형 차량 신호등 필터 (_isPedestrianShape)
     - [개선] 종횡비 상한 추가 — H/W > 2.5 이면 3구 차량 신호등으로 제거
-             보행 신호등(2구) H/W ≈ 1.5~2.5 / 차량등(3구) H/W ≈ 2.5~3.5
     - [추가] box 비율 기반 isPedestrian 자동 추정
-    - [개선] estimateSignalColor — 밝기 상위 15% 픽셀만 샘플링
+    - [개선] estimateSignalColor — 밝기 상위 10% 픽셀만 샘플링
     - [개선] stale 유지 타임스탬프 기반 350ms
     - [개선] _sharpen 버퍼 재사용 (매 프레임 GC 방지)
-    - [개선] 전체화면 닫힐 때 _lastFsSig 리셋 → 재감지 TTS 재발화 보장
-    - [버그] 병합 오류로 생긴 주석 잔재 제거
-    - [개선] estimateSignalColor — 초록 배경 오판 방지
-             밝기 상위 10%(15%→10%), 초록 채도 임계값 0.40(0.25→), 색상 범위 95~175(190→)
-             상단 초록 단독 감지 시 배경 간판으로 간주 → unknown 처리
-    - [개선] 밝기 분산 필터 추가 — 단색 구조물(기둥·콘크리트) unknown 처리
-             lumVar < 150 이면 신호등 등면 아님으로 판정
+    - [개선] estimateSignalColor — 초록 배경 간판 오판 방지
+    - [개선] 밝기 분산 필터 추가 — 단색 구조물 unknown 처리
     - [개선] 초록 임계값 추가 강화 — 채도 0.45, 명도 0.40, 색상 범위 95~165
-             고가도로 초록 페인트 오감지 억제
-    - [개선] _isPedestrianShape — 최소 너비 조건(0.010) 추가, 종횡비 0.65~2.2로 좁힘
-             기둥·지지대 오감지 방지
+    - [개선] _isPedestrianShape — 최소 너비/높이 조건, 종횡비 0.65~2.2
     - [개선] estimateSignalColor unknown 시 fullscreen 갱신 억제
+    - [개선] 현장 오감지 대응 (20260425):
+             · _isPedestrianShape — 박스 상단 Y1 > 0.10 조건 추가 (방음벽 오감지 방지)
+             · 원거리 소형 박스(bh < 0.05) isPedestrian 조건 완화
+             · estimateSignalColor — 중앙 60% crop 후 샘플링 (배경 오염 제거)
+             · 초록 방음벽 대비: lumVar 임계값 200으로 상향
 ════════════════════════════════════ */
 
 import { loadModel, runYolo, runYoloSahi } from './detector.js';
@@ -205,37 +202,47 @@ function _iou(a, b) {
 
 /* ════════════════════════════════════
    신호등 형태 필터
-   ┌──────────────────────────────────────┐
-   │  신호등 종류별 종횡비(H/W) 기준:      │
-   │  · 보행 신호등(2구 세로): 1.5 ~ 2.5  │
-   │  · 차량 신호등(3구 세로): 2.5 ~ 3.5+ │
-   │  → H/W > 2.5 이면 차량등으로 제거    │
-   │  · 가로형(H/W < 0.56): 제거          │
-   │  · 최소 높이 2% 미만: 제거           │
-   └──────────────────────────────────────┘
+   ┌────────────────────────────────────────┐
+   │  신호등 종류별 종횡비(H/W) 기준:         │
+   │  · 보행 신호등(2구 세로): 0.65 ~ 2.2    │
+   │  · 차량 신호등(3구 세로): 2.2 이상       │
+   │  → H/W > 2.2 이면 차량등으로 제거       │
+   │  · 가로형(H/W < 0.65): 제거             │
+   │  · Y1 < 0.10 (화면 최상단 10%): 제거    │
+   │    → 방음벽·간판 등 배경 구조물 오감지 방지│
+   │  · 최소 높이 2.5%·너비 1.0% 미만: 제거  │
+   └────────────────────────────────────────┘
 ════════════════════════════════════ */
-const PED_RATIO_MIN  = 0.65;   // 가로형 상한 (H/W < 이 값이면 제거, 0.56→0.65 강화)
-const PED_RATIO_MAX  = 2.2;    // 차량 신호등 하한 (H/W > 이 값이면 제거, 2.5→2.2 강화)
-const PED_MIN_HEIGHT = 0.025;  // 박스 높이 최소값 (정규화, 2%→2.5%)
-const PED_MIN_WIDTH  = 0.010;  // 박스 너비 최소값 (정규화) — 기둥 폭 오감지 방지
+const PED_RATIO_MIN  = 0.65;   // 가로형 상한
+const PED_RATIO_MAX  = 2.2;    // 차량 신호등 하한
+const PED_MIN_HEIGHT = 0.025;  // 박스 높이 최소값 (정규화)
+const PED_MIN_WIDTH  = 0.010;  // 박스 너비 최소값 (정규화)
+const PED_MIN_Y1     = 0.10;   // [추가] 박스 상단 최소 Y 위치 — 화면 최상단 10% 이내 제거
+                                //  현장 사진 분석: 방음벽·배경 구조물은 Y1이 0~8% 범위에 몰림
+                                //  실제 신호등은 대부분 Y1 ≥ 10% 위치에 존재
 
 function _isPedestrianShape(box) {
   const [y1, x1, y2, x2] = box;
   const bh = y2 - y1;
   const bw = x2 - x1;
-  if (bh < PED_MIN_HEIGHT) return false;           // 너무 작음 (높이)
-  if (bw < PED_MIN_WIDTH)  return false;           // 너무 좁음 (기둥 오감지 방지)
+  if (y1 < PED_MIN_Y1)  return false;           // [추가] 최상단 배경 구조물 제거
+  if (bh < PED_MIN_HEIGHT) return false;        // 너무 작음 (높이)
+  if (bw < PED_MIN_WIDTH)  return false;        // 너무 좁음 (기둥 오감지 방지)
   const ratio = bh / bw;
-  if (ratio < PED_RATIO_MIN) return false;         // 가로형 → 차량 방향등 등
-  if (ratio > PED_RATIO_MAX) return false;         // 지나치게 세로 → 3구 차량 신호등
+  if (ratio < PED_RATIO_MIN) return false;      // 가로형 → 차량 방향등 등
+  if (ratio > PED_RATIO_MAX) return false;      // 지나치게 세로 → 3구 차량 신호등
   return true;
 }
 
-/* box 세로/가로 비율로 보행신호 여부 추정 (강화된 상수 공유) */
+/* box 세로/가로 비율로 보행신호 여부 추정
+   원거리 소형(bh < 0.05) 박스는 종횡비가 압축되어 불안정하므로
+   MAX 조건을 완화(2.2 → 3.0)하여 보행신호등 누락 방지 */
 function _isPedestrianByRatio(box) {
   const [y1, x1, y2, x2] = box;
-  const ratio = (y2 - y1) / (x2 - x1);
-  return ratio >= PED_RATIO_MIN && ratio <= PED_RATIO_MAX;
+  const bh    = y2 - y1;
+  const ratio = bh / (x2 - x1);
+  const maxR  = bh < 0.05 ? 3.0 : PED_RATIO_MAX;   // 원거리 소형 완화
+  return ratio >= PED_RATIO_MIN && ratio <= maxR;
 }
 
 /* ════════════════════════════════════
@@ -401,7 +408,12 @@ function startNightCheck() {
 
 /* ════════════════════════════════════
    신호등 색상 추정
-   개선: 밝기 상위 15% 픽셀만 샘플링 → 하우징·반사 노이즈 제거
+   - 밝기 상위 10% 픽셀만 샘플링 (등면 발광 픽셀 선별)
+   - 박스 중앙 60% 영역만 crop (배경 오염 제거)
+     현장 분석: 방음벽 초록이 박스 좌우 가장자리를 오염시킴
+                → 좌우 20%씩 제거한 중앙 60%만 사용
+   - lumVar 임계값 200으로 상향 (150→200)
+     초록 방음벽은 밝기가 균일하여 분산이 낮음 (~80~140)
    시그니처: (x1, y1, x2, y2) 정규화 좌표
 ════════════════════════════════════ */
 function _rgbToHsv(r, g, b) {
@@ -424,9 +436,14 @@ function _rgbToHsv(r, g, b) {
 
 export function estimateSignalColor(x1, y1, x2, y2) {
   const W = proc.width, H = proc.height;
-  const bx = Math.max(0, Math.round(x1 * W));
+
+  /* [개선] 박스 중앙 60%만 crop — 좌우 20%씩 제거하여 배경 오염 차단 */
+  const xMargin = (x2 - x1) * 0.20;
+  const cx1 = x1 + xMargin, cx2 = x2 - xMargin;
+
+  const bx = Math.max(0, Math.round(cx1 * W));
   const by = Math.max(0, Math.round(y1 * H));
-  const bw = Math.min(W - bx, Math.round((x2 - x1) * W));
+  const bw = Math.min(W - bx, Math.round((cx2 - cx1) * W));
   const bh = Math.min(H - by, Math.round((y2 - y1) * H));
   if (bw < 4 || bh < 4) return 'unknown';
 
@@ -441,24 +458,24 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       lum[i] = px[o] * 0.299 + px[o+1] * 0.587 + px[o+2] * 0.114;
     }
 
-    /* 2. 밝기 분산 검사 — 분산이 매우 낮으면 단색 구조물(기둥 등) → unknown
-          신호등 등면은 등이 켜진 구간에 국부 고휘도가 있어 분산이 높음
-          임계값 150: 회색 기둥(분산 ~30~80), 콘크리트 구조물(~50~120) 제거 */
+    /* 2. 밝기 분산 검사 — 분산이 낮으면 단색 구조물 → unknown
+          임계값 200 (150→200): 초록 방음벽은 분산 ~80~140으로 제거됨
+          신호등 등면은 등이 켜진 구간에 국부 고휘도가 있어 분산 200+ */
     let lumMean = 0;
     for (let i = 0; i < total; i++) lumMean += lum[i];
     lumMean /= total;
     let lumVar = 0;
     for (let i = 0; i < total; i++) lumVar += (lum[i] - lumMean) ** 2;
     lumVar /= total;
-    if (lumVar < 150) return 'unknown';   // 단색 구조물 — 기둥·콘크리트 등
+    if (lumVar < 200) return 'unknown';
 
-    /* 3. 상위 10% 밝기 임계값 (강화: 15→10%, 등면 발광 픽셀만 선별) */
+    /* 3. 상위 10% 밝기 임계값 (등면 발광 픽셀만 선별) */
     const thr = lum.slice().sort()[Math.floor(total * 0.90)];
 
     /* 4. 상위 10% 픽셀을 상·중·하 3구간으로 집계
-          보행신호등 박스는 등면이 상단에 위치하므로
-          상단 40%를 zone 0(빨강 판정), 중단 30%를 zone 1(초록 판정),
-          하단 30%를 zone 2(숫자판 초록)로 분리 */
+          상단 40%: zone 0 (빨강 판정)
+          중단 30%: zone 1 (초록 중간)
+          하단 30%: zone 2 (초록 숫자판) */
     const sec = [
       { r: 0, g: 0, b: 0, cnt: 0 },
       { r: 0, g: 0, b: 0, cnt: 0 },
@@ -477,22 +494,19 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       }
     }
 
-    /* 5. 구간별 HSV 판정
-          초록 임계값 추가 강화(채도 0.40→0.45, 명도 0.35→0.40)
-          빨강 임계값도 강화(채도 0.45→0.50) */
+    /* 5. 구간별 HSV 판정 */
     const [h0,s0,v0] = sec[0].cnt ? _rgbToHsv(sec[0].r/sec[0].cnt, sec[0].g/sec[0].cnt, sec[0].b/sec[0].cnt) : [0,0,0];
     const [h1,s1,v1] = sec[1].cnt ? _rgbToHsv(sec[1].r/sec[1].cnt, sec[1].g/sec[1].cnt, sec[1].b/sec[1].cnt) : [0,0,0];
     const [h2,s2,v2] = sec[2].cnt ? _rgbToHsv(sec[2].r/sec[2].cnt, sec[2].g/sec[2].cnt, sec[2].b/sec[2].cnt) : [0,0,0];
 
-    /* 빨강: 채도·명도 임계값 강화 */
+    /* 빨강: Hue<20 또는 >340, 채도·명도 임계값 */
     const isRed = (h0 < 20 || h0 > 340) && s0 > 0.50 && v0 > 0.45;
 
-    /* 초록: 색상 범위 좁힘(95~165, 175→165) + 채도·명도 강화
-             고가도로 초록 페인트(채도 높지만 발광 없음 → 밝기 분산으로 1차 걸러짐) */
+    /* 초록: 색상 범위 95~165, 채도·명도 임계값 */
     const isGreenM = (h1 > 95 && h1 < 165) && s1 > 0.45 && v1 > 0.40;
     const isGreenB = (h2 > 95 && h2 < 165) && s2 > 0.40 && v2 > 0.40;
 
-    /* 6. 상단 구간에 강한 초록이 있으면 배경 간판으로 간주 → unknown 처리 */
+    /* 6. 상단 구간 초록 단독 감지 → 배경 간판/방음벽 → unknown */
     const isGreenTop = (h0 > 95 && h0 < 165) && s0 > 0.45 && v0 > 0.40;
     if (isGreenTop && !isGreenM && !isGreenB) return 'unknown';
 

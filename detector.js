@@ -145,7 +145,11 @@ export async function runYolo(canvas, W, H, quality = JPEG_Q) {
 /**
  * SAHI 타일 슬라이싱 추론
  * tiles: [{ canvas, offsetX, offsetY, scaleX, scaleY, quality }]
- * 각 타일을 순차 전송하고 좌표를 원본 공간으로 역변환하여 합산 반환
+ *
+ * [개선] JPEG 인코딩을 Promise.all 로 병렬화 → 1fps 문제 해결
+ *   JPEG blob 생성(20~40ms × 4타일)을 병렬로 처리하고
+ *   전송·응답은 단일 WS pending 제약으로 순차 유지
+ *
  * 호출자(camera.js)에서 NMS 수행
  */
 export async function runYoloSahi(tiles) {
@@ -155,16 +159,23 @@ export async function runYoloSahi(tiles) {
     return [];
   }
 
+  /* 1단계: JPEG 인코딩 병렬 처리 */
+  const buffers = await Promise.all(
+    tiles.map(async ({ canvas, quality = JPEG_Q }) => {
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+      return blob ? blob.arrayBuffer() : null;
+    })
+  );
+
   const allSignals = [];
 
-  for (const tile of tiles) {
-    const { canvas, offsetX, offsetY, scaleX, scaleY, quality = JPEG_Q } = tile;
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
-    if (!blob) continue;
-    const buf  = await blob.arrayBuffer();
+  /* 2단계: 전송·응답 순차 처리 (단일 WS pending 제약) */
+  for (let i = 0; i < tiles.length; i++) {
+    const buf = await buffers[i];
+    if (!buf) continue;
+    const { offsetX, offsetY, scaleX, scaleY } = tiles[i];
     const sigs = await _sendFrame(buf);
 
-    // 타일 좌표 → 원본 공간 역변환
     for (const s of sigs) {
       const [y1, x1, y2, x2] = s.box;
       allSignals.push({
