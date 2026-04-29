@@ -73,7 +73,7 @@ traffic-light/
 | 파일 | 역할 | 상한 |
 |---|---|---|
 | app.js | 진입점·이벤트 | 60줄 |
-| camera.js | 카메라·스캔루프·ROI·야간 감지·색상 추정 | 200줄 |
+| camera.js | 카메라·스캔루프·ROI·야간 감지·색상 추정 | 250줄 |
 | ui.js | setPhase·badge·PiP·fps·scanMsg·야간·디버그 패널 | 200줄 |
 | tts.js | TTS 전담 (진행과정·순환문구·신호 안내) | 80줄 |
 | recorder.js | MediaRecorder 녹화·다운로드 | 60줄 |
@@ -237,7 +237,7 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
   8. drawBoxes(overlay, displaySignals)
   9. freshSignals.length > 0
        → estimateSignalColor(x1, y1, x2, y2)
-       → updateFullscreen(sig, color)
+       → color !== 'unknown' 일 때만 updateFullscreen(sig, color)
        → ttsSignal(sig, color)
   10. renderCards(freshSignals, onTap, showDetEmpty)
   11. drawPip(proc, overlay)
@@ -266,7 +266,7 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 
 ---
 
-## 신호등 색상 추정
+## 신호등 색상 추정 (v2 — 구조 인식 기반)
 
 함수 시그니처:
   export function estimateSignalColor(x1, y1, x2, y2)
@@ -277,16 +277,48 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
   const color = estimateSignalColor(x1, y1, x2, y2);
   [중요] box 배열을 직접 전달하지 말 것
 
-판정 로직 (HSV 기반 3단 분석 — 배경 오판 방지 강화):
-  샘플링: 밝기 상위 10% 픽셀만 사용 (등면 발광 픽셀 선별)
-  구간 분리:
-    상단(0~40%): 빨간불  Hue<20||>340, S>0.45, V>0.40
-    중단(40~70%): 초록불  Hue 95~175, S>0.40, V>0.35
-    하단(70~100%): 숫자판 초록  Hue 95~175, S>0.35, V>0.35
-  배경 간판 오판 방지:
-    상단 구간에만 초록(S>0.40)이 감지되고 중·하단에 없으면 → unknown
-    (신호등 초록 등면은 중·하단에도 반드시 초록 픽셀이 분포함)
-  우선순위: green(중·하단) > red(상단) > unknown
+### 구조 판별 (H/W 비율 기반)
+
+박스 종횡비(bh/bw)로 신호등 구조를 자동 분류한 뒤 판정 로직을 분기한다.
+
+| H/W 비율 | 구조 | 판정 방식 |
+|---|---|---|
+| ≥ 1.8 | 3구 세로형 (잔여시간 포함) | 상(0~33%)=적, 중(33~67%)=녹, 하(67~100%)=잔여시간 녹 |
+| 0.65~1.8 | 2구 세로형 (기본 보행신호) | 상(0~50%)=정지 적색, 하(50~100%)=보행 녹색 |
+| < 0.65 | 가로형 | _isPedestrianShape 에서 사전 제거 |
+
+### 판정 로직 상세
+
+```
+1. 좌우 15% crop (배경 오염 제거, 소형 박스 손실 최소화)
+2. 밝기 분산 < 180 → unknown (단색 구조물: 방음벽·간판)
+3. 상위 10% 밝기 임계값(thr) 계산
+4. _zoneHsv() 로 각 구간의 평균 HSV + 발광 픽셀 밀도(density) 산출
+5. 구간별 평균 밝기 비교 → 가장 밝은 구간(점등된 등) 특정
+   2구: topLit = brightTop > brightBot × 1.20
+   3구: topLit = brightTop > brightMid × 1.25 AND > brightBot × 1.25
+6. HSV 판정
+   적색: Hue < 22 또는 > 338, S > 0.40, V > 0.38
+   녹색: Hue 85~175, S > 0.38, V > 0.32
+7. density 신뢰도 필터
+   2구: density > 0.03 미만이면 색상 판정 건너뜀
+   3구: density > 0.04 미만이면 색상 판정 건너뜀
+8. 발광 구간 불명확 시 전체 HSV 색상으로 최종 fallback 판정
+   배경 간판 방지: 상단 구간만 초록 감지되고 하단 없으면 unknown
+```
+
+### 내부 헬퍼 함수
+
+| 함수 | 역할 |
+|---|---|
+| _zoneHsv(px, lum, thr, bw, rowStart, rowEnd) | 구간 평균 HSV + brightness + density 반환 |
+| _isRedHsv(h, s, v) | 적색 HSV 판정 (Hue<22\|\|>338, S>0.40, V>0.38) |
+| _isGreenHsv(h, s, v) | 녹색 HSV 판정 (Hue 85~175, S>0.38, V>0.32) |
+
+### unknown 시 동작
+
+color === 'unknown' 이면 updateFullscreen() 호출을 억제한다.
+이전 색상(_lastFsColor)이 유지되며 전체화면은 닫히지 않는다.
 
 ---
 
@@ -329,8 +361,13 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 ## 핵심 상수
 
 ```
-camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75,0.82], ROI_SHARPEN=0.4, MAX_SIDE=1280, SAHI_OVERLAP=0.15, SAHI_NMS_IOU=0.45
-             COLOR_LUM_TOP=0.10, COLOR_RED_S=0.45, COLOR_RED_V=0.40, COLOR_GREEN_S=0.40, COLOR_GREEN_HUE=[95,175]
+camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75,0.82], ROI_SHARPEN=0.4
+             MAX_SIDE=1280, SAHI_OVERLAP=0.15, SAHI_NMS_IOU=0.45, STALE_MS=350
+             COLOR_LUM_VAR_THR=180, COLOR_TOP_RATIO=0.90
+             COLOR_RED_S=0.40, COLOR_RED_V=0.38, COLOR_RED_HUE=(<22||>338)
+             COLOR_GREEN_S=0.38, COLOR_GREEN_V=0.32, COLOR_GREEN_HUE=[85,175]
+             COLOR_DENSITY_THR_2LAMP=0.03, COLOR_DENSITY_THR_3LAMP=0.04
+             COLOR_XMARGIN=0.15, COLOR_ASPECT_3LAMP=1.8
 fullscreen.js: FS_PAD=2.8, FS_SCALE=4, FS_SHARP=0.55
 ui.js:       PIP_SM={w:120,h:80}, PIP_LG={w:200,h:130}
 tts.js:      TTS_COOLDOWN_MS=4000, TTS_RATE=1.05, TTS_LANG='ko-KR'
@@ -389,7 +426,9 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - proc.getContext('2d') 직접 호출 금지
 - api.html 에 Kakao SDK·api.js 스크립트 태그 각 1개만
 - estimateSignalColor 인자: (x1,y1,x2,y2) 좌표 4개 (box 배열 전달 금지)
-- estimateSignalColor 배경 오판 방지: 상단 구간 초록 단독 감지 시 unknown 처리 (중·하단 초록 없으면 배경 간판으로 간주)
+- estimateSignalColor v2: _zoneHsv() 구간 밝기 비교 후 HSV 판정 — 구간 순서(2구/3구) 분기 준수
+- estimateSignalColor 배경 오판 방지: 상단 구간만 초록 시 unknown 처리
+- estimateSignalColor color==='unknown' 시 updateFullscreen() 호출 금지
 - userHeading 초기값 null — 0(정북) 과 미수신 구별
 - stale 신호는 drawBoxes 에만 사용, fullscreen·TTS·카드 카운트 전달 금지
 - detector.js·detector.yolo.js DOM 접근 완전 금지
@@ -405,7 +444,7 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 
 ## 향후 로드맵
 
-- [ ] 신호등 색상 판별 정확도 개선 (배경 간판 오판 감소 완료 → 픽셀 샘플링 → 서버 측 색상 분류)
+- [ ] 신호등 색상 판별 정확도 개선 (구조 인식 기반 v2 완료 → 서버 측 색상 분류)
 - [ ] 카운트다운 타이머
 - [ ] AI-Hub 데이터셋 기반 YOLOv8s fine-tuning
 - [ ] PWA Service Worker
@@ -414,4 +453,4 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - [ ] WebGL 기반 초해상도 (현재 Canvas 2D 라플라시안 → GPU 가속)
 - [ ] ROI phase별 서버 응답 신뢰도 통계 수집 → 동적 품질 조정
 - [ ] AUTH_KEY 서버 프록시 경유 (클라이언트 노출 제거)
-- [ ] PERSON_SVG 상수 제거 (전체화면에서 사람 아이콘 제거 완료)
+- [ ] color-classifier.js MobileNet fine-tuning 후 /models/color/ 배포

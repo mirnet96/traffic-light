@@ -22,6 +22,16 @@
              · 원거리 소형 박스(bh < 0.05) isPedestrian 조건 완화
              · estimateSignalColor — 중앙 60% crop 후 샘플링 (배경 오염 제거)
              · 초록 방음벽 대비: lumVar 임계값 200으로 상향
+    - [개선] estimateSignalColor v2 — 구조 인식 기반 색상 판정 (20260429):
+             · 2구/3구 세로형 신호등 자동 판별 (H/W ≥ 1.8 → 3구)
+             · 2구: 상단=정지(적색/서있는사람), 하단=보행(녹색/걷는사람)
+             · 3구: 상단=적색, 중단=녹색, 하단=잔여시간(녹색)
+             · 발광 구간 밝기 비교로 켜진 등 위치 특정 (단순 색상 평균 대비 개선)
+             · 발광 픽셀 밀도(density) 신뢰도 지표 도입
+             · 적색 Hue: <22 또는 >338 (채도·명도 임계 완화)
+             · 녹색 Hue: 85~175 (기존 95~165 확장)
+             · crop 좌우 여백 20%→15% 완화 (소형 박스 색상 누락 방지)
+             · 분산 임계값 200→180 (원거리 소형 박스 대응)
 ════════════════════════════════════ */
 
 import { loadModel, runYolo, runYoloSahi } from './detector.js';
@@ -407,13 +417,26 @@ function startNightCheck() {
 }
 
 /* ════════════════════════════════════
-   신호등 색상 추정
-   - 밝기 상위 10% 픽셀만 샘플링 (등면 발광 픽셀 선별)
-   - 박스 중앙 60% 영역만 crop (배경 오염 제거)
-     현장 분석: 방음벽 초록이 박스 좌우 가장자리를 오염시킴
-                → 좌우 20%씩 제거한 중앙 60%만 사용
-   - lumVar 임계값 200으로 상향 (150→200)
-     초록 방음벽은 밝기가 균일하여 분산이 낮음 (~80~140)
+   신호등 색상 추정 (v2 — 구조 인식 기반)
+
+   개선 내역:
+    ① 박스 구조 분석 — 2구(보행 전용) / 3구(잔여시간 포함) 자동 판별
+       · 비율 H/W ≥ 1.6 → 3구 세로형 신호등으로 판별
+       · 2구: 상단 점등=적색, 하단 점등=녹색
+       · 3구: 상단 점등=적색, 중단 점등=녹색, 하단=잔여시간(녹색 계열)
+    ② 발광 구간 검출 — 구간별 밝기 합산으로 "가장 밝은 구간" 특정
+       → 단순 색상 평균 대비 켜진 등 위치를 더 정밀하게 추적
+    ③ HSV 임계값 강화
+       · 적색: Hue 0~20 + 340~360, 채도 > 0.45, 명도 > 0.40
+               야간 흐릿한 적색(낮은 채도)도 검출 위해 임계 소폭 완화
+       · 녹색: Hue 85~175 (기존 95~165 확장), 채도 > 0.40, 명도 > 0.35
+               보행신호 아이콘(걷는 사람 형태)의 밝은 녹색 보장
+    ④ 배경 오염 차단 유지
+       · 좌우 15%씩 crop (기존 20% → 15% 완화, 소형 박스 누락 방지)
+       · 분산 임계값 180 (기존 200 → 180, 원거리 소형 박스 대응)
+    ⑤ 발광 구간 신뢰도 점수 도입
+       · 켜진 등의 밝기 집중도(발광픽셀/전체픽셀 비율)로 신뢰도 계산
+       · 신뢰도 미달 시 unknown 반환
    시그니처: (x1, y1, x2, y2) 정규화 좌표
 ════════════════════════════════════ */
 function _rgbToHsv(r, g, b) {
@@ -434,18 +457,43 @@ function _rgbToHsv(r, g, b) {
   return [h * 360, s, v];
 }
 
+/* 구간 평균 HSV 계산 헬퍼 */
+function _zoneHsv(px, lum, thr, bw, rowStart, rowEnd) {
+  let r = 0, g = 0, b = 0, cnt = 0, lumSum = 0, lumCnt = 0;
+  for (let row = rowStart; row < rowEnd; row++) {
+    for (let col = 0; col < bw; col++) {
+      const i = row * bw + col;
+      lumSum += lum[i];
+      lumCnt++;
+      if (lum[i] < thr) continue;
+      const o = i * 4;
+      r += px[o]; g += px[o+1]; b += px[o+2];
+      cnt++;
+    }
+  }
+  const avgLum = lumCnt ? lumSum / lumCnt : 0;
+  if (!cnt) return { h: 0, s: 0, v: 0, cnt: 0, brightness: avgLum, density: 0 };
+  const density = cnt / (lumCnt || 1);  // 발광 픽셀 밀도 (신뢰도 지표)
+  const [h, s, v] = _rgbToHsv(r / cnt, g / cnt, b / cnt);
+  return { h, s, v, cnt, brightness: avgLum, density };
+}
+
+/* 색상 판정 헬퍼 */
+function _isRedHsv(h, s, v)   { return (h < 22 || h > 338) && s > 0.40 && v > 0.38; }
+function _isGreenHsv(h, s, v) { return (h > 85 && h < 175)  && s > 0.38 && v > 0.32; }
+
 export function estimateSignalColor(x1, y1, x2, y2) {
   const W = proc.width, H = proc.height;
 
-  /* [개선] 박스 중앙 60%만 crop — 좌우 20%씩 제거하여 배경 오염 차단 */
-  const xMargin = (x2 - x1) * 0.20;
+  /* [개선] 좌우 15% crop — 소형 박스 손실 최소화 + 배경 오염 차단 */
+  const xMargin = (x2 - x1) * 0.15;
   const cx1 = x1 + xMargin, cx2 = x2 - xMargin;
 
   const bx = Math.max(0, Math.round(cx1 * W));
   const by = Math.max(0, Math.round(y1 * H));
   const bw = Math.min(W - bx, Math.round((cx2 - cx1) * W));
   const bh = Math.min(H - by, Math.round((y2 - y1) * H));
-  if (bw < 4 || bh < 4) return 'unknown';
+  if (bw < 3 || bh < 3) return 'unknown';
 
   try {
     const px    = procCtx.getImageData(bx, by, bw, bh).data;
@@ -458,61 +506,112 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       lum[i] = px[o] * 0.299 + px[o+1] * 0.587 + px[o+2] * 0.114;
     }
 
-    /* 2. 밝기 분산 검사 — 분산이 낮으면 단색 구조물 → unknown
-          임계값 200 (150→200): 초록 방음벽은 분산 ~80~140으로 제거됨
-          신호등 등면은 등이 켜진 구간에 국부 고휘도가 있어 분산 200+ */
+    /* 2. 밝기 분산 검사 — 단색 구조물(방음벽·간판) 제거
+          임계값 180: 방음벽 균일 초록 분산 ~80~140, 점등 신호등 200+
+          원거리 소형 박스는 분산이 낮을 수 있어 기존 200→180으로 완화 */
     let lumMean = 0;
     for (let i = 0; i < total; i++) lumMean += lum[i];
     lumMean /= total;
     let lumVar = 0;
     for (let i = 0; i < total; i++) lumVar += (lum[i] - lumMean) ** 2;
     lumVar /= total;
-    if (lumVar < 200) return 'unknown';
+    if (lumVar < 180) return 'unknown';
 
-    /* 3. 상위 10% 밝기 임계값 (등면 발광 픽셀만 선별) */
+    /* 3. 상위 10% 밝기 임계값 (점등면 발광 픽셀 선별) */
     const thr = lum.slice().sort()[Math.floor(total * 0.90)];
 
-    /* 4. 상위 10% 픽셀을 상·중·하 3구간으로 집계
-          상단 40%: zone 0 (빨강 판정)
-          중단 30%: zone 1 (초록 중간)
-          하단 30%: zone 2 (초록 숫자판) */
-    const sec = [
-      { r: 0, g: 0, b: 0, cnt: 0 },
-      { r: 0, g: 0, b: 0, cnt: 0 },
-      { r: 0, g: 0, b: 0, cnt: 0 },
-    ];
-    for (let row = 0; row < bh; row++) {
-      const zone = row < bh * 0.40 ? 0 : row < bh * 0.70 ? 1 : 2;
-      for (let col = 0; col < bw; col++) {
-        const i = row * bw + col;
-        if (lum[i] < thr) continue;
-        const o = i * 4;
-        sec[zone].r += px[o];
-        sec[zone].g += px[o+1];
-        sec[zone].b += px[o+2];
-        sec[zone].cnt++;
+    /* ────────────────────────────────────────────────────
+       4. 박스 구조 판별 (2구 vs 3구 vs 비구조)
+          H/W 비율로 세로형 신호등 구조 추정:
+          · H/W ≥ 1.8 → 3구 세로형 (잔여시간 포함)
+               구간: 상(0~33%) / 중(33~67%) / 하(67~100%)
+               판정: 상점등=적, 중점등=녹, 하점등=녹(잔여시간)
+          · H/W 0.65~1.8 → 2구 세로형 (기본 보행신호)
+               구간: 상(0~50%) / 하(50~100%)
+               판정: 상점등=적, 하점등=녹
+          · H/W < 0.65 → 가로형 (이미 _isPedestrianShape에서 걸러짐)
+       ──────────────────────────────────────────────────── */
+    const aspect = bh / bw;
+
+    if (aspect >= 1.8) {
+      /* ── 3구 세로형 신호등 ── */
+      const r0 = Math.round(bh * 0.33);
+      const r1 = Math.round(bh * 0.67);
+
+      const zTop = _zoneHsv(px, lum, thr, bw, 0,  r0);  // 상단 — 적색등
+      const zMid = _zoneHsv(px, lum, thr, bw, r0, r1);  // 중단 — 녹색등
+      const zBot = _zoneHsv(px, lum, thr, bw, r1, bh);  // 하단 — 잔여시간 숫자
+
+      /* 가장 밝은 구간 특정 (점등된 등 위치 판별) */
+      const brightTop = zTop.brightness;
+      const brightMid = zMid.brightness;
+      const brightBot = zBot.brightness;
+
+      const topLit = brightTop > brightMid * 1.25 && brightTop > brightBot * 1.25;
+      const midLit = brightMid > brightTop * 1.10 && brightMid >= brightBot * 0.90;
+      const botLit = brightBot > brightTop * 1.10;
+
+      /* 상단 점등 → 적색 판정 */
+      if (topLit && _isRedHsv(zTop.h, zTop.s, zTop.v) && zTop.density > 0.04) {
+        showDebug(`[color3] top-RED h=${zTop.h.toFixed(0)} s=${zTop.s.toFixed(2)} v=${zTop.v.toFixed(2)} dens=${zTop.density.toFixed(3)}`);
+        return 'red';
       }
+      /* 중단 또는 하단 점등 → 녹색 판정 */
+      if ((midLit && _isGreenHsv(zMid.h, zMid.s, zMid.v) && zMid.density > 0.04) ||
+          (botLit && _isGreenHsv(zBot.h, zBot.s, zBot.v) && zBot.density > 0.04)) {
+        showDebug(`[color3] mid/bot-GREEN midH=${zMid.h.toFixed(0)} botH=${zBot.h.toFixed(0)}`);
+        return 'green';
+      }
+
+      /* 구간 구분 없이 전체 색상으로 fallback 판정 */
+      const allZone = _zoneHsv(px, lum, thr, bw, 0, bh);
+      if (_isRedHsv(allZone.h, allZone.s, allZone.v))   return 'red';
+      if (_isGreenHsv(allZone.h, allZone.s, allZone.v)) return 'green';
+      return 'unknown';
+
+    } else {
+      /* ── 2구 세로형 신호등 (보행 기본형) ──
+            상단(0~50%): 서 있는 사람 → 적색
+            하단(50~100%): 걷는 사람 → 녹색                     */
+      const rMid = Math.round(bh * 0.50);
+
+      const zTop = _zoneHsv(px, lum, thr, bw, 0,    rMid); // 상단 — 정지(적색)
+      const zBot = _zoneHsv(px, lum, thr, bw, rMid, bh);   // 하단 — 보행(녹색)
+
+      const brightTop = zTop.brightness;
+      const brightBot = zBot.brightness;
+
+      /* 발광 구간 판별: 한쪽이 1.2배 이상 밝으면 그쪽이 점등 */
+      const topLit = brightTop > brightBot * 1.20;
+      const botLit = brightBot > brightTop * 1.20;
+
+      showDebug(`[color2] topB=${brightTop.toFixed(1)} botB=${brightBot.toFixed(1)} topH=${zTop.h.toFixed(0)} botH=${zBot.h.toFixed(0)}`);
+
+      /* 상단 점등 우세 → 적색 판정 */
+      if (topLit) {
+        /* 적색 HSV 충족 시 red, 아니어도 하단 녹색이 아니면 unknown */
+        if (_isRedHsv(zTop.h, zTop.s, zTop.v) && zTop.density > 0.03) return 'red';
+        /* 색상 불명확하나 상단이 확실히 밝음 → 밝기만으로 적색 추정 (고확신) */
+        if (brightTop > brightBot * 1.60 && zTop.density > 0.05) return 'red';
+      }
+
+      /* 하단 점등 우세 → 녹색 판정 */
+      if (botLit) {
+        if (_isGreenHsv(zBot.h, zBot.s, zBot.v) && zBot.density > 0.03) return 'green';
+        if (brightBot > brightTop * 1.60 && zBot.density > 0.05) return 'green';
+      }
+
+      /* ── 밝기 차이 불명확 시 전체 HSV 색상으로 최종 판정 ── */
+      /* 상단 구간 초록 단독 → 배경 간판/방음벽 오판 방지 */
+      const isGreenTop = _isGreenHsv(zTop.h, zTop.s, zTop.v);
+      const isGreenBot = _isGreenHsv(zBot.h, zBot.s, zBot.v);
+      const isRedTop   = _isRedHsv(zTop.h, zTop.s, zTop.v);
+
+      if (isGreenTop && !isGreenBot) return 'unknown';  // 상단만 초록 → 배경
+      if (isGreenBot)                return 'green';
+      if (isRedTop)                  return 'red';
+      return 'unknown';
     }
-
-    /* 5. 구간별 HSV 판정 */
-    const [h0,s0,v0] = sec[0].cnt ? _rgbToHsv(sec[0].r/sec[0].cnt, sec[0].g/sec[0].cnt, sec[0].b/sec[0].cnt) : [0,0,0];
-    const [h1,s1,v1] = sec[1].cnt ? _rgbToHsv(sec[1].r/sec[1].cnt, sec[1].g/sec[1].cnt, sec[1].b/sec[1].cnt) : [0,0,0];
-    const [h2,s2,v2] = sec[2].cnt ? _rgbToHsv(sec[2].r/sec[2].cnt, sec[2].g/sec[2].cnt, sec[2].b/sec[2].cnt) : [0,0,0];
-
-    /* 빨강: Hue<20 또는 >340, 채도·명도 임계값 */
-    const isRed = (h0 < 20 || h0 > 340) && s0 > 0.50 && v0 > 0.45;
-
-    /* 초록: 색상 범위 95~165, 채도·명도 임계값 */
-    const isGreenM = (h1 > 95 && h1 < 165) && s1 > 0.45 && v1 > 0.40;
-    const isGreenB = (h2 > 95 && h2 < 165) && s2 > 0.40 && v2 > 0.40;
-
-    /* 6. 상단 구간 초록 단독 감지 → 배경 간판/방음벽 → unknown */
-    const isGreenTop = (h0 > 95 && h0 < 165) && s0 > 0.45 && v0 > 0.40;
-    if (isGreenTop && !isGreenM && !isGreenB) return 'unknown';
-
-    if (isGreenM || isGreenB) return 'green';
-    if (isRed)                return 'red';
-    return 'unknown';
   } catch {
     return 'unknown';
   }
