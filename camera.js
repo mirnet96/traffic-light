@@ -32,6 +32,11 @@
              · 녹색 Hue: 85~175 (기존 95~165 확장)
              · crop 좌우 여백 20%→15% 완화 (소형 박스 색상 누락 방지)
              · 분산 임계값 200→180 (원거리 소형 박스 대응)
+    - [개선] 인식률 저하 4종 수정 (원거리·야간·소형·전반):
+             · lumVar 분산 임계값 동적 적용 — 박스 크기에 반비례 (원거리 소형 색상 판별 개선)
+             · SAHI 실행 빈도 3→2프레임 중 1회로 증가 (원거리 감지율 향상)
+             · PED_MIN_Y1 0.10→0.05 완화 (원거리 신호등 상단 필터 탈락 감소)
+             · 2구 밝기 비율 임계 1.20→1.12 완화 (흐린 날·야간 색상 판별 개선)
 ════════════════════════════════════ */
 
 import { loadModel, runYolo, runYoloSahi } from './detector.js';
@@ -227,9 +232,10 @@ const PED_RATIO_MIN  = 0.65;   // 가로형 상한
 const PED_RATIO_MAX  = 2.2;    // 차량 신호등 하한
 const PED_MIN_HEIGHT = 0.025;  // 박스 높이 최소값 (정규화)
 const PED_MIN_WIDTH  = 0.010;  // 박스 너비 최소값 (정규화)
-const PED_MIN_Y1     = 0.10;   // [추가] 박스 상단 최소 Y 위치 — 화면 최상단 10% 이내 제거
-                                //  현장 사진 분석: 방음벽·배경 구조물은 Y1이 0~8% 범위에 몰림
-                                //  실제 신호등은 대부분 Y1 ≥ 10% 위치에 존재
+const PED_MIN_Y1     = 0.05;   // 박스 상단 최소 Y 위치 — 화면 최상단 5% 이내 제거
+                                //  방음벽·배경 구조물은 Y1이 0~4% 범위에 몰림
+                                //  원거리·카메라 하향 시 신호등이 상단 5~10%에 올 수 있어
+                                //  기존 0.10에서 0.05로 완화 (원거리 탈락 방지)
 
 function _isPedestrianShape(box) {
   const [y1, x1, y2, x2] = box;
@@ -276,13 +282,14 @@ function startScan() {
         procCtx.drawImage(video, 0, 0, W, H);
 
         if (!roiCanvas) roiCanvas = document.createElement('canvas');
-        const rp = _roiPhase % 3;
+        const rp = _roiPhase % 2;   // 0: 상단55%+sharpen, 1: SAHI 2×2 (매 2프레임 → 원거리 감지율↑)
         _roiPhase++;
 
         let yOffset = 0, yScale = 1.0;
 
         switch (rp) {
           case 0:
+            /* 상단 55% + 언샤프 마스크 — 화면 상단 신호등 집중 추론 */
             roiCanvas.width  = Math.min(W, MAX_SIDE);
             roiCanvas.height = Math.min(Math.round(H * 0.55), MAX_SIDE);
             roiCanvas.getContext('2d').drawImage(
@@ -292,23 +299,12 @@ function startScan() {
             yScale = 0.55; yOffset = 0;
             break;
           case 1:
+            /* 전체 프레임 SAHI 2×2 — 원거리 소형 신호등 집중 추론 */
             roiCanvas.width  = Math.min(W, MAX_SIDE);
             roiCanvas.height = Math.min(H, MAX_SIDE);
             roiCanvas.getContext('2d').drawImage(proc, 0, 0, W, H, 0, 0, roiCanvas.width, roiCanvas.height);
             yScale = 1.0; yOffset = 0;
             break;
-          case 2: {
-            const srcY = Math.round(H * 0.20);
-            const srcH = Math.round(H * 0.50);
-            roiCanvas.width  = Math.min(W, MAX_SIDE);
-            roiCanvas.height = Math.min(srcH, MAX_SIDE);
-            roiCanvas.getContext('2d').drawImage(
-              proc, 0, srcY, W, srcH,
-              0, 0, roiCanvas.width, roiCanvas.height
-            );
-            yScale = 0.50; yOffset = 0.20;
-            break;
-          }
         }
 
         if (rp === 0) {
@@ -319,6 +315,7 @@ function startScan() {
         try {
           let raw;
           if (rp === 1) {
+            /* SAHI: 매 2프레임 실행 — 원거리 소형 신호등 감지 강화 */
             const tiles   = _buildSahiTiles(proc, W, H);
             const sahiRaw = await runYoloSahi(tiles);
             raw = _sahiNms(sahiRaw).filter(s => _isPedestrianShape(s.box));
@@ -507,15 +504,20 @@ export function estimateSignalColor(x1, y1, x2, y2) {
     }
 
     /* 2. 밝기 분산 검사 — 단색 구조물(방음벽·간판) 제거
-          임계값 180: 방음벽 균일 초록 분산 ~80~140, 점등 신호등 200+
-          원거리 소형 박스는 분산이 낮을 수 있어 기존 200→180으로 완화 */
+          박스 크기가 작을수록(원거리) 자연적으로 분산이 낮으므로 동적 임계 적용:
+          · 박스 픽셀 수 ≥ 400 (가까운 신호등): 임계 180 (엄격)
+          · 박스 픽셀 수 < 400 (원거리 소형):   임계 60  (완화)
+          · 그 사이는 선형 보간 */
+    const lumVarThr = total >= 400
+      ? 180
+      : Math.max(60, 60 + (total / 400) * 120);   // 60~180 선형 보간
     let lumMean = 0;
     for (let i = 0; i < total; i++) lumMean += lum[i];
     lumMean /= total;
     let lumVar = 0;
     for (let i = 0; i < total; i++) lumVar += (lum[i] - lumMean) ** 2;
     lumVar /= total;
-    if (lumVar < 180) return 'unknown';
+    if (lumVar < lumVarThr) return 'unknown';
 
     /* 3. 상위 10% 밝기 임계값 (점등면 발광 픽셀 선별) */
     const thr = lum.slice().sort()[Math.floor(total * 0.90)];
@@ -581,9 +583,10 @@ export function estimateSignalColor(x1, y1, x2, y2) {
       const brightTop = zTop.brightness;
       const brightBot = zBot.brightness;
 
-      /* 발광 구간 판별: 한쪽이 1.2배 이상 밝으면 그쪽이 점등 */
-      const topLit = brightTop > brightBot * 1.20;
-      const botLit = brightBot > brightTop * 1.20;
+      /* 발광 구간 판별: 한쪽이 1.12배 이상 밝으면 그쪽이 점등
+         (기존 1.20 → 1.12 완화: 흐린 날·야간에서 점등/소등 차이가 작아도 판별 가능) */
+      const topLit = brightTop > brightBot * 1.12;
+      const botLit = brightBot > brightTop * 1.12;
 
       showDebug(`[color2] topB=${brightTop.toFixed(1)} botB=${brightBot.toFixed(1)} topH=${zTop.h.toFixed(0)} botH=${zBot.h.toFixed(0)}`);
 

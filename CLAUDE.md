@@ -57,9 +57,6 @@ traffic-light/
 ├── recorder.js         — MediaRecorder 녹화 전담
 ├── settings.js         — cfg 객체·readConfig
 ├── detector.js         — WebSocket 추론 클라이언트
-├── detector.yolo.js    — YOLOv8s 로컬 추론 (예비)
-├── detector.mediapipe.js — MediaPipe 추론 (예비)
-├── local-detector.js   — 로컬 YOLO 래퍼 (예비)
 ├── renderer.js         — drawBoxes·renderCards
 ├── fullscreen.js       — 전체화면 초해상도 렌더
 ├── api.html            — V2X 진단 모드 UI
@@ -73,13 +70,12 @@ traffic-light/
 | 파일 | 역할 | 상한 |
 |---|---|---|
 | app.js | 진입점·이벤트 | 60줄 |
-| camera.js | 카메라·스캔루프·ROI·야간 감지·색상 추정 | 250줄 |
+| camera.js | 카메라·스캔루프·ROI·야간 감지·색상 추정 | 680줄 |
 | ui.js | setPhase·badge·PiP·fps·scanMsg·야간·디버그 패널 | 200줄 |
 | tts.js | TTS 전담 (진행과정·순환문구·신호 안내) | 80줄 |
 | recorder.js | MediaRecorder 녹화·다운로드 | 60줄 |
 | settings.js | cfg 객체·readConfig | 15줄 |
 | detector.js | WebSocket 연결·send·receive | 110줄 |
-| detector.yolo.js | YOLOv8s 로드·Letterbox·추론·NMS | 140줄 |
 | renderer.js | drawBoxes·renderCards | 100줄 |
 | fullscreen.js | 전체화면 초해상도 렌더·열기·닫기 | 120줄 |
 | api.js | V2X 진단 GPS·방향·서버 통신·UI 갱신 | 120줄 |
@@ -95,7 +91,6 @@ traffic-light/
 - recorder.js — MediaRecorder 전담. fs-rec-badge DOM만 접근 허용.
 - settings.js — cfg 객체와 readConfig() 만. 다른 DOM 접근 금지.
 - detector.js — WebSocket 전담. DOM 접근 금지 (디버그 콜백으로 위임).
-- detector.yolo.js — YOLOv8s 전용. DOM 접근 완전 금지.
 - renderer.js — 그리기만. onEmpty 콜백으로 빈 상태 위임.
 - fullscreen.js — 전체화면 렌더 전담. ttsSignal · getNightMode 사용 허용.
 - api.js — V2X 진단 전담. Kakao SDK 의존. DOM 직접 조작 허용 (독립 페이지).
@@ -124,7 +119,7 @@ traffic-light/
 
 ### SAHI (Slicing Aided Hyper Inference)
 
-phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
+매 2프레임 중 1회(phase 1) 2×2 타일 슬라이싱 적용.
 원거리·소형 신호등 감지율 향상 목적.
 
 ```
@@ -136,7 +131,7 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 | 타일 구성 | 2×2 (4개) |
 | 겹침 비율 | SAHI_OVERLAP = 0.15 |
 | 병합 NMS IOU | SAHI_NMS_IOU = 0.45 |
-| 적용 phase | ROI phase 1 (전체 프레임) 전용 |
+| 적용 phase | ROI phase 1 (2프레임 중 1회) |
 | 타일 캔버스 크기 | 1280 상한 클램핑 |
 
 ---
@@ -223,13 +218,12 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 ```
 매 120ms:
   1. procCtx.drawImage(video)
-  2. ROI 3종 순환 (_roiPhase % 3)
-       0: 상단 55% 확대 → sharpen(0.4) → JPEG q=0.88  (원거리)
-       1: 전체 프레임                   → JPEG q=0.75  (근거리)
-       2: 20%~70% 스트립 확대           → JPEG q=0.82  (중간 거리)
-  3. roiCanvas.toBlob(q) → ws.send()  /  phase 1은 SAHI 2×2 타일 분할 전송 후 NMS 병합
+  2. ROI 2종 순환 (_roiPhase % 2)
+       0: 상단 55% 확대 → sharpen(0.4) → JPEG q=0.88  (원거리·상단 집중)
+       1: 전체 프레임 → SAHI 2×2 타일 분할 전송 후 NMS 병합 (원거리 소형 감지)
+  3. roiCanvas.toBlob(q) → ws.send()
   4. 응답 수신 { signals } + 좌표 역변환
-  5. flickering 방지: 빈 결과면 _prevSignals 1프레임 유지 (stale 마킹)
+  5. flickering 방지: 빈 결과면 _prevSignals 350ms(STALE_MS) 유지
        stale 신호는 drawBoxes 에만 사용
        fullscreen·TTS·카드 카운트는 fresh 신호만 처리
   6. tickFps()
@@ -243,13 +237,12 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
   11. drawPip(proc, overlay)
 ```
 
-### ROI 3종 순환 상세
+### ROI 2종 순환 상세
 
-| phase | 영역 | 확대 | 샤프닝 | JPEG 품질 | 역변환 수식 |
-|---|---|---|---|---|---|
-| 0 | 상단 0~55% | O | O (str=0.4) | 0.88 | y_orig = y_roi x 0.55 |
-| 1 | 전체 0~100% | — | — | 0.75 | y_orig = y_roi x 1.0 |
-| 2 | 20%~70% 스트립 | O | — | 0.82 | y_orig = y_roi x 0.50 + 0.20 |
+| phase | 영역 | 샤프닝 | JPEG 품질 | 비고 |
+|---|---|---|---|---|
+| 0 | 상단 0~55% | O (str=0.4) | 0.88 | 원거리 신호등 집중, 역변환: y × 0.55 |
+| 1 | 전체 0~100% | — | 0.75 | SAHI 2×2 타일 분할 전송 |
 
 ---
 
@@ -291,11 +284,13 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 
 ```
 1. 좌우 15% crop (배경 오염 제거, 소형 박스 손실 최소화)
-2. 밝기 분산 < 180 → unknown (단색 구조물: 방음벽·간판)
+2. 밝기 분산 동적 임계값 검사 — 단색 구조물(방음벽·간판) 제거
+   · 박스 픽셀 수 ≥ 400: 임계 180 (엄격)
+   · 박스 픽셀 수 < 400: 60~180 선형 보간 (원거리 소형 박스 대응)
 3. 상위 10% 밝기 임계값(thr) 계산
 4. _zoneHsv() 로 각 구간의 평균 HSV + 발광 픽셀 밀도(density) 산출
 5. 구간별 평균 밝기 비교 → 가장 밝은 구간(점등된 등) 특정
-   2구: topLit = brightTop > brightBot × 1.20
+   2구: topLit = brightTop > brightBot × 1.12  (흐린 날·야간 대응)
    3구: topLit = brightTop > brightMid × 1.25 AND > brightBot × 1.25
 6. HSV 판정
    적색: Hue < 22 또는 > 338, S > 0.40, V > 0.38
@@ -319,6 +314,20 @@ phase 1(전체 프레임) 에서 2×2 타일 슬라이싱 적용.
 
 color === 'unknown' 이면 updateFullscreen() 호출을 억제한다.
 이전 색상(_lastFsColor)이 유지되며 전체화면은 닫히지 않는다.
+
+---
+
+## 신호등 형태 필터 (_isPedestrianShape)
+
+| 상수 | 값 | 설명 |
+|---|---|---|
+| PED_RATIO_MIN | 0.65 | H/W 하한 — 가로형(차량 방향등 등) 제거 |
+| PED_RATIO_MAX | 2.2 | H/W 상한 — 3구 차량 신호등 제거 |
+| PED_MIN_HEIGHT | 0.025 | 박스 높이 최소값 |
+| PED_MIN_WIDTH | 0.010 | 박스 너비 최소값 |
+| PED_MIN_Y1 | 0.05 | 박스 상단 Y 최소값 — 화면 최상단 5% 이내 제거 (방음벽 등) |
+
+원거리 소형(bh < 0.05) 박스는 _isPedestrianByRatio에서 H/W 상한을 3.0으로 완화하여 누락 방지.
 
 ---
 
@@ -361,13 +370,15 @@ color === 'unknown' 이면 updateFullscreen() 호출을 억제한다.
 ## 핵심 상수
 
 ```
-camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75,0.82], ROI_SHARPEN=0.4
+camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75], ROI_SHARPEN=0.4
              MAX_SIDE=1280, SAHI_OVERLAP=0.15, SAHI_NMS_IOU=0.45, STALE_MS=350
-             COLOR_LUM_VAR_THR=180, COLOR_TOP_RATIO=0.90
+             PED_MIN_Y1=0.05, PED_RATIO_MIN=0.65, PED_RATIO_MAX=2.2
+             COLOR_LUM_VAR_THR=동적(60~180, 픽셀수 기반), COLOR_TOP_RATIO=0.90
              COLOR_RED_S=0.40, COLOR_RED_V=0.38, COLOR_RED_HUE=(<22||>338)
              COLOR_GREEN_S=0.38, COLOR_GREEN_V=0.32, COLOR_GREEN_HUE=[85,175]
              COLOR_DENSITY_THR_2LAMP=0.03, COLOR_DENSITY_THR_3LAMP=0.04
              COLOR_XMARGIN=0.15, COLOR_ASPECT_3LAMP=1.8
+             COLOR_BRIGHT_RATIO_2LAMP=1.12, COLOR_BRIGHT_RATIO_3LAMP=1.25
 fullscreen.js: FS_PAD=2.8, FS_SCALE=4, FS_SHARP=0.55
 ui.js:       PIP_SM={w:120,h:80}, PIP_LG={w:200,h:130}
 tts.js:      TTS_COOLDOWN_MS=4000, TTS_RATE=1.05, TTS_LANG='ko-KR'
@@ -431,7 +442,7 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - estimateSignalColor color==='unknown' 시 updateFullscreen() 호출 금지
 - userHeading 초기값 null — 0(정북) 과 미수신 구별
 - stale 신호는 drawBoxes 에만 사용, fullscreen·TTS·카드 카운트 전달 금지
-- detector.js·detector.yolo.js DOM 접근 완전 금지
+- detector.js DOM 접근 완전 금지
 - tts.js DOM 접근 완전 금지
 - recorder.js 는 #fs-rec-badge 외 DOM 접근 금지
 - TTS 진행 과정: 쿨다운 없음 / 신호 감지: 4초 쿨다운
@@ -439,12 +450,14 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - det-empty 텍스트는 .scan-msg-text span만 변경
 - ROI 역변환은 camera.js 스캔 루프 내에서만
 - api.js fetchTimer: setInterval 금지, setTimeout 체인 사용
+- ROI phase는 _roiPhase % 2 (0: 상단55%+sharpen, 1: SAHI) — case 2 없음
+- lumVar 임계값은 동적 계산(lumVarThr), 고정값 사용 금지
 
 ---
 
 ## 향후 로드맵
 
-- [ ] 신호등 색상 판별 정확도 개선 (구조 인식 기반 v2 완료 → 서버 측 색상 분류)
+- [ ] 서버 측 색상 분류 (YOLOv11s 색상 클래스 추가)
 - [ ] 카운트다운 타이머
 - [ ] AI-Hub 데이터셋 기반 YOLOv8s fine-tuning
 - [ ] PWA Service Worker
@@ -453,4 +466,3 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - [ ] WebGL 기반 초해상도 (현재 Canvas 2D 라플라시안 → GPU 가속)
 - [ ] ROI phase별 서버 응답 신뢰도 통계 수집 → 동적 품질 조정
 - [ ] AUTH_KEY 서버 프록시 경유 (클라이언트 노출 제거)
-- [ ] color-classifier.js MobileNet fine-tuning 후 /models/color/ 배포
