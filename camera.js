@@ -37,6 +37,15 @@
              · SAHI 실행 빈도 3→2프레임 중 1회로 증가 (원거리 감지율 향상)
              · PED_MIN_Y1 0.10→0.05 완화 (원거리 신호등 상단 필터 탈락 감소)
              · 2구 밝기 비율 임계 1.20→1.12 완화 (흐린 날·야간 색상 판별 개선)
+    - [개선] 인식률 5종 추가 개선:
+             · SAHI 타일 2×2(4개) → 3×3(9개) — 원거리 소형 신호등 상대적 입력 크기 향상
+             · ROI phase 2종 → 3종 순환 (SAHI 3프레임 중 1회로 속도 보전)
+               0: 상단 0~70% + sharpen (기존 55% → 70% 확장)
+               1: 중단 30~80% — 카메라 수평/하향 시 신호등 누락 방지 (신규)
+               2: 전체 SAHI 3×3
+             · SAHI 타일 JPEG 품질 0.75 → 0.85 (원거리 특징 손실 감소)
+             · PED_MIN_HEIGHT 0.025 → 0.015 (10차선 이상 원거리 소형 박스 통과)
+             · _isPedestrianByRatio 원거리 MAX 완화: bh<0.04 시 3.0→3.5
 ════════════════════════════════════ */
 
 import { loadModel, runYolo, runYoloSahi } from './detector.js';
@@ -80,7 +89,7 @@ let _sharpenBuf = null;
 
 /* ── 상수 ── */
 const SCAN_MS      = 120;
-const ROI_JPEG_Q   = [0.88, 0.75, 0.82];
+const ROI_JPEG_Q   = [0.88, 0.85, 0.82];  // [개선] SAHI 타일 품질 0.75→0.85 (원거리 특징 보존)
 const MAX_SIDE     = 1280;
 const SAHI_OVERLAP = 0.15;
 const SAHI_NMS_IOU = 0.45;
@@ -156,8 +165,11 @@ export async function startCamera(facing) {
 /* ════════════════════════════════════
    SAHI 타일 생성
 ════════════════════════════════════ */
+/* [개선] SAHI 3×3 타일 — 2×2(4타일) → 3×3(9타일)
+   타일이 작아질수록 원거리 소형 신호등이 상대적으로 크게 입력되어
+   YOLOv11s 감지율 향상. overlap=0.15 유지로 경계 누락 방지 */
 function _buildSahiTiles(srcCanvas, W, H) {
-  const cols  = 2, rows = 2;
+  const cols  = 3, rows = 3;
   const tileW = Math.round(W / cols * (1 + SAHI_OVERLAP));
   const tileH = Math.round(H / rows * (1 + SAHI_OVERLAP));
   const stepX = Math.round(W / cols);
@@ -230,7 +242,7 @@ function _iou(a, b) {
 ════════════════════════════════════ */
 const PED_RATIO_MIN  = 0.65;   // 가로형 상한
 const PED_RATIO_MAX  = 2.2;    // 차량 신호등 하한
-const PED_MIN_HEIGHT = 0.025;  // 박스 높이 최소값 (정규화)
+const PED_MIN_HEIGHT = 0.015;  // [개선] 박스 높이 최소값 0.025→0.015 (원거리 소형 신호등 탈락 방지)
 const PED_MIN_WIDTH  = 0.010;  // 박스 너비 최소값 (정규화)
 const PED_MIN_Y1     = 0.05;   // 박스 상단 최소 Y 위치 — 화면 최상단 5% 이내 제거
                                 //  방음벽·배경 구조물은 Y1이 0~4% 범위에 몰림
@@ -251,13 +263,14 @@ function _isPedestrianShape(box) {
 }
 
 /* box 세로/가로 비율로 보행신호 여부 추정
-   원거리 소형(bh < 0.05) 박스는 종횡비가 압축되어 불안정하므로
-   MAX 조건을 완화(2.2 → 3.0)하여 보행신호등 누락 방지 */
+   원거리 소형(bh < 0.04) 박스는 종횡비가 압축되어 불안정하므로
+   MAX 조건을 완화(2.2 → 3.5)하여 보행신호등 누락 방지
+   [개선] bh 기준 0.05→0.04, MAX 3.0→3.5 (10차선 이상 원거리 대응) */
 function _isPedestrianByRatio(box) {
   const [y1, x1, y2, x2] = box;
   const bh    = y2 - y1;
   const ratio = bh / (x2 - x1);
-  const maxR  = bh < 0.05 ? 3.0 : PED_RATIO_MAX;   // 원거리 소형 완화
+  const maxR  = bh < 0.04 ? 3.5 : PED_RATIO_MAX;   // [개선] 원거리 소형 완화 강화
   return ratio >= PED_RATIO_MIN && ratio <= maxR;
 }
 
@@ -282,24 +295,39 @@ function startScan() {
         procCtx.drawImage(video, 0, 0, W, H);
 
         if (!roiCanvas) roiCanvas = document.createElement('canvas');
-        const rp = _roiPhase % 2;   // 0: 상단55%+sharpen, 1: SAHI 2×2 (매 2프레임 → 원거리 감지율↑)
+        /* [개선] ROI 3종 순환:
+             0: 상단 0~70% + sharpen  — 역광 하늘 아래 신호등 집중
+             1: 중단 30~80%           — 카메라 수평 방향 신호등 커버
+             2: 전체 SAHI 3×3         — 원거리 소형 신호등 (3프레임 중 1회)  */
+        const rp = _roiPhase % 3;
         _roiPhase++;
 
         let yOffset = 0, yScale = 1.0;
 
         switch (rp) {
           case 0:
-            /* 상단 55% + 언샤프 마스크 — 화면 상단 신호등 집중 추론 */
+            /* 상단 0~70% + 언샤프 마스크 — 역광 하늘 아래 신호등 집중 추론
+               (기존 55% → 70%: 더 넓은 상단 영역 커버) */
             roiCanvas.width  = Math.min(W, MAX_SIDE);
-            roiCanvas.height = Math.min(Math.round(H * 0.55), MAX_SIDE);
+            roiCanvas.height = Math.min(Math.round(H * 0.70), MAX_SIDE);
             roiCanvas.getContext('2d').drawImage(
-              proc, 0, 0, W, Math.round(H * 0.55),
+              proc, 0, 0, W, Math.round(H * 0.70),
               0, 0, roiCanvas.width, roiCanvas.height
             );
-            yScale = 0.55; yOffset = 0;
+            yScale = 0.70; yOffset = 0;
             break;
           case 1:
-            /* 전체 프레임 SAHI 2×2 — 원거리 소형 신호등 집중 추론 */
+            /* 중단 30~80% — 카메라가 수평이거나 살짝 내려간 경우 신호등 커버 */
+            roiCanvas.width  = Math.min(W, MAX_SIDE);
+            roiCanvas.height = Math.min(Math.round(H * 0.50), MAX_SIDE);
+            roiCanvas.getContext('2d').drawImage(
+              proc, 0, Math.round(H * 0.30), W, Math.round(H * 0.50),
+              0, 0, roiCanvas.width, roiCanvas.height
+            );
+            yScale = 0.50; yOffset = 0.30;
+            break;
+          case 2:
+            /* 전체 프레임 SAHI 3×3 — 원거리 소형 신호등 집중 추론 (3프레임 중 1회) */
             roiCanvas.width  = Math.min(W, MAX_SIDE);
             roiCanvas.height = Math.min(H, MAX_SIDE);
             roiCanvas.getContext('2d').drawImage(proc, 0, 0, W, H, 0, 0, roiCanvas.width, roiCanvas.height);
@@ -314,12 +342,12 @@ function startScan() {
         let signals = [];
         try {
           let raw;
-          if (rp === 1) {
-            /* SAHI: 매 2프레임 실행 — 원거리 소형 신호등 감지 강화 */
+          if (rp === 2) {
+            /* SAHI 3×3: 3프레임 중 1회 실행 — 원거리 소형 신호등 감지 강화 */
             const tiles   = _buildSahiTiles(proc, W, H);
             const sahiRaw = await runYoloSahi(tiles);
             raw = _sahiNms(sahiRaw).filter(s => _isPedestrianShape(s.box));
-            showDebug(`[sahi] tiles:${tiles.length} raw:${sahiRaw.length} → nms:${raw.length}`);
+            showDebug(`[sahi3x3] tiles:${tiles.length} raw:${sahiRaw.length} → nms:${raw.length}`);
           } else {
             const rawArr = await runYolo(roiCanvas, roiCanvas.width, roiCanvas.height, ROI_JPEG_Q[rp]);
             raw = rawArr.map(s => {

@@ -119,20 +119,21 @@ traffic-light/
 
 ### SAHI (Slicing Aided Hyper Inference)
 
-매 2프레임 중 1회(phase 1) 2×2 타일 슬라이싱 적용.
+매 3프레임 중 1회(phase 2) 3×3 타일 슬라이싱 적용.
 원거리·소형 신호등 감지율 향상 목적.
 
 ```
-전체 프레임 → 2×2 타일 (overlap=0.15) → 각 타일 순차 전송 → 좌표 역변환 → NMS(iou=0.45) 병합
+전체 프레임 → 3×3 타일 (overlap=0.15) → 각 타일 순차 전송 → 좌표 역변환 → NMS(iou=0.45) 병합
 ```
 
 | 항목 | 값 |
 |---|---|
-| 타일 구성 | 2×2 (4개) |
+| 타일 구성 | 3×3 (9개) |
 | 겹침 비율 | SAHI_OVERLAP = 0.15 |
 | 병합 NMS IOU | SAHI_NMS_IOU = 0.45 |
-| 적용 phase | ROI phase 1 (2프레임 중 1회) |
+| 적용 phase | ROI phase 2 (3프레임 중 1회) |
 | 타일 캔버스 크기 | 1280 상한 클램핑 |
+| 타일 JPEG 품질 | 0.85 |
 
 ---
 
@@ -218,9 +219,10 @@ traffic-light/
 ```
 매 120ms:
   1. procCtx.drawImage(video)
-  2. ROI 2종 순환 (_roiPhase % 2)
-       0: 상단 55% 확대 → sharpen(0.4) → JPEG q=0.88  (원거리·상단 집중)
-       1: 전체 프레임 → SAHI 2×2 타일 분할 전송 후 NMS 병합 (원거리 소형 감지)
+  2. ROI 3종 순환 (_roiPhase % 3)
+       0: 상단 70% 확대 → sharpen(0.4) → JPEG q=0.88  (역광 하늘 아래 신호등 집중)
+       1: 중단 30~80%   → JPEG q=0.85                  (카메라 수평/하향 시 커버)
+       2: 전체 프레임   → SAHI 3×3 타일 분할 전송 후 NMS 병합 (원거리 소형 감지)
   3. roiCanvas.toBlob(q) → ws.send()
   4. 응답 수신 { signals } + 좌표 역변환
   5. flickering 방지: 빈 결과면 _prevSignals 350ms(STALE_MS) 유지
@@ -237,12 +239,13 @@ traffic-light/
   11. drawPip(proc, overlay)
 ```
 
-### ROI 2종 순환 상세
+### ROI 3종 순환 상세
 
 | phase | 영역 | 샤프닝 | JPEG 품질 | 비고 |
 |---|---|---|---|---|
-| 0 | 상단 0~55% | O (str=0.4) | 0.88 | 원거리 신호등 집중, 역변환: y × 0.55 |
-| 1 | 전체 0~100% | — | 0.75 | SAHI 2×2 타일 분할 전송 |
+| 0 | 상단 0~70% | O (str=0.4) | 0.88 | 역광 하늘 아래 신호등 집중, 역변환: y × 0.70 |
+| 1 | 중단 30~80% | — | 0.85 | 카메라 수평/하향 시 신호등 누락 방지, 역변환: y × 0.50 + 0.30 |
+| 2 | 전체 0~100% | — | 0.85 | SAHI 3×3 타일 분할 전송 (3프레임 중 1회) |
 
 ---
 
@@ -323,11 +326,11 @@ color === 'unknown' 이면 updateFullscreen() 호출을 억제한다.
 |---|---|---|
 | PED_RATIO_MIN | 0.65 | H/W 하한 — 가로형(차량 방향등 등) 제거 |
 | PED_RATIO_MAX | 2.2 | H/W 상한 — 3구 차량 신호등 제거 |
-| PED_MIN_HEIGHT | 0.025 | 박스 높이 최소값 |
+| PED_MIN_HEIGHT | 0.015 | 박스 높이 최소값 (10차선 이상 원거리 대응) |
 | PED_MIN_WIDTH | 0.010 | 박스 너비 최소값 |
 | PED_MIN_Y1 | 0.05 | 박스 상단 Y 최소값 — 화면 최상단 5% 이내 제거 (방음벽 등) |
 
-원거리 소형(bh < 0.05) 박스는 _isPedestrianByRatio에서 H/W 상한을 3.0으로 완화하여 누락 방지.
+원거리 소형(bh < 0.04) 박스는 _isPedestrianByRatio에서 H/W 상한을 3.5으로 완화하여 누락 방지.
 
 ---
 
@@ -370,9 +373,10 @@ color === 'unknown' 이면 updateFullscreen() 호출을 억제한다.
 ## 핵심 상수
 
 ```
-camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.75], ROI_SHARPEN=0.4
+camera.js:   SCAN_MS=120, NIGHT_THR=60, ROI_JPEG_Q=[0.88,0.85,0.82], ROI_SHARPEN=0.4
              MAX_SIDE=1280, SAHI_OVERLAP=0.15, SAHI_NMS_IOU=0.45, STALE_MS=350
              PED_MIN_Y1=0.05, PED_RATIO_MIN=0.65, PED_RATIO_MAX=2.2
+             PED_MIN_HEIGHT=0.015, PED_MIN_WIDTH=0.010
              COLOR_LUM_VAR_THR=동적(60~180, 픽셀수 기반), COLOR_TOP_RATIO=0.90
              COLOR_RED_S=0.40, COLOR_RED_V=0.38, COLOR_RED_HUE=(<22||>338)
              COLOR_GREEN_S=0.38, COLOR_GREEN_V=0.32, COLOR_GREEN_HUE=[85,175]
@@ -450,7 +454,7 @@ fetchTimer    — api.js, setTimeout 체인, clearTimeout (setInterval 사용 �
 - det-empty 텍스트는 .scan-msg-text span만 변경
 - ROI 역변환은 camera.js 스캔 루프 내에서만
 - api.js fetchTimer: setInterval 금지, setTimeout 체인 사용
-- ROI phase는 _roiPhase % 2 (0: 상단55%+sharpen, 1: SAHI) — case 2 없음
+- ROI phase는 _roiPhase % 3 (0: 상단70%+sharpen, 1: 중단30~80%, 2: SAHI 3×3) — case 3 없음
 - lumVar 임계값은 동적 계산(lumVarThr), 고정값 사용 금지
 
 ---
