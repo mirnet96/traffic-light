@@ -271,7 +271,18 @@ async function fetchNearbyIntersection(lat, lng) {
     }
 }
 
-// ── 신호 조회 (t-data 실패 시 경찰청 계획 기반 예측 fallback) ─────────────────
+// ── 신호 조회 ─────────────────────────────────────────────────────────────────
+// API 응답 구조 (test.log 기준):
+//   signalData.data = { itstId, itstNm, trsmUtcTime, et: { pd, st, lt }, ... }
+//   pd: 보행신호 잔여 (초, null 가능)
+//   st: 직진신호 잔여 (초, null 가능)
+//
+// 신호 판단 우선순위:
+//   1. pdCs > 0  → 보행 녹색 (건너도 됨),  remainSec = pdCs
+//   2. stCs > 0  → 차량 직진 중 = 보행 적색, remainSec = stCs (직진 끝나면 보행 시작)
+//   3. 둘 다 0   → 보행 적색 (잔여시간 불명, 0 표시)
+//   4. 둘 다 null → 데이터 없음 → fallback
+// ─────────────────────────────────────────────────────────────────────────────
 async function fetchSignalOnly() {
     if (userPos.lat === null || cachedItstId === null) return;
     const heading = userHeading ?? 0;
@@ -291,43 +302,83 @@ async function fetchSignalOnly() {
         const timestampEl = document.getElementById('timestamp');
 
         if (signalData && (signalData.status === 'success' || signalData.data)) {
-            const raw = signalData.data?.data || signalData.data || signalData;
-            let currentPrefix = dirInfo.prefix;
-            let mirrored = false;
+            // ── 방향 prefix 결정 (미러링 포함) ─────────────────────────────
+            // 서버가 이미 usedPrefix / isMirrored 를 반환하므로 우선 사용
+            // 없을 경우 클라이언트에서 직접 판단
+            let currentPrefix = signalData.usedPrefix || dirInfo.prefix;
+            let mirrored      = signalData.isMirrored  || false;
 
-            if (isDirectionTotallyEmpty(raw, currentPrefix)) {
-                currentPrefix = dirInfo.mirror;
-                mirrored = true;
+            // 서버가 usedPrefix를 안 주는 경우 클라이언트 fallback
+            if (!signalData.usedPrefix) {
+                const raw0 = signalData.data?.data || signalData.data || signalData;
+                if (isDirectionTotallyEmpty(raw0, dirInfo.prefix)) {
+                    currentPrefix = dirInfo.mirror;
+                    mirrored = true;
+                }
             }
 
-            const pdCs = raw[currentPrefix + 'PdsgRmdrCs'];
-            const stCs = raw[currentPrefix + 'StsgRmdrCs'];
+            // ── data 객체에서 방향별 값 추출 ────────────────────────────────
+            // 서버 응답: signalData.data = { et: { pd, st, lt }, ... }  (초 단위)
+            // 또는 raw 형태: signalData.data = { etPdsgRmdrCs, etStsgRmdrCs, ... } (0.1초 단위)
+            const dirData = signalData.data?.[currentPrefix];  // { pd, st, lt } 형태
 
-            if ((stCs != null && stCs !== '' && Number(stCs) > 0) ||
-                (pdCs != null && pdCs !== '' && Number(pdCs) > 0)) {
+            let pdSec = null;  // 보행 잔여 (초)
+            let stSec = null;  // 직진 잔여 (초)
+
+            if (dirData !== undefined && dirData !== null) {
+                // 서버가 extractDirectionSummary 로 변환한 초 단위 값
+                pdSec = (dirData.pd != null && dirData.pd !== '') ? Number(dirData.pd) : null;
+                stSec = (dirData.st != null && dirData.st !== '') ? Number(dirData.st) : null;
+            } else {
+                // raw 0.1초 단위 fallback
+                const rawFallback = signalData.data?.data || signalData.data || signalData;
+                const pdRaw = rawFallback[currentPrefix + 'PdsgRmdrCs'];
+                const stRaw = rawFallback[currentPrefix + 'StsgRmdrCs'];
+                pdSec = (pdRaw != null && pdRaw !== '') ? Math.round(Number(pdRaw) / 10) : null;
+                stSec = (stRaw != null && stRaw !== '') ? Math.round(Number(stRaw) / 10) : null;
+            }
+
+            const mirrorLabel = mirrored ? ' (미러링)' : '';
+            const itstLabel   = cachedItstNm + mirrorLabel;
+
+            // ── 신호 판단 ────────────────────────────────────────────────────
+            if (pdSec !== null || stSec !== null) {
+                // 유효한 데이터가 하나라도 있으면 실시간 모드
                 tDataOk = true;
                 _planEstActive = false;
                 updateStepStatus('signal', 'success', '수신완료');
                 if (timestampEl) timestampEl.innerText = signalData.timestamp || new Date().toLocaleTimeString();
 
-                if (stCs != null && stCs !== '' && Number(stCs) > 0) {
-                    const waitSec = Math.round(Number(stCs) / 10);
-                    updateSignalUI({ phase: 'red', remainSec: waitSec, itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''), dirName: dirInfo.dir });
-                    syncCountdown(waitSec, 'red');
+                if (pdSec !== null && pdSec > 0) {
+                    // 보행 녹색 활성
+                    updateSignalUI({ phase: 'green', remainSec: pdSec, itstNm: itstLabel, dirName: dirInfo.dir });
+                    syncCountdown(pdSec, 'green');
+                    addLog(`[신호] 보행녹색 ${pdSec}s (pd=${pdSec})`);
+
+                } else if (stSec !== null && stSec > 0) {
+                    // 차량 직진 중 → 보행 적색
+                    // 직진 잔여시간 = 보행 신호까지 대기 시간
+                    updateSignalUI({ phase: 'red', remainSec: stSec, itstNm: itstLabel, dirName: dirInfo.dir });
+                    syncCountdown(stSec, 'red');
+                    addLog(`[신호] 보행적색 (직진중) ${stSec}s (st=${stSec})`);
+
                 } else {
-                    const remainSec = Math.round(Number(pdCs) / 10);
-                    updateSignalUI({ phase: 'green', remainSec: remainSec, itstNm: cachedItstNm + (mirrored ? ' (미러링)' : ''), dirName: dirInfo.dir });
-                    syncCountdown(remainSec, 'green');
+                    // 둘 다 0 → 적색이지만 잔여시간 불명
+                    updateSignalUI({ phase: 'red', remainSec: 0, itstNm: itstLabel, dirName: dirInfo.dir });
+                    syncCountdown(0, 'red');
+                    addLog(`[신호] 보행적색 잔여불명 (pd=${pdSec} st=${stSec})`);
                 }
-                updateDebugPanel(signalData, raw, dirInfo, heading);
+
+                updateDebugPanel(signalData, signalData.data, dirInfo, heading);
             }
         }
     } catch (e) {
         if (e.name === 'AbortError') return;
         updateStepStatus('signal', 'error', '통신오류');
+        addLog(`[신호] 통신 오류: ${e.message}`, 'error');
     }
 
-    // t-data 에서 유효한 잔여시간을 못 받았으면 경찰청 계획 기반 예측
+    // t-data 에서 유효한 데이터를 못 받았으면 경찰청 계획 기반 예측
     if (!tDataOk) {
         updateStepStatus('signal', 'error', '예측 모드');
         await _fallbackPlanEstimate(dirInfo);
@@ -335,12 +386,6 @@ async function fetchSignalOnly() {
 }
 
 // ── 경찰청 계획 기반 예측 ─────────────────────────────────────────────────────
-// 흐름:
-//   1. /intersection-plan/{itstId} → 운영계획(A·B링 현시값) 취득
-//   2. 현재 시각 기준으로 해당 시간대 계획(OPER_PLAN_HH:MI) 선택
-//   3. 주기(cycle) 내 보행(pdGreen)·직진(stGreen) 구간 추정
-//   4. 현재 초를 cycle로 나눈 나머지로 잔여시간 역산
-//   5. UI에 "(예측)" 표기와 함께 표시
 async function _fallbackPlanEstimate(dirInfo) {
     if (!cachedItstId) return;
 
@@ -351,7 +396,6 @@ async function _fallbackPlanEstimate(dirInfo) {
     }
 
     if (!cachedPlan) {
-        // 계획도 없으면 UI 초기화
         if (!_planEstActive) {
             stopCountdown();
             resetSignalUI();
@@ -363,35 +407,26 @@ async function _fallbackPlanEstimate(dirInfo) {
     const now = new Date();
     const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
 
-    // 현재 시각이 어느 시간대 계획에 속하는지 찾기
     const plan = _selectActivePlan(cachedPlan.plans, now.getHours(), now.getMinutes());
     if (!plan) { resetSignalUI(); return; }
 
-    const cycle     = plan.cycle;      // 전체 주기 (초)
-    const pdGreen   = plan.pdGreen;    // 보행신호 녹색 구간 (초)
-    const stGreen   = plan.stGreen;    // 직진신호 녹색 구간 (초, 보행 전 선행)
+    const cycle   = plan.cycle;
+    const pdGreen = plan.pdGreen;
+    const stGreen = plan.stGreen;
 
     if (!cycle || cycle <= 0) { resetSignalUI(); return; }
 
-    // 주기 내 현재 위치 (오프셋 반영)
-    const offset  = plan.offset || 0;
+    const offset     = plan.offset || 0;
     const posInCycle = ((nowSec - offset) % cycle + cycle) % cycle;
 
-    // 신호 구간 레이아웃: [직진 stGreen초] → [보행 pdGreen초] → [나머지 적색]
     let phase, remainSec;
     if (posInCycle < stGreen) {
-        // 직진(차량) 신호 중 — 보행 적색
         phase     = 'red';
-        remainSec = Math.round(stGreen - posInCycle + pdGreen);
-        // 직진 끝나면 보행 녹색이므로 남은 직진 + 보행 시작까지 = 직진 잔여
-        // 사용자 입장: 아직 건너면 안 됨 → 보행 시작까지 남은 시간
         remainSec = Math.round(stGreen - posInCycle);
     } else if (posInCycle < stGreen + pdGreen) {
-        // 보행 녹색 구간
         phase     = 'green';
         remainSec = Math.round(stGreen + pdGreen - posInCycle);
     } else {
-        // 나머지 적색 (보행 종료 후 다음 주기까지)
         phase     = 'red';
         remainSec = Math.round(cycle - posInCycle + stGreen);
     }
@@ -400,7 +435,6 @@ async function _fallbackPlanEstimate(dirInfo) {
     updateSignalUI({ phase, remainSec, itstNm: label, dirName: dirInfo.dir });
     syncCountdown(remainSec, phase);
 
-    // 예측 타임스탬프
     const tsEl = document.getElementById('timestamp');
     if (tsEl) tsEl.innerText = `예측 · ${now.toLocaleTimeString()} · 주기${cycle}s`;
 
@@ -417,7 +451,6 @@ async function _fetchIntersectionPlan(itstId) {
         if (!res.ok) return null;
         const data = await res.json();
 
-        // 서버가 { items: [...] } 또는 배열 직접 반환 등 형식 대응
         const items = Array.isArray(data) ? data
             : data?.response?.body?.items?.item
             ?? data?.items
@@ -426,29 +459,34 @@ async function _fetchIntersectionPlan(itstId) {
 
         if (!items || !items.length) return null;
 
-        // 시간대별 운영계획 파싱
-        // 경찰청 운영계획 필드: OPER_PLAN_HH, OPER_PLAN_MI, INT_OPER_CYCLE_VAL,
-        //   A_RING_1..8_PHASE_VAL, B_RING_1..8_PHASE_VAL (단위: 0.1초)
         const plans = items.map(item => {
             const hh     = parseInt(item.OPER_PLAN_HH ?? item.operPlanHh ?? 0, 10);
             const mi     = parseInt(item.OPER_PLAN_MI ?? item.operPlanMi ?? 0, 10);
-            const cycle  = Math.round((parseInt(item.INT_OPER_CYCLE_VAL ?? item.intOperCycleVal ?? 0, 10)) / 10);
-            const offset = Math.round((parseInt(item.INT_OPER_OFFSET_VAL ?? item.intOperOffsetVal ?? 0, 10)) / 10);
+            const cycle  = Math.round((parseInt(item.INT_OPER_CYCLE_VAL ?? item.intOperCycleVal ?? item.cycle ?? 0, 10)));
+            const offset = Math.round((parseInt(item.INT_OPER_OFFSET_VAL ?? item.intOperOffsetVal ?? item.offset ?? 0, 10)));
 
-            // A링 현시값 합산 (0.1초 단위 → 초)
+            // 서버가 이미 초 단위로 변환한 경우 (normalizePlanItem 결과)
+            if (item.aRings) {
+                const aRings  = item.aRings;
+                const stGreen = item.stGreen || 0;
+                const pdGreen = item.pdGreen || 0;
+                return { hh, mi, cycle, offset, stGreen, pdGreen };
+            }
+
+            // raw 경찰청 데이터인 경우 (0.1초 단위)
             const aRings = [1,2,3,4,5,6,7,8].map(i =>
                 Math.round((parseInt(item[`A_RING_${i}_PHASE_VAL`] ?? item[`aRing${i}PhaseVal`] ?? 0, 10)) / 10)
             );
-
-            // 관례적 레이아웃: A링 1~2 = 직진(차량), A링 3~4 = 보행 녹색
-            // 실제 교차로마다 다르나 전형적 4현시 기준 추정
             const stGreen = (aRings[0] || 0) + (aRings[1] || 0);
             const pdGreen = (aRings[2] || 0) + (aRings[3] || 0);
 
             return { hh, mi, cycle, offset, stGreen, pdGreen };
         }).filter(p => p.cycle > 0);
 
-        if (!plans.length) return null;
+        if (!plans.length) {
+            addLog('[계획] cycle > 0 인 시간대 없음 — 예측 불가');
+            return null;
+        }
         addLog(`[계획] ${plans.length}개 시간대 로드`);
         return { plans };
     } catch (e) {
@@ -469,34 +507,33 @@ function _selectActivePlan(plans, curHH, curMI) {
             best    = p;
         }
     }
-    // 00:00 이후 첫 계획이 아직 없으면 마지막 계획(전날 이월) 사용
     return best ?? plans[plans.length - 1];
 }
 
 // ── 디버그 패널 ───────────────────────────────────────────────────────────────
-function updateDebugPanel(signalData, raw, dirInfo, heading) {
+function updateDebugPanel(signalData, dirSummary, dirInfo, heading) {
     if (!debugMode) return;
     const panel = document.getElementById('debugContent');
     if (!panel) return;
     const dirs = [
         { label: '북(N)', p: 'nt' }, { label: '동(E)', p: 'et' },
         { label: '남(S)', p: 'st' }, { label: '서(W)', p: 'wt' },
-        { label: '북동', p: 'ne' }, { label: '남동', p: 'se' },
-        { label: '남서', p: 'sw' }, { label: '북서', p: 'nw' },
+        { label: '북동',  p: 'ne' }, { label: '남동',  p: 'se' },
+        { label: '남서',  p: 'sw' }, { label: '북서',  p: 'nw' },
     ];
     const rows = dirs.map(d => {
-        const pd = raw?.[d.p + 'PdsgRmdrCs'];
-        const st = raw?.[d.p + 'StsgRmdrCs'];
-        const isActive = d.p === dirInfo.prefix;
-        const pdSec = pd != null && pd !== '' ? (Number(pd) / 10).toFixed(1) + 's' : '-';
-        const stSec = st != null && st !== '' ? (Number(st) / 10).toFixed(1) + 's' : '-';
+        // dirSummary = { nt: { pd, st, lt }, et: { pd, st, lt }, ... } (초 단위)
+        const entry   = dirSummary?.[d.p];
+        const pdSec   = entry?.pd != null ? entry.pd + 's' : '-';
+        const stSec   = entry?.st != null ? entry.st + 's' : '-';
+        const isActive = d.p === (signalData.usedPrefix || dirInfo.prefix);
         return `<div class="flex justify-between items-center py-0.5 px-1 rounded ${isActive ? 'bg-blue-900/40 text-blue-300' : ''}">
             <span class="w-10 text-[10px] font-bold">${d.label}</span>
             <span class="text-[9px] text-emerald-400">보행: ${pdSec}</span>
             <span class="text-[9px] text-amber-400">직진: ${stSec}</span>
         </div>`;
     }).join('');
-    panel.innerHTML = `<div class="text-[9px] text-neutral-500 mb-1">heading: ${Math.round(heading)}° → 방위: <span class="text-blue-400">${dirInfo.dir}</span></div>${rows}`;
+    panel.innerHTML = `<div class="text-[9px] text-neutral-500 mb-1">heading: ${Math.round(heading)}° → 방위: <span class="text-blue-400">${dirInfo.dir}</span> / prefix: <span class="text-amber-400">${signalData.usedPrefix || dirInfo.prefix}</span>${signalData.isMirrored ? ' <span class="text-orange-400">[미러링]</span>' : ''}</div>${rows}`;
 }
 
 // ── UI 업데이트 ───────────────────────────────────────────────────────────────
@@ -517,7 +554,6 @@ function updateSignalUI(data) {
     }
     if (tsEl) tsEl.classList.toggle('estimated', !!isEst);
 
-    // Pipeline step-plan 상태 반영
     updateStepStatus('plan', isEst ? 'success' : 'error', isEst ? '예측 중' : '-');
 
     if (data.phase === 'green') {
