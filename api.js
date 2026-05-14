@@ -273,15 +273,24 @@ async function fetchNearbyIntersection(lat, lng) {
 
 // ── 신호 조회 ─────────────────────────────────────────────────────────────────
 // API 응답 구조 (test.log 기준):
-//   signalData.data = { itstId, itstNm, trsmUtcTime, et: { pd, st, lt }, ... }
-//   pd: 보행신호 잔여 (초, null 가능)
-//   st: 직진신호 잔여 (초, null 가능)
+//   signalData = {
+//     status, phase, remainSec,   ← 서버 판단값 (pd 기준이라 st만 있으면 remainSec=0)
+//     usedPrefix, isMirrored,
+//     data: {                      ← extractDirectionSummary 결과 (초 단위)
+//       et: { pd: null, st: 31, lt: null },
+//       ...
+//     }
+//   }
 //
-// 신호 판단 우선순위:
-//   1. pdCs > 0  → 보행 녹색 (건너도 됨),  remainSec = pdCs
-//   2. stCs > 0  → 차량 직진 중 = 보행 적색, remainSec = stCs (직진 끝나면 보행 시작)
-//   3. 둘 다 0   → 보행 적색 (잔여시간 불명, 0 표시)
-//   4. 둘 다 null → 데이터 없음 → fallback
+// ★ 서버의 phase/remainSec 는 pd 기준으로만 계산되어
+//   pd=null, st=31 이면 phase='red', remainSec=0 으로 옴.
+//   → 클라이언트가 data 안의 방향별 pd/st 를 직접 읽어 재판단한다.
+//
+// 판단 우선순위:
+//   1. pd > 0  → 보행 녹색,  remainSec = pd
+//   2. st > 0  → 차량 직진 중 = 보행 적색, remainSec = st
+//   3. 둘 다 0 → 보행 적색, remainSec = 0
+//   4. 둘 다 null → 해당 방향 데이터 없음 → fallback
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchSignalOnly() {
     if (userPos.lat === null || cachedItstId === null) return;
@@ -301,49 +310,38 @@ async function fetchSignalOnly() {
         const signalData = await signalRes.json();
         const timestampEl = document.getElementById('timestamp');
 
-        if (signalData && (signalData.status === 'success' || signalData.data)) {
-            // ── 방향 prefix 결정 (미러링 포함) ─────────────────────────────
-            // 서버가 이미 usedPrefix / isMirrored 를 반환하므로 우선 사용
-            // 없을 경우 클라이언트에서 직접 판단
-            let currentPrefix = signalData.usedPrefix || dirInfo.prefix;
-            let mirrored      = signalData.isMirrored  || false;
+        if (signalData && signalData.status === 'success' && signalData.data) {
+            const dirSummary = signalData.data;  // { et:{pd,st,lt}, nt:{...}, ... }
 
-            // 서버가 usedPrefix를 안 주는 경우 클라이언트 fallback
+            // ── 사용할 prefix 결정 ───────────────────────────────────────────
+            // 서버가 내려준 usedPrefix 우선 사용 (미러링 포함)
+            // 없으면 클라이언트에서 직접 판단
+            let currentPrefix = signalData.usedPrefix || dirInfo.prefix;
+            let mirrored      = signalData.isMirrored || false;
+
+            // usedPrefix 가 없는 경우 클라이언트 fallback
             if (!signalData.usedPrefix) {
-                const raw0 = signalData.data?.data || signalData.data || signalData;
-                if (isDirectionTotallyEmpty(raw0, dirInfo.prefix)) {
+                const myDir    = dirSummary[dirInfo.prefix];
+                const hasMyDir = myDir && (myDir.pd != null || myDir.st != null || myDir.lt != null);
+                if (!hasMyDir) {
                     currentPrefix = dirInfo.mirror;
-                    mirrored = true;
+                    mirrored      = true;
                 }
             }
 
-            // ── data 객체에서 방향별 값 추출 ────────────────────────────────
-            // 서버 응답: signalData.data = { et: { pd, st, lt }, ... }  (초 단위)
-            // 또는 raw 형태: signalData.data = { etPdsgRmdrCs, etStsgRmdrCs, ... } (0.1초 단위)
-            const dirData = signalData.data?.[currentPrefix];  // { pd, st, lt } 형태
+            // ── 방향별 pd / st 값 추출 (초 단위) ────────────────────────────
+            const dirData = dirSummary[currentPrefix];  // { pd, st, lt } or undefined
 
-            let pdSec = null;  // 보행 잔여 (초)
-            let stSec = null;  // 직진 잔여 (초)
-
-            if (dirData !== undefined && dirData !== null) {
-                // 서버가 extractDirectionSummary 로 변환한 초 단위 값
-                pdSec = (dirData.pd != null && dirData.pd !== '') ? Number(dirData.pd) : null;
-                stSec = (dirData.st != null && dirData.st !== '') ? Number(dirData.st) : null;
-            } else {
-                // raw 0.1초 단위 fallback
-                const rawFallback = signalData.data?.data || signalData.data || signalData;
-                const pdRaw = rawFallback[currentPrefix + 'PdsgRmdrCs'];
-                const stRaw = rawFallback[currentPrefix + 'StsgRmdrCs'];
-                pdSec = (pdRaw != null && pdRaw !== '') ? Math.round(Number(pdRaw) / 10) : null;
-                stSec = (stRaw != null && stRaw !== '') ? Math.round(Number(stRaw) / 10) : null;
-            }
+            // dirData 자체가 없으면 해당 방향 데이터 없음
+            const pdSec = dirData?.pd != null ? Number(dirData.pd) : null;
+            const stSec = dirData?.st != null ? Number(dirData.st) : null;
 
             const mirrorLabel = mirrored ? ' (미러링)' : '';
             const itstLabel   = cachedItstNm + mirrorLabel;
 
             // ── 신호 판단 ────────────────────────────────────────────────────
+            // pdSec, stSec 둘 다 null 이면 해당 방향 데이터 없음 → fallback
             if (pdSec !== null || stSec !== null) {
-                // 유효한 데이터가 하나라도 있으면 실시간 모드
                 tDataOk = true;
                 _planEstActive = false;
                 updateStepStatus('signal', 'success', '수신완료');
@@ -353,23 +351,24 @@ async function fetchSignalOnly() {
                     // 보행 녹색 활성
                     updateSignalUI({ phase: 'green', remainSec: pdSec, itstNm: itstLabel, dirName: dirInfo.dir });
                     syncCountdown(pdSec, 'green');
-                    addLog(`[신호] 보행녹색 ${pdSec}s (pd=${pdSec})`);
+                    addLog(`[신호] 보행녹색 ${pdSec}s | prefix=${currentPrefix} pd=${pdSec} st=${stSec}`);
 
                 } else if (stSec !== null && stSec > 0) {
-                    // 차량 직진 중 → 보행 적색
-                    // 직진 잔여시간 = 보행 신호까지 대기 시간
+                    // 차량 직진 중 → 보행 적색 대기
                     updateSignalUI({ phase: 'red', remainSec: stSec, itstNm: itstLabel, dirName: dirInfo.dir });
                     syncCountdown(stSec, 'red');
-                    addLog(`[신호] 보행적색 (직진중) ${stSec}s (st=${stSec})`);
+                    addLog(`[신호] 보행적색(직진중) ${stSec}s | prefix=${currentPrefix} pd=${pdSec} st=${stSec}`);
 
                 } else {
-                    // 둘 다 0 → 적색이지만 잔여시간 불명
+                    // pd=0, st=0 → 적색, 잔여 불명
                     updateSignalUI({ phase: 'red', remainSec: 0, itstNm: itstLabel, dirName: dirInfo.dir });
                     syncCountdown(0, 'red');
-                    addLog(`[신호] 보행적색 잔여불명 (pd=${pdSec} st=${stSec})`);
+                    addLog(`[신호] 보행적색(잔여불명) | prefix=${currentPrefix} pd=${pdSec} st=${stSec}`);
                 }
 
-                updateDebugPanel(signalData, signalData.data, dirInfo, heading);
+                updateDebugPanel(signalData, dirSummary, dirInfo, heading);
+            } else {
+                addLog(`[신호] 방향 데이터 없음 | prefix=${currentPrefix}`, 'error');
             }
         }
     } catch (e) {
